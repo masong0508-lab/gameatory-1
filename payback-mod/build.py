@@ -11,20 +11,20 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from paybackmod import bps, expansion, streets, stuntpark  # noqa: E402
+from paybackmod import bps, expansion, newcity, space, stuntpark  # noqa: E402
 from paybackmod.rom import PaybackRom, OLD_TABLE_START, OLD_TABLE_END, NEW_BASE  # noqa: E402
 
 
-def build(orig, gravity='half', park=True, ramps=True, recolour=True, text=True, build_mode=True):
+def build(orig, gravity='half', park=True, recolour=True, text=True, build_mode=True, physics=True):
     rom = PaybackRom(orig)
     cells = {}
     park_cells = stuntpark.build() if park else {}
-    if ramps:
-        cells.update(streets.build(rom, 0, avoid=park_cells))
     cells.update(park_cells)
     if cells:
         rom.paint(0, cells)
     rom.set_gravity(gravity)
+    if physics:
+        rom.tune_vehicles()
     if recolour:
         rom.swap_bg_green_blue()
     if text:
@@ -36,6 +36,11 @@ def build(orig, gravity='half', park=True, ramps=True, recolour=True, text=True,
         code = open(os.path.join(here, 'editor.bin'), 'rb').read()
         syms = json.load(open(os.path.join(here, 'editor.json')))
         rom.add_build_mode(code, syms, *stuntpark.build_mode_columns())
+        city = [rom.column(i) for i in (rom.painted.get(0) or rom.grid(0))]
+        neo = list(city)
+        for (x, y), col in newcity.build(city).items():
+            neo[x * 128 + y] = col
+        rom.add_space(syms, space.build(city), neo)
     return rom
 
 

@@ -28,3 +28,8 @@ All addresses are for SHA-1 08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7.
 - The controlled entity index is the s16 at 0x02001db8 (0 on foot, else the vehicle's slot in the entity list).
 - 0x0203fff8 holds the previous key state; the game clears that area at level load.
 - Rebuild the blob with `asm/build.sh` (clang + ld.lld); `build.py` uses the committed `editor.bin`/`editor.json`.
+
+## Modes and vehicles
+- 0x02001d39 is 1 in Rampage (free roam) and 0 in the story.
+- Vehicle descriptors: 0x3c bytes each from 0x08354af4; the helicopter is 0x08354ef0. +0x1a engine power, +0x1c steering rate, +0x16 top speed (measured).
+- Lane ramps were removed: on real hardware their raised sides read as invisible walls.

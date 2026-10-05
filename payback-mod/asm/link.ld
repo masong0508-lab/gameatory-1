@@ -3,4 +3,5 @@ SECTIONS {
     .text : { *(.text.hook) *(.text*) *(.rodata*) }
     . = ALIGN(4);
     cols = .;
+    maps = cols + 4 * 81;
 }

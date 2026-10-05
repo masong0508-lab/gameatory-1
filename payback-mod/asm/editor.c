@@ -14,6 +14,52 @@ typedef unsigned int u32;
 /* Filled in by build.py: flat columns for heights 0x100 + 0x20*i (i < 17), then ramps
    rising toward +y, +x, -y, -x from 0x100 + 0x20*k (k < 16). */
 extern const u32 cols[17 + 4 * 16];
+/* Also filled in by build.py: full column-pointer grids for space, Mute City (level 0) as the
+   story uses it, and Neo Mute City, the free-roam city built on the same streets. */
+extern const u32 *const maps[3];
+#define SPACE_MAP maps[0]
+#define CITY_MAP maps[1]
+#define NEO_MAP maps[2]
+#define IN_SPACE (*(volatile u8 *)0x0203fffa)   /* these two are cleared by the game at level load */
+#define IN_NEO (*(volatile u8 *)0x0203fffb)
+#define FREE_ROAM (*(u8 *)0x02001d39)           /* 1 in Rampage (free roam), 0 in the story */
+#define ARWING_DESC 0x08354ef0                   /* the helicopter, renamed Arwing */
+
+static void load_map(const u32 *src)
+{
+    u32 *g = GRID;
+    for (int i = 0; i < 128 * 128; i++)
+        if ((g[i] >> 24) != 0x02)             /* keep the few columns the game builds in RAM */
+            g[i] = src[i];
+}
+
+static int is_city(void)
+{
+    u32 *g = GRID;
+    for (int i = 300; i < 128 * 128; i += 997)
+        if ((g[i] >> 24) != 0x02 && g[i] != CITY_MAP[i])
+            return 0;
+    return 1;
+}
+
+/* Free roam in Mute City loads Neo Mute City. Getting into the Arwing swaps the map for space;
+   getting out swaps back to whichever city you came from. */
+static void maps_update(void)
+{
+    if (!IN_SPACE && !IN_NEO && FREE_ROAM == 1 && is_city()) {
+        load_map(NEO_MAP);
+        IN_NEO = 1;
+    }
+    u8 *e = ENTS[CONTROLLED];
+    int flying = *(u32 *)(e + 0x1c) == ARWING_DESC;
+    if (flying && !IN_SPACE && (IN_NEO || is_city())) {
+        load_map(SPACE_MAP);
+        IN_SPACE = 1;
+    } else if (!flying && IN_SPACE) {
+        load_map(IN_NEO ? NEO_MAP : CITY_MAP);
+        IN_SPACE = 0;
+    }
+}
 
 enum { KA = 1, KB = 2, KSEL = 4, KR = 0x100, KL = 0x200 };
 
@@ -40,6 +86,7 @@ void editor(u8 *buttons)
 {
     u16 keys = ~KEYS & 0x3ff, hit = keys & ~PREV;
     PREV = keys;
+    maps_update();
     if (!(keys & KSEL))
         return;
     for (int i = 0; i < 8; i++)      /* the game sees no buttons while SELECT is held */

@@ -11,7 +11,9 @@ python3 payback-mod/build.py "Payback (Europe) (En,Fr,De,Es,It).gba" --bps payba
 
 What the build changes:
 - Freedom City's stadium becomes a stunt park (kicker jump, 0x200 deck drop, whoops, tabletops).
-- Jump ramps in traffic lanes across the city, each facing its lane's traffic.
+- Free roam loads Neo Mute City: new towers, stunt plazas and parks on Freedom City's streets.
+- Getting into the Arwing (the helicopter) swaps the map for a space level; getting out swaps back.
+- Faster, punchier cars (engine power, steering and top speed raised).
 - Half gravity for longer jumps (`--gravity normal|half|low`).
 - Alien colour scheme (green and blue swapped in the 3D view).
 - Expansion renames: menus, cities (Mute City, Big Blue, Corneria) and vehicles.

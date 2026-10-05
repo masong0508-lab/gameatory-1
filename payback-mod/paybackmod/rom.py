@@ -32,6 +32,7 @@ class PaybackRom:
             struct.pack_into('<I', self.d, lit, GBA + NEW_BASE)
         self.free = NEW_BASE + 60 * MAX_COLUMNS   # grid streams go after the addressable columns
         self.new_columns = {}
+        self.painted = {}
 
     def column(self, idx):
         o = NEW_BASE + 60 * idx
@@ -67,6 +68,7 @@ class PaybackRom:
         for (x, y), col in cells.items():
             g[x * 128 + y] = self.add_column(col)
         self.set_grid(level, g)
+        self.painted[level] = g
 
     # Vertical physics (routine around 0x08017500, run every logic tick):
     #   lsls r3, r1, #3   at 0x175dc  adds 8*t to the vertical speed (gravity)
@@ -141,13 +143,37 @@ class PaybackRom:
         """flats: 17 columns (0x100 + 0x20*i); ramps: 4 x 16 columns rising toward +y, +x, -y, -x."""
         o = self.BUILD_BASE - GBA
         self.d[o:o + len(code)] = code
-        table = [GBA + NEW_BASE + 60 * self.add_column(c) for c in list(flats) + [c for d in ramps for c in d]]
+        table = [self.col_ptr(self.add_column(c)) for c in list(flats) + [c for d in ramps for c in d]]
         struct.pack_into('<%dI' % len(table), self.d, syms['cols'] - GBA, *table)
         h1, h2 = struct.unpack_from('<HH', self.d, self.HOOK_CALL - GBA)
         assert h1 >> 11 == 0x1e and h2 >> 11 == 0x1f, 'expected a bl at the hook site'
         off = syms['hook'] - (self.HOOK_CALL + 4)
         struct.pack_into('<HH', self.d, self.HOOK_CALL - GBA,
                          0xf000 | ((off >> 12) & 0x7ff), 0xf800 | ((off >> 1) & 0x7ff))
+
+    def col_ptr(self, idx):
+        return GBA + NEW_BASE + 60 * idx
+
+    def add_space(self, syms, space_cells, free_roam_cells):
+        """Store full pointer grids (space, level 0, free-roam city); the hook swaps between them."""
+        city = self.painted.get(0) or self.grid(0)
+        space = [self.add_column(c) for c in space_cells]
+        neo = [self.add_column(c) for c in free_roam_cells]
+        ptrs = []
+        for g in (space, city, neo):
+            o = self.alloc(struct.pack('<16384I', *[self.col_ptr(i) for i in g]))
+            ptrs.append(GBA + o)
+        struct.pack_into('<3I', self.d, syms['maps'] - GBA, *ptrs)
+
+    # Vehicle descriptors: 0x3c bytes each from 0x08354af4 to the helicopter at 0x08354ef0.
+    # Measured in the emulator: +0x1a is engine power, +0x1c steering rate, +0x16 top speed.
+    VEHICLES = range(0x354af4, 0x354ef0, 0x3c)
+
+    def tune_vehicles(self, power=1.6, steer=1.4, speed=1.3):
+        for a in self.VEHICLES:
+            for off, k in ((0x1a, power), (0x1c, steer), (0x16, speed)):
+                v = struct.unpack_from('<h', self.d, a + off)[0]
+                struct.pack_into('<h', self.d, a + off, max(-32768, min(32767, round(v * k))))
 
     def data(self):
         return bytes(self.d)
