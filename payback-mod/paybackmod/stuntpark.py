@@ -103,8 +103,9 @@ def boost_pad():
 
 
 def build_cursor():
-    """Street-level marker build mode blinks on the cell it will build on."""
-    return rec(G, shape=1, flags=0x60, tex=ZEBRA, attr=0x90, sides=(3, 3, 3, 3)) + EMPTY + EMPTY
+    """Street-level target marker build mode pulses on the cell it will build on: red, then white."""
+    return [rec(G, shape=1, flags=0x60, tex=tex, attr=0x90, sides=(3, 3, 3, 3)) + EMPTY + EMPTY
+            for tex in (0x2e, CHECKER)]
 
 
 def build_mode_columns():
@@ -114,4 +115,4 @@ def build_mode_columns():
     ramps = []
     for shape in (2, UP_X, 4, DOWN_X):            # rising toward +y, +x, -y, -x
         ramps.append([surf(G + STEP * k, G + STEP * (k + 1), shape, ZEBRA if k == 3 else ROAD) for k in range(16)])
-    return flats, ramps, [loop_pad(), boost_pad(), build_cursor()]
+    return flats, ramps, [loop_pad(), boost_pad()] + build_cursor()

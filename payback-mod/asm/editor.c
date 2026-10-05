@@ -14,10 +14,11 @@ typedef unsigned int u32;
 
 /* Filled in by build.py: flat columns for heights 0x100 + 0x20*i (i < 17), then ramps
    rising toward +y, +x, -y, -x from 0x100 + 0x20*k (k < 16). */
-extern const u32 cols[17 + 4 * 16 + 3];       /* + loop pad, boost pad, build cursor */
+extern const u32 cols[17 + 4 * 16 + 4];       /* + loop pad, boost pad, two build cursor frames */
 #define LOOP_PAD cols[81]
 #define BOOST_PAD cols[82]
-#define CURSOR cols[83]
+#define CURSOR cols[83]                          /* red target */
+#define CURSOR2 cols[84]                         /* white checker */
 /* Also filled in by build.py: full column-pointer grids for space, Mute City (level 0) as the
    story uses it, and Neo Mute City, the free-roam city built on the same streets. */
 extern const u32 *const maps[3];
@@ -287,7 +288,7 @@ static void cursor_off(void)
 {
     if (CUR_I) {
         int i = CUR_I - 1;
-        if (GRID[i] == CURSOR || (GRID[i] >> 24) != 0x02)
+        if (GRID[i] == CURSOR || GRID[i] == CURSOR2 || (GRID[i] >> 24) != 0x02)
             GRID[i] = CUR_C;
         CUR_I = 0;
     }
@@ -304,7 +305,10 @@ static void cursor_on(int x, int y)
         CUR_C = GRID[i];
     }
     if (top(CUR_C) == 0x100 && (CUR_C >> 24) != 0x02)  /* blink only on street-level cells */
-        GRID[i] = (++BLINK & 8) ? CURSOR : CUR_C;
+    {
+        int t = ++BLINK & 15;                        /* pulse: red, white, red, then the ground */
+        GRID[i] = t < 4 ? CURSOR : t < 8 ? CURSOR2 : t < 12 ? CURSOR : CUR_C;
+    }
 }
 
 void editor(u8 *buttons)
