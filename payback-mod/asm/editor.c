@@ -1,4 +1,4 @@
-/* In-game build mode: hold SELECT and press A (kicker ramp), B (platform), R (raise), L (clear),
+/* In-game build mode: hold SELECT (the ticker lists the keys and the target cell blinks) and press A (kicker ramp), B (platform), R (raise), L (clear),
    UP (loop plate) or DOWN (dash plate).
    Edits the decoded level grid in RAM, so changes show at once and last until the level reloads. */
 typedef unsigned char u8;
@@ -14,9 +14,10 @@ typedef unsigned int u32;
 
 /* Filled in by build.py: flat columns for heights 0x100 + 0x20*i (i < 17), then ramps
    rising toward +y, +x, -y, -x from 0x100 + 0x20*k (k < 16). */
-extern const u32 cols[17 + 4 * 16 + 2];       /* + loop pad, boost pad */
+extern const u32 cols[17 + 4 * 16 + 3];       /* + loop pad, boost pad, build cursor */
 #define LOOP_PAD cols[81]
 #define BOOST_PAD cols[82]
+#define CURSOR cols[83]
 /* Also filled in by build.py: full column-pointer grids for space, Mute City (level 0) as the
    story uses it, and Neo Mute City, the free-roam city built on the same streets. */
 extern const u32 *const maps[3];
@@ -257,24 +258,81 @@ static void stunts(void)
     v[2] = 0;
 }
 
+/* Build mode speaks through the game's own message ticker (the phone bar at the bottom of the
+   screen), and marks the cell it will build on by blinking it, in the world itself. */
+/* the game's ticker (0x08079a4c) formats a string-table entry into one of ten 500-byte slots
+   at 0x02019450 and queues it with 0x08039870(slot, 2); this does the same with our own text */
+#define TICK_IDX (*(volatile s16 *)0x02019424)
+#define TICK_SLOTS ((char *)0x02019450)
+#define TICK_QUEUE ((void (*)(char *, int))0x08039871)
+
+static void ticker(const char *msg)
+{
+    int i = TICK_IDX;
+    if (i < 0 || i > 9)
+        i = 0;
+    char *dst = TICK_SLOTS + i * 500;
+    int n = 0;
+    while (msg[n] && n < 499)
+        dst[n] = msg[n], n++;
+    dst[n] = 0;
+    TICK_QUEUE(dst, 2);
+    TICK_IDX = i >= 9 ? 0 : i + 1;
+}
+#define CUR_I (*(volatile int *)0x0203ffdc)        /* cursor cell + 1, 0 when none */
+#define CUR_C (*(volatile u32 *)0x0203ffd8)        /* the column under the cursor */
+#define BLINK (*(volatile u8 *)0x0203ffd7)
+
+static void cursor_off(void)
+{
+    if (CUR_I) {
+        int i = CUR_I - 1;
+        if (GRID[i] == CURSOR || (GRID[i] >> 24) != 0x02)
+            GRID[i] = CUR_C;
+        CUR_I = 0;
+    }
+}
+
+static void cursor_on(int x, int y)
+{
+    if (x < 1 || x >= 127 || y < 1 || y >= 127)
+        return;
+    int i = x * 128 + y;
+    if (CUR_I != i + 1) {
+        cursor_off();
+        CUR_I = i + 1;
+        CUR_C = GRID[i];
+    }
+    if (top(CUR_C) == 0x100 && (CUR_C >> 24) != 0x02)  /* blink only on street-level cells */
+        GRID[i] = (++BLINK & 8) ? CURSOR : CUR_C;
+}
+
 void editor(u8 *buttons)
 {
     u16 keys = ~KEYS & 0x3ff, hit = keys & ~PREV;
     PREV = keys;
     maps_update();
     stunts();
-    if (!(keys & KSEL))
+    if (!(keys & KSEL)) {
+        cursor_off();
         return;
+    }
     for (int i = 0; i < 8; i++)      /* the game sees no buttons while SELECT is held */
         buttons[i] = 0;
-    if (!(hit & (KA | KB | KR | KL | KUP | KDOWN)))
+    if (CONTROLLED < 0)
         return;
+    if (hit & KSEL)
+        ticker("Build mode. A ramp, B block, R raise, L clear, UP loop, DOWN dash plate.");
 
     u8 *e = ENTS[CONTROLLED];
     int x = *(int *)(e + 4) >> 11, y = *(int *)(e + 8) >> 11;
     int d = heading4(e);
     int dx = d == 1 ? 1 : d == 3 ? -1 : 0, dy = d == 0 ? 1 : d == 2 ? -1 : 0;
     int tx = x + 2 * dx, ty = y + 2 * dy;
+    cursor_on(tx, ty);
+    if (!(hit & (KA | KB | KR | KL | KUP | KDOWN)))
+        return;
+    cursor_off();
     int h = top(GRID[tx * 128 + ty]);
 
     if (hit & (KUP | KDOWN)) {        /* three-wide plate across your path: UP loop, DOWN dash */

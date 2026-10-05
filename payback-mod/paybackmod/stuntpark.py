@@ -102,11 +102,16 @@ def boost_pad():
     return rec(G, shape=1, flags=0x60, tex=ZEBRA, attr=0x90, sides=(2, 2, 2, 2)) + EMPTY + EMPTY
 
 
+def build_cursor():
+    """Street-level marker build mode blinks on the cell it will build on."""
+    return rec(G, shape=1, flags=0x60, tex=ZEBRA, attr=0x90, sides=(3, 3, 3, 3)) + EMPTY + EMPTY
+
+
 def build_mode_columns():
     """Pieces the in-game build mode places: 17 flat heights, 16 ramp steps per direction, then
-    the loop and boost plates."""
+    the loop and boost plates and the build cursor."""
     flats = [surf(G, tex=ROAD)] + [surf(G + STEP * i, tex=CHECKER) for i in range(1, 17)]
     ramps = []
     for shape in (2, UP_X, 4, DOWN_X):            # rising toward +y, +x, -y, -x
         ramps.append([surf(G + STEP * k, G + STEP * (k + 1), shape, ZEBRA if k == 3 else ROAD) for k in range(16)])
-    return flats, ramps, [loop_pad(), boost_pad()]
+    return flats, ramps, [loop_pad(), boost_pad(), build_cursor()]
