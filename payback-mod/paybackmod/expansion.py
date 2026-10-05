@@ -8,12 +8,13 @@ EXACT = {
     'Single player rampage': 'Stunt Fox free roam',
     'RAMPAGE SETUP': 'FREE ROAM SETUP',
     'Welcome to %s. Prepare to rampage!':
-        'Welcome to %s. Gravity is low, the streets have ramps and the stadium is a stunt park. '
-        'Hold SELECT to build: A ramp, B block, R raise, L clear.',
+        'Welcome to %s. Gravity is low and the stadium is a stunt park. Hit the dash plates and '
+        'take a loop: keep your speed up or you fall off. '
+        'Hold SELECT to build: A ramp, B block, R raise, L clear, UP loop, DOWN dash.',
     'Welcome to Payback. Your target score for this level is 1,500,000 points. '
     'Answer the phones to get missions. Good luck.':
-        'Welcome to Payback: Stunt Fox! Gravity is low, the streets have ramps and the stadium is a '
-        'stunt park. Hold SELECT to build: A ramp, B block, R raise, L clear. Your target score is '
+        'Welcome to Payback: Stunt Fox! Gravity is low and the stadium is a stunt park with a loop. '
+        'Hold SELECT to build: A ramp, B block, R raise, L clear, UP loop, DOWN dash. Your target score is '
         '1,500,000 points. Answer the phones to get missions.',
     'Helicopter': 'Arwing',
     'Pug Racer': 'Blue Falcon',

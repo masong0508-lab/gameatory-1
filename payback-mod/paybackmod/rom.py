@@ -139,11 +139,12 @@ class PaybackRom:
     HOOK_CALL = 0x0800e9a8
     BUILD_BASE = 0x081b0000
 
-    def add_build_mode(self, code, syms, flats, ramps):
-        """flats: 17 columns (0x100 + 0x20*i); ramps: 4 x 16 columns rising toward +y, +x, -y, -x."""
+    def add_build_mode(self, code, syms, flats, ramps, plates):
+        """flats: 17 columns (0x100 + 0x20*i); ramps: 4 x 16 columns rising toward +y, +x, -y, -x;
+        plates: the loop and boost plates."""
         o = self.BUILD_BASE - GBA
         self.d[o:o + len(code)] = code
-        table = [self.col_ptr(self.add_column(c)) for c in list(flats) + [c for d in ramps for c in d]]
+        table = [self.col_ptr(self.add_column(c)) for c in list(flats) + [c for d in ramps for c in d] + list(plates)]
         struct.pack_into('<%dI' % len(table), self.d, syms['cols'] - GBA, *table)
         h1, h2 = struct.unpack_from('<HH', self.d, self.HOOK_CALL - GBA)
         assert h1 >> 11 == 0x1e and h2 >> 11 == 0x1f, 'expected a bl at the hook site'

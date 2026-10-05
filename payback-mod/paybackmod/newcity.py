@@ -10,7 +10,7 @@ import random
 import struct
 
 from .blocks import rec, EMPTY
-from .stuntpark import surf, ZEBRA, CHECKER, G, STEP, UP_X, DOWN_X
+from .stuntpark import surf, loop_pad, boost_pad, ZEBRA, CHECKER, G, STEP, UP_X, DOWN_X
 
 DARK, RED, GRASS, SIDEWALK = 0x2b, 0x2e, 0x0c, 0x52
 ROOFS = (0x0d, 0x29, 0x32, 0x11, 0x33, 0x31, 0x24, 0x1c)   # the city's own rooftop textures
@@ -93,7 +93,8 @@ def _fill(block, bset, out, rnd):
 
 
 def _plaza(inner, iset, out, rnd):
-    """Full-width kicker on the plaza's long axis; landing and run-out stay inside the plaza."""
+    """Full-width kicker, or dash plates and a loop, on the plaza's long axis; the landing or
+    loop exit and the run-out stay inside the plaza."""
     xs, ys = [p[0] for p in inner], [p[1] for p in inner]
     along_x = max(xs) - min(xs) >= max(ys) - min(ys)
     for p in inner:
@@ -110,6 +111,11 @@ def _plaza(inner, iset, out, rnd):
     pos = lambda a, c: (a, c) if along_x else (c, a)
     if not all(pos(a, c) in iset for a, c in cells):
         return False
+    if rnd.random() < 0.5:                        # dash plates, then a loop plate (exits 4 cells on)
+        for c in lanes:
+            out[pos(start, c)] = out[pos(start + 1, c)] = boost_pad()
+            out[pos(start + 3, c)] = loop_pad()
+        return True
     for k in range(kicker):
         for c in lanes:
             out[pos(start + k, c)] = surf(G + STEP * k, G + STEP * (k + 1),

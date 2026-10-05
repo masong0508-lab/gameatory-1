@@ -9,6 +9,7 @@ y = 43, and both ends are open to the streets so cars can drive straight in.
     Lane B  y 39..41, drive -x from the east street:
             long climb to a 0x200 deck, run along it, drop off the striped lip
     Middle  y 32..35: a spine west of the helipad and a tabletop east of it
+    Loop    y 36..38, drive +x: dash plates, then a loop plate at x 53
 
 Landings are always flat or downhill so a short jump never hits a wall.
 """
@@ -24,6 +25,7 @@ STEP = 0x20              # steepest slope a car can climb, per cell
 # Lane start points for testing: (x, y, heading); heading units are 5760 per turn, 0 = +y, 1440 = +x
 LANE_A_START = (36.5, 28.5, 1400)
 LANE_B_START = (86.0, 40.5, 4320)
+LOOP_START = (42.0, 37.5, 1440)
 
 
 def surf(h0, h1=None, shape=1, tex=ROAD):
@@ -79,13 +81,32 @@ def build():
     top = ramp(range(63, 66), M, G, STEP, c)                      # tabletop
     flat(range(66, 69), M, top, c, CHECKER)
     ramp(range(69, 72), M, top, -STEP, c)
+
+    L = range(36, 39)                                             # loop lane, drive +x
+    flat([41], L, G, c, CHECKER)
+    for x in (49, 50):
+        for y in L:
+            c[(x, y)] = boost_pad()
+    for y in L:
+        c[(53, y)] = loop_pad()                                   # loop exits 4 cells on, at x 57
     return c
 
 
+def loop_pad():
+    """Street-level plate that starts a loop (the hook recognises the column, so it must be unique)."""
+    return rec(G, shape=1, flags=0x60, tex=CHECKER, attr=0x90, sides=(1, 1, 1, 1)) + EMPTY + EMPTY
+
+
+def boost_pad():
+    """F-Zero dash plate."""
+    return rec(G, shape=1, flags=0x60, tex=ZEBRA, attr=0x90, sides=(2, 2, 2, 2)) + EMPTY + EMPTY
+
+
 def build_mode_columns():
-    """Pieces the in-game build mode places: 17 flat heights, then 16 ramp steps per direction."""
+    """Pieces the in-game build mode places: 17 flat heights, 16 ramp steps per direction, then
+    the loop and boost plates."""
     flats = [surf(G, tex=ROAD)] + [surf(G + STEP * i, tex=CHECKER) for i in range(1, 17)]
     ramps = []
     for shape in (2, UP_X, 4, DOWN_X):            # rising toward +y, +x, -y, -x
         ramps.append([surf(G + STEP * k, G + STEP * (k + 1), shape, ZEBRA if k == 3 else ROAD) for k in range(16)])
-    return flats, ramps
+    return flats, ramps, [loop_pad(), boost_pad()]
