@@ -88,6 +88,18 @@ static int level(int h)
     return i < 0 ? 0 : i > 16 ? 16 : i;
 }
 
+/* Cheat switches: one byte each, set by Action Replay / CodeBreaker codes (see CHEATS.txt).
+   The game clears this RAM when a level loads, so the codes simply keep writing them. */
+#define CHEAT_MOON (*(volatile u8 *)0x0203ffc0)     /* floaty jumps */
+#define CHEAT_SPEED (*(volatile u8 *)0x0203ffc1)    /* higher top speed while holding A */
+#define CHEAT_HOVER (*(volatile u8 *)0x0203ffc2)    /* hold R to lift the car */
+#define CHEAT_NITRO (*(volatile u8 *)0x0203ffc3)    /* tap B while holding A for a dash */
+#define CHEAT_LOOP (*(volatile u8 *)0x0203ffc4)     /* never fall off a loop */
+#define CHEAT_DEBUG (*(volatile u8 *)0x0203ffc5)    /* position readout on the ticker */
+#define CHEAT_HEAVY (*(volatile u8 *)0x0203ffc6)    /* extra gravity */
+#define DEBUG_T (*(volatile u8 *)0x0203ffc8)
+#define NITRO_T (*(volatile u8 *)0x0203ffc9)
+
 /* Hard Drivin' loops, run as physics rather than an animation. A loop pad starts a vertical
    circle of radius LOOP_R ahead of the car. While on it the car is a point held to the track by
    the normal force:
@@ -234,7 +246,7 @@ static void stunts(void)
 
     /* off the track: past either edge, or not enough speed to stay pressed on (v^2/R < g inward) */
     int c = cosp(p);
-    if (LOOP_L > LOOP_W || LOOP_L < -LOOP_W || (c < 0 && V * V < -137 * c)) {
+    if (LOOP_L > LOOP_W || LOOP_L < -LOOP_W || (c < 0 && V * V < -137 * c && !CHEAT_LOOP)) {
         fly_off(e, fx, fy, sx, sy);
         return;
     }
@@ -311,12 +323,84 @@ static void cursor_on(int x, int y)
     }
 }
 
+static char *put_num(char *o, int n)                /* decimal without division */
+{
+    static const int pw[] = {100000, 10000, 1000, 100, 10, 1};
+    if (n < 0) *o++ = '-', n = -n;
+    int started = 0;
+    for (int i = 0; i < 6; i++) {
+        int dgt = 0;
+        while (n >= pw[i]) n -= pw[i], dgt++;
+        if (dgt || started || i == 5) *o++ = '0' + dgt, started = 1;
+    }
+    return o;
+}
+
+static char *put_str(char *o, const char *t)
+{
+    while (*t) *o++ = *t++;
+    return o;
+}
+
+static void cheats(u16 keys, u16 hit)
+{
+    if (CONTROLLED < 0)
+        return;
+    u8 *e = ENTS[CONTROLLED];
+    u32 desc = *(u32 *)(e + 0x1c);
+    s16 *v = (s16 *)(e + 0x40);
+    int *z = (int *)(e + 0xc);
+    if (CHEAT_DEBUG && ++DEBUG_T >= 60) {         /* about every three seconds */
+        char buf[96], *o = buf;
+        DEBUG_T = 0;
+        o = put_str(o, "X ");
+        o = put_num(o, *(int *)(e + 4) >> 11);
+        o = put_str(o, " Y ");
+        o = put_num(o, *(int *)(e + 8) >> 11);
+        o = put_str(o, " H ");
+        o = put_num(o, (19904 - *z) >> 4);
+        o = put_str(o, " SPD ");
+        o = put_num(o, (v[0] < 0 ? -v[0] : v[0]) + (v[1] < 0 ? -v[1] : v[1]));
+        o = put_str(o, " VZ ");
+        o = put_num(o, v[2]);
+        *o = 0;
+        ticker(buf);
+    }
+    if (desc < CAR_DESC_FIRST || desc >= ARWING_DESC || LOOP_ON == 1)
+        return;
+    int airborne = *z < 19904 - 32 || v[2] < 0;
+    if (CHEAT_MOON && airborne && v[2] > -400)
+        v[2] -= 20;                                  /* cancels most of the game's gravity */
+    if (CHEAT_HEAVY && airborne)
+        v[2] += 24;
+    if (CHEAT_HOVER && (keys & KR))
+        v[2] = -160;
+    if (CHEAT_SPEED && (keys & KA)) {
+        int d = heading4(e), s = (v[0] < 0 ? -v[0] : v[0]) + (v[1] < 0 ? -v[1] : v[1]);
+        if (s >= 300 && s < 600) {
+            s += 24;
+            v[0] = d == 1 ? s : d == 3 ? -s : v[0];
+            v[1] = d == 0 ? s : d == 2 ? -s : v[1];
+        }
+    }
+    if (CHEAT_NITRO && (hit & KB) && (keys & KA))     /* tap B while holding A */
+        NITRO_T = 12;
+    if (NITRO_T) {                                   /* about two seconds of thrust */
+        NITRO_T--;
+        int d = heading4(e);
+        v[0] = d == 1 ? 640 : d == 3 ? -640 : 0;
+        v[1] = d == 0 ? 640 : d == 2 ? -640 : 0;
+    }
+}
+
 void editor(u8 *buttons)
 {
     u16 keys = ~KEYS & 0x3ff, hit = keys & ~PREV;
     PREV = keys;
     maps_update();
     stunts();
+    if (!(keys & KSEL))
+        cheats(keys, hit);
     if (!(keys & KSEL)) {
         cursor_off();
         return;

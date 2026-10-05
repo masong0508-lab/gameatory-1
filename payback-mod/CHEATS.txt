@@ -1,0 +1,72 @@
+PAYBACK: STUNT FOX - CHEAT CODES
+================================
+
+These switch on cheats built into the Stunt Fox ROM (v8 or later). They do nothing on
+the original Payback. Each code keeps writing 1 to a switch byte the mod reads every tick.
+
+Formats:
+  RAW         address:value   (emulators with a raw / "Pro Action Replay" style memory poke)
+  CodeBreaker unencrypted      (Pizza Boy: Cheats > add > CodeBreaker)
+  GameShark / Action Replay v1-v2, encrypted
+
+Turn a cheat off by disabling its code; the game clears the switches when a level loads.
+
+Moon gravity
+------------
+Jumps float: most of the fall is cancelled while you are in the air.
+  RAW          0203FFC0:01
+  CodeBreaker  3203FFC0 0001
+  GameShark/AR 679FDFDF 38E2279A
+
+Heavy gravity
+-------------
+The opposite: you drop like a brick. Do not use with Moon gravity.
+  RAW          0203FFC6:01
+  CodeBreaker  3203FFC6 0001
+  GameShark/AR AA7E928D 3C7BDC6F
+
+Hover car
+---------
+Hold R to lift your car off the ground. Let go to fall. Land on rooftops!
+  RAW          0203FFC2:01
+  CodeBreaker  3203FFC2 0001
+  GameShark/AR F15E40E0 A9FC6FC2
+
+Overdrive
+---------
+Holding A keeps accelerating past top speed, up to almost double.
+  RAW          0203FFC1:01
+  CodeBreaker  3203FFC1 0001
+  GameShark/AR F9D3793B 5782CE86
+
+Nitro
+-----
+Tap B while holding A for about two seconds of full thrust.
+  RAW          0203FFC3:01
+  CodeBreaker  3203FFC3 0001
+  GameShark/AR C0D55A62 2BC6A441
+
+Loop master
+-----------
+You never fall off a loop, however slow you go. Steering off the side still throws you.
+  RAW          0203FFC4:01
+  CodeBreaker  3203FFC4 0001
+  GameShark/AR 7CB4F15C 6B6D120E
+
+Debug readout
+-------------
+Every few seconds the ticker shows your cell X and Y, height, speed and vertical speed.
+  RAW          0203FFC5:01
+  CodeBreaker  3203FFC5 0001
+  GameShark/AR D6E9B178 404468ED
+
+Adding your own
+---------------
+Any Payback RAM poke works too. Useful addresses (see docs/payback-notes.md):
+  03000C60  table of entity pointers; 02001DB8 (16-bit) = index of the vehicle you drive
+  entity +04 / +08 / +0C   X, Y, Z (32-bit; 2048 per map cell; Z is smaller when higher)
+  entity +40 / +42 / +44   X, Y, vertical speed (16-bit; vertical is positive downward)
+  02001D39  1 in free roam, 0 in the story
+Avoid 0203FFC0-0203FFFF: the mod keeps its loop, build mode and cheat state there.
+To bake a cheat into the ROM, add a line to cheats() in asm/editor.c, run asm/build.sh
+and build.py again.
