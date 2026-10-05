@@ -1,0 +1,8 @@
+*.gba
+*.sfc
+*.smc
+*.gen
+*.st
+*.sav
+__pycache__/
+payback-mod/harness/mgba/

@@ -1,0 +1,98 @@
+diff --git a/src/gba/memory.c b/src/gba/memory.c
+index aa01fdc..d2d1a5a 100644
+--- a/src/gba/memory.c
++++ b/src/gba/memory.c
+@@ -473,7 +473,23 @@ uint32_t GBALoadBad(struct ARMCore* cpu) {
+ 	return value;
+ }
+ 
++
++/* --- harness watchpoints --- */
++uint32_t harness_wlo = 1, harness_whi = 0; int harness_wmode = 0;
++struct HarnessHit { uint32_t pc, addr, val, lr; uint8_t size, write, thumb, pad; };
++struct HarnessHit harness_hits[65536]; uint32_t harness_nhits = 0;
++static inline void harnessWatch(struct ARMCore* cpu, uint32_t a, uint32_t v, int size, int w, int n) {
++	if (!harness_wmode) return;
++	uint32_t e = a + (uint32_t)(4 * (n ? n : 1));
++	if (e <= harness_wlo || a > harness_whi) return;
++	if (!(harness_wmode & (w ? 1 : 2))) return;
++	if (harness_nhits >= 65536) return;
++	struct HarnessHit* h = &harness_hits[harness_nhits++];
++	h->pc = cpu->gprs[ARM_PC] - (cpu->executionMode == MODE_THUMB ? 4 : 8);
++	h->addr = a; h->val = v; h->lr = cpu->gprs[ARM_LR]; h->size = size; h->write = w; h->thumb = cpu->executionMode == MODE_THUMB;
++}
+ uint32_t GBALoad32(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
++	harnessWatch(cpu, address, 0, 4, 0, 0);
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	uint32_t value = 0;
+@@ -533,6 +549,7 @@ uint32_t GBALoad32(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ }
+ 
+ uint32_t GBALoad16(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
++	harnessWatch(cpu, address, 0, 2, 0, 0);
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	uint32_t value = 0;
+@@ -648,6 +665,7 @@ uint32_t GBALoad16(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ }
+ 
+ uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
++	harnessWatch(cpu, address, 0, 1, 0, 0);
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	uint32_t value = 0;
+@@ -823,6 +841,7 @@ uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ 	mLOG(GBA_MEM, GAME_ERROR, "Bad memory Store32: 0x%08X", address);
+ 
+ void GBAStore32(struct ARMCore* cpu, uint32_t address, int32_t value, int* cycleCounter) {
++	harnessWatch(cpu, address, value, 4, 1, 0);
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	int wait = 0;
+@@ -875,6 +894,7 @@ void GBAStore32(struct ARMCore* cpu, uint32_t address, int32_t value, int* cycle
+ }
+ 
+ void GBAStore16(struct ARMCore* cpu, uint32_t address, int16_t value, int* cycleCounter) {
++	harnessWatch(cpu, address, (uint16_t) value, 2, 1, 0);
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	int wait = 0;
+@@ -1020,6 +1040,7 @@ void GBAStore16(struct ARMCore* cpu, uint32_t address, int16_t value, int* cycle
+ }
+ 
+ void GBAStore8(struct ARMCore* cpu, uint32_t address, int8_t value, int* cycleCounter) {
++	harnessWatch(cpu, address, (uint8_t) value, 1, 1, 0);
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	int wait = 0;
+@@ -1482,6 +1503,7 @@ void GBAPatch8(struct ARMCore* cpu, uint32_t address, int8_t value, int8_t* old)
+ 	}
+ 
+ uint32_t GBALoadMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum LSMDirection direction, int* cycleCounter) {
++	harnessWatch(cpu, direction & LSM_D ? address - 4 * popcount32(mask) : address, mask, 0x80, 0, popcount32(mask));
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	uint32_t value;
+@@ -1603,6 +1625,7 @@ uint32_t GBALoadMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum L
+ 	}
+ 
+ uint32_t GBAStoreMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum LSMDirection direction, int* cycleCounter) {
++	harnessWatch(cpu, direction & LSM_D ? address - 4 * popcount32(mask) : address, mask, 0x80, 1, popcount32(mask));
+ 	struct GBA* gba = (struct GBA*) cpu->master;
+ 	struct GBAMemory* memory = &gba->memory;
+ 	uint32_t value;
+diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
+index 12e7913..835c763 100644
+--- a/src/platform/libretro/libretro.c
++++ b/src/platform/libretro/libretro.c
+@@ -1412,3 +1412,9 @@ static int32_t _readGyroZ(struct mRotationSource* source) {
+ 	UNUSED(source);
+ 	return gyroZ;
+ }
++
++/* --- test harness exports --- */
++RETRO_API uint32_t harness_read8(uint32_t addr) { return core->rawRead8(core, addr, -1); }
++RETRO_API uint32_t harness_read32(uint32_t addr) { return core->rawRead32(core, addr, -1); }
++RETRO_API void harness_write8(uint32_t addr, uint32_t v) { core->rawWrite8(core, addr, -1, v); }
++RETRO_API void harness_readblock(uint32_t addr, uint8_t* out, uint32_t n) { uint32_t i; for (i = 0; i < n; ++i) out[i] = core->rawRead8(core, addr + i, -1); }
