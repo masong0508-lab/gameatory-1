@@ -5,6 +5,7 @@
     python3 payback-mod/build.py "Payback (Europe) (En,Fr,De,Es,It).gba" --bps patches/payback-stunt-park.bps
 """
 import argparse
+import json
 import os
 import sys
 
@@ -14,7 +15,7 @@ from paybackmod import bps, expansion, streets, stuntpark  # noqa: E402
 from paybackmod.rom import PaybackRom, OLD_TABLE_START, OLD_TABLE_END, NEW_BASE  # noqa: E402
 
 
-def build(orig, gravity='half', park=True, ramps=True, recolour=True, text=True):
+def build(orig, gravity='half', park=True, ramps=True, recolour=True, text=True, build_mode=True):
     rom = PaybackRom(orig)
     cells = {}
     park_cells = stuntpark.build() if park else {}
@@ -28,6 +29,13 @@ def build(orig, gravity='half', park=True, ramps=True, recolour=True, text=True)
         rom.swap_bg_green_blue()
     if text:
         rom.retext(expansion.EXACT, expansion.REPLACE)
+        for old, new in expansion.INPLACE.items():
+            rom.retext_inplace(old, new)
+    if build_mode:
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'paybackmod')
+        code = open(os.path.join(here, 'editor.bin'), 'rb').read()
+        syms = json.load(open(os.path.join(here, 'editor.json')))
+        rom.add_build_mode(code, syms, *stuntpark.build_mode_columns())
     return rom
 
 

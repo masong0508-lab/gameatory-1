@@ -80,3 +80,12 @@ def build():
     flat(range(66, 69), M, top, c, CHECKER)
     ramp(range(69, 72), M, top, -STEP, c)
     return c
+
+
+def build_mode_columns():
+    """Pieces the in-game build mode places: 17 flat heights, then 16 ramp steps per direction."""
+    flats = [surf(G, tex=ROAD)] + [surf(G + STEP * i, tex=CHECKER) for i in range(1, 17)]
+    ramps = []
+    for shape in (2, UP_X, 4, DOWN_X):            # rising toward +y, +x, -y, -x
+        ramps.append([surf(G + STEP * k, G + STEP * (k + 1), shape, ZEBRA if k == 3 else ROAD) for k in range(16)])
+    return flats, ramps

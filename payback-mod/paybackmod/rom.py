@@ -113,6 +113,12 @@ class PaybackRom:
                 struct.pack_into('<I', self.d, o, made[new] - STRING_BASE)
         return len(made)
 
+    def retext_inplace(self, old, new):
+        """Overwrite a string where it sits (shared by every language); new must not be longer."""
+        o = self.d.find(old.encode('latin-1') + b'\0')
+        assert o > 0 and len(new) <= len(old)
+        self.d[o:o + len(old)] = new.encode('latin-1').ljust(len(old), b'\0')
+
     # Palette fade (0x080777f0) rebuilds each BG colour as c0 | c1 << 5 | c2 << 10.
     # Swapping the two shifts in its three BG write paths swaps green and blue for the
     # whole 3D view and the menu backdrops (sprites and the HUD keep their colours).
@@ -125,6 +131,23 @@ class PaybackRom:
             want = 5 if i % 2 == 0 else 10
             assert op >> 11 == 0 and (op >> 6) & 31 == want, hex(a)
             struct.pack_into('<H', self.d, o, (op & ~(31 << 6)) | ((15 - want) << 6))
+
+    # Build mode: a hook replaces the keypad-reader call in the game loop. The code goes in the
+    # old column table area, which the relocation above freed and which is in BL range.
+    HOOK_CALL = 0x0800e9a8
+    BUILD_BASE = 0x081b0000
+
+    def add_build_mode(self, code, syms, flats, ramps):
+        """flats: 17 columns (0x100 + 0x20*i); ramps: 4 x 16 columns rising toward +y, +x, -y, -x."""
+        o = self.BUILD_BASE - GBA
+        self.d[o:o + len(code)] = code
+        table = [GBA + NEW_BASE + 60 * self.add_column(c) for c in list(flats) + [c for d in ramps for c in d]]
+        struct.pack_into('<%dI' % len(table), self.d, syms['cols'] - GBA, *table)
+        h1, h2 = struct.unpack_from('<HH', self.d, self.HOOK_CALL - GBA)
+        assert h1 >> 11 == 0x1e and h2 >> 11 == 0x1f, 'expected a bl at the hook site'
+        off = syms['hook'] - (self.HOOK_CALL + 4)
+        struct.pack_into('<HH', self.d, self.HOOK_CALL - GBA,
+                         0xf000 | ((off >> 12) & 0x7ff), 0xf800 | ((off >> 1) & 0x7ff))
 
     def data(self):
         return bytes(self.d)

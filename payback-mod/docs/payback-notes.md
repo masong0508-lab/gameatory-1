@@ -22,3 +22,9 @@ All addresses are for SHA-1 08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7.
 - Strings are u32 offsets from ROM 0x31ce20; English UI entries 0x30b2e4-0x30c7f8, English mission text 0x312560-0x3149dc.
 - BG palette fade at 0x080777f0 rebuilds colours as c0 | c1<<5 | c2<<10 (three write paths at 0x80778ee, 0x8077932, 0x8077968).
 - Keypad is read once per tick by 0x08072f68, called from the game loop at 0x0800e9a8.
+
+## Build mode
+- `asm/hook.s` replaces the `bl 0x08072f68` (keypad reader) at 0x0800e9a8 with a call into `asm/editor.c`, placed at 0x081b0000 (the freed old column table).
+- The controlled entity index is the s16 at 0x02001db8 (0 on foot, else the vehicle's slot in the entity list).
+- 0x0203fff8 holds the previous key state; the game clears that area at level load.
+- Rebuild the blob with `asm/build.sh` (clang + ld.lld); `build.py` uses the committed `editor.bin`/`editor.json`.

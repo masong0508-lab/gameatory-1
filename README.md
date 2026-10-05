@@ -15,6 +15,7 @@ What the build changes:
 - Half gravity for longer jumps (`--gravity normal|half|low`).
 - Alien colour scheme (green and blue swapped in the 3D view).
 - Expansion renames: menus, cities (Mute City, Big Blue, Corneria) and vehicles.
+- In-game build mode: hold SELECT, then A = kicker ramp ahead, B = platform, R = raise, L = clear.
 
 See `payback-mod/docs/payback-notes.md` for the reverse-engineering notes and
 `payback-mod/harness/` for the headless emulator test harness.
