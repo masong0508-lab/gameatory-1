@@ -47,12 +47,15 @@ fill_trap:
 2:  tst     r10, #2                 @ word align
     strhne  r6, [r10], #2
     sub     r12, r11, r10
-    subs    r12, r12, #16
-    blt     4f
-3:  stmia   r10!, {r6-r9}
-    subs    r12, r12, #16
+    subs    r12, r12, #32
+    blt     5f
+3:  stmia   r10!, {r6-r9}           @ 32 bytes a turn
+    stmia   r10!, {r6-r9}
+    subs    r12, r12, #32
     bge     3b
-4:  adds    r12, r12, #16           @ 0..14 bytes left
+5:  tst     r12, #16                @ 0..31 bytes left (r12 + 32)
+    stmiane r10!, {r6-r9}
+4:  ands    r12, r12, #15
     beq     .Lnext
     tst     r12, #8
     stmiane r10!, {r6, r7}

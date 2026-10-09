@@ -13,6 +13,8 @@ void world_init(void)
     world.nramp = h[3];
     world.nloop = h[4];
     world.nitem = h[5];
+    world.nline = h[6];
+    world.ntree = h[7];
     world.box = (const Box *)(base + h[9]);
     world.lot = (const Lot *)(base + h[10]);
     world.ramp = (const Ramp *)(base + h[11]);
@@ -21,6 +23,8 @@ void world_init(void)
     world.item = (const u16 *)(base + h[14]);
     world.cell = (const Cell *)(base + h[15]);
     world.far = (const u16 *)(base + h[16]);
+    world.line = (const Line *)(base + h[17]);
+    world.tree = (const Tree *)(base + h[18]);
 }
 
 const Cell *world_cell(s32 x, s32 z)

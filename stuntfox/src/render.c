@@ -6,7 +6,7 @@
 #include "render.h"
 
 #define NBUCKET 1024
-#define MAXBG 400
+#define MAXBG 640
 
 /* Polygons live in a pool of variable-size records (4 + 4 * n bytes) and are linked by their
    EWRAM word index, so the pool can be split over several free stretches of RAM (inside
@@ -241,16 +241,29 @@ void r_sky(const u8 *colors, const s32 *bounds, int nbands, int ndraw)
     s32 a = wr, b = -wu, c0 = -1920 * wr + 1280 * wu + 16 * FOCAL * wf;
     static const s32 rect[8] = {0, 0, 3840, 0, 3840, 2560, 0, 2560};
     s32 t1[2 * MAXV], t2[2 * MAXV];
+    /* the test is linear, so its least and greatest value over the screen are at corners */
+    s32 lo = c0 + (a < 0 ? 3840 * a : 0) + (b < 0 ? 2560 * b : 0);
+    s32 hi = c0 + (a > 0 ? 3840 * a : 0) + (b > 0 ? 2560 * b : 0);
     for (int k = 0; k < ndraw; k++) {
         int n = 4;
         const s32 *src = rect;
         if (k < nbands - 1) {                       /* d >= bounds[k] */
-            n = clip2d(src, n, t1, a, b, c0 - 16 * FOCAL * bounds[k]);
-            src = t1;
+            s32 c = c0 - 16 * FOCAL * bounds[k], o = c - c0;
+            if (hi + o < 0)
+                continue;                           /* all of the screen is below this band */
+            if (lo + o < 0) {
+                n = clip2d(src, n, t1, a, b, c);
+                src = t1;
+            }
         }
         if (n >= 3 && k > 0) {                      /* d <= bounds[k - 1] */
-            n = clip2d(src, n, t2, -a, -b, -(c0 - 16 * FOCAL * bounds[k - 1]));
-            src = t2;
+            s32 c = c0 - 16 * FOCAL * bounds[k - 1], o = c - c0;
+            if (lo + o > 0)
+                continue;                           /* all of it is above */
+            if (hi + o > 0) {
+                n = clip2d(src, n, src == t1 ? t2 : t1, -a, -b, -c);
+                src = src == t1 ? t2 : t1;
+            }
         }
         if (n >= 3)
             r_poly2d(src, n, colors[k], 0, 1);

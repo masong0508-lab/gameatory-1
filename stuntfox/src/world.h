@@ -11,9 +11,11 @@ typedef struct { u8 x0, z0, x1, z1, mat; } Lot;
 typedef struct { u8 x0, z0, x1, z1; s16 h0, h1; u8 dir, mat; } Ramp;
 typedef struct { s32 x, z; u8 dir, pad; s16 r, w; s16 pad2; } Loop;
 typedef struct { s16 lo, hi; u8 shape, mat; } Cell;
+typedef struct { u8 at, from, to, dir; } Line;      /* dir: 0 along z, 1 along x; | crossings << 1 */
+typedef struct { u16 x, z; u8 h, kind; } Tree;      /* x, z in units / 4, height in units / 8 */
 
 typedef struct {
-    int nbox, nlot, nramp, nloop, nitem;
+    int nbox, nlot, nramp, nloop, nitem, nline, ntree;
     const Box *box;
     const Lot *lot;
     const Ramp *ramp;
@@ -22,6 +24,8 @@ typedef struct {
     const u16 *item;
     const Cell *cell;         /* 128 x 128, index x * 128 + z */
     const u16 *far;           /* 256 x (material, height) */
+    const Line *line;
+    const Tree *tree;
 } World;
 
 extern World world;

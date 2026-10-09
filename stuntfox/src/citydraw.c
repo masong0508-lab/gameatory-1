@@ -8,7 +8,9 @@
 /* which buildings, lots and ramps were already drawn this frame (one bit each) */
 #define SEEN_LOT 2048
 #define SEEN_RAMP (2048 + 2560)
-static u32 seen[(2048 + 2560 + 512) / 32] SCRATCH;
+#define SEEN_LINE (2048 + 2560 + 512)
+#define SEEN_TREE (2048 + 2560 + 512 + 1024)
+static u32 seen[(2048 + 2560 + 512 + 2048) / 32] SCRATCH;
 static inline int first_visit(int i)
 {
     u32 *w = &seen[i >> 5], b = 1u << (i & 31);
@@ -49,6 +51,61 @@ static void quad(V3 a, V3 b, V3 c, V3 d, int color, int bg)
     r_poly(q, 4, color, -1, bg);
 }
 
+/* ---- building fronts: a row of windows on every storey, shop windows on the ground ---- */
+#define STOREY 384
+#ifdef MERGE
+#define WINDOWS_FAR 4600           /* rows of windows on walls nearer than this */
+#define PANES_FAR 2200             /* ... split into panes nearer than this */
+#else
+#define WINDOWS_FAR 7000
+#define PANES_FAR 4000
+#endif
+
+/* camera-space point s units along a wall from a (dir: the world axis it runs along) and h up */
+static inline V3 wpt(V3 a, V3 dir, s32 s, s32 h)
+{
+    return v3(a.x + ((dir.x * s + ay.x * h) >> 14), a.y + ((dir.y * s + ay.y * h) >> 14),
+              a.z + ((dir.z * s + ay.z * h) >> 14));
+}
+
+static void wquad(V3 a, V3 b, V3 c, V3 d, int color, s32 key)
+{
+    V3 q[4] = {a, b, c, d};
+    r_poly(q, 4, color, key, 0);
+}
+
+/* One side of a building from its bottom corner a, len units along dir, h high. The wall and
+   its windows share one depth key: within it the last submitted is drawn first, so the panes'
+   pillars go in before the window rows and those before the wall. */
+static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f)
+{
+    V3 b = wpt(a, dir, len, 0), at = wpt(a, dir, 0, h), bt = wpt(a, dir, len, h);
+    s32 key = (a.z + b.z + at.z + bt.z) >> 2, near = a.z < b.z ? a.z : b.z;
+    if (key < 0)
+        key = 0;
+    int wc = COLOR(m, l, f);
+    if (h >= STOREY + 96 && near < WINDOWS_FAR && m != M_STUNT) {
+        int floors = (h - 96) / STOREY;
+        int glass = m == M_GLASS ? COLOR(M_STEEL, l, f) : COLOR(M_GLASS, l < 3 ? l + 1 : 3, f);
+        int shop = m == M_GLASS ? COLOR(M_STEEL, 0, f) : COLOR(M_GLASS, 0, f);
+        s32 top = (floors - 1) * STOREY + 300;
+        if (near < PANES_FAR && near > 400) {     /* (right up against a wall they cost too much) */
+            V3 lo = wpt(v3(0, 0, 0), dir, 0, 40), hi = wpt(v3(0, 0, 0), dir, 0, top);
+            for (s32 s = 512; s < len - 128; s += 512) {
+                V3 p = wpt(a, dir, s - 40, 0), q = wpt(a, dir, s + 40, 0);
+                wquad(vadd(p, lo), vadd(q, lo), vadd(q, hi), vadd(p, hi), wc, key);
+            }
+        }
+        V3 p = wpt(a, dir, 64, 0), q = wpt(a, dir, len - 64, 0);
+        for (int k = 0; k < floors; k++) {
+            V3 lo = wpt(v3(0, 0, 0), dir, 0, k ? k * STOREY + 120 : 40);
+            V3 hi = wpt(v3(0, 0, 0), dir, 0, k * STOREY + 300);
+            wquad(vadd(p, lo), vadd(q, lo), vadd(q, hi), vadd(p, hi), k ? glass : shop, key);
+        }
+    }
+    wquad(a, b, bt, at, wc, key);
+}
+
 static void draw_box(const Box *b)
 {
     s32 x0 = b->x0 * CELL, z0 = b->z0 * CELL, w = (b->x1 - b->x0) * CELL, d = (b->z1 - b->z0) * CELL, h = b->h;
@@ -57,19 +114,19 @@ static void draw_box(const Box *b)
     if (!in_view(centre, ((w > d ? w : d) * 3 >> 2) + (h >> 1)))
         return;
     int f = fog_of(centre.z), m = b->mat;
-    V3 c000 = p, c100 = cadd(p, w, 0, 0), c001 = cadd(p, 0, 0, d), c101 = cadd(p, w, 0, d);
+    V3 c000 = p, c100 = cadd(p, w, 0, 0), c001 = cadd(p, 0, 0, d);
     V3 c010 = cadd(p, 0, h, 0), c110 = cadd(p, w, h, 0), c011 = cadd(p, 0, h, d), c111 = cadd(p, w, h, d);
     s32 cx = cam.pos.x, cy = cam.pos.y, cz = cam.pos.z;
     if (cy > h)
         quad(c010, c110, c111, c011, COLOR(m, 3, f), 0);
     if (cx > x0 + w)
-        quad(c100, c101, c111, c110, COLOR(m, 2, f), 0);
+        wall(c100, az, d, h, m, 2, f);
     if (cx < x0)
-        quad(c000, c010, c011, c001, COLOR(m, 0, f), 0);
+        wall(c000, az, d, h, m, 0, f);
     if (cz > z0 + d)
-        quad(c001, c011, c111, c101, COLOR(m, 1, f), 0);
+        wall(c001, ax, w, h, m, 1, f);
     if (cz < z0)
-        quad(c000, c100, c110, c010, COLOR(m, 1, f), 0);
+        wall(c000, ax, w, h, m, 1, f);
 }
 
 static void draw_lot(const Lot *l)
@@ -114,6 +171,93 @@ static void draw_ramp(const Ramp *r)
         quad(b01, t01, t11, b11, COLOR(m, 0, f), 0);
     if (cz < z0 && (h00 | h10))
         quad(b00, b10, t10, t00, COLOR(m, 0, f), 0);
+}
+
+/* ---- road markings and trees ---- */
+#ifdef MERGE
+#define DASH_FAR 6000              /* centre line dashes nearer than this */
+#define ZEBRA_FAR 3500             /* zebra crossings nearer than this */
+#define TREE_FAR 6000
+#else
+#define DASH_FAR 8000
+#define ZEBRA_FAR 5000
+#define TREE_FAR 8000
+#endif
+
+/* ground quad x0..x1, z0..z1 (units, relative to camera-space point o at world (ox, 0, oz)) */
+static void mark(V3 o, s32 x0, s32 z0, s32 x1, s32 z1, int color)
+{
+    V3 q[4] = {cadd(o, x0, 2, z0), cadd(o, x1, 2, z0), cadd(o, x1, 2, z1), cadd(o, x0, 2, z1)};
+    r_poly(q, 4, color, 0, 1);
+}
+
+/* the dashed centre line of a stretch of road; along is the world axis it runs along */
+static void draw_line(const Line *ln)
+{
+    int d = ln->dir & 1;
+    s32 at = ln->at * CELL, t0 = ln->from * CELL, t1 = ln->to * CELL;
+    s32 ca = d ? cam.pos.z : cam.pos.x, ct = d ? cam.pos.x : cam.pos.z;
+    s32 off = at - ca;
+    if (off < -DASH_FAR || off > DASH_FAR)
+        return;
+    /* the part within reach */
+    s32 a = ct - DASH_FAR, b = ct + DASH_FAR;
+    if (a < t0) a = t0;
+    if (b > t1) b = t1;
+    if (a >= b)
+        return;
+    V3 o = r_cam(d ? v3(t0, 0, at) : v3(at, 0, t0));
+    int col = COLOR(M_SHIP, 2, 0);
+    for (s32 t = (a - t0) & ~1023; t < b - t0; t += CELL) {
+        if (d)
+            mark(o, t + 256, -24, t + 768, 24, col);
+        else
+            mark(o, -24, t + 256, 24, t + 768, col);
+    }
+    /* zebra crossings where the road meets a junction: stripes across both lanes */
+    s32 near = off < 0 ? -off : off;
+    if (near > ZEBRA_FAR || !(ln->dir & 6))
+        return;
+    for (int end = 0; end < 2; end++) {
+        if (!(ln->dir & (2 << end)))
+            continue;
+        s32 z0 = end ? t1 - t0 - 448 : 64, z1 = z0 + 384, ce = t0 + z0 + 192 - ct;
+        if (ce < -ZEBRA_FAR || ce > ZEBRA_FAR)
+            continue;
+        for (s32 x = -896; x < 896; x += 320) {
+            if (d)
+                mark(o, z0, x, z1, x + 160, col);
+            else
+                mark(o, x, z0, x + 160, z1, col);
+        }
+    }
+}
+
+/* a park tree, drawn as a cut-out facing the camera: trunk, crown and a lit side */
+static void draw_tree(const Tree *t)
+{
+    s32 x = t->x << 2, z = t->z << 2, h = t->h << 3;
+    s32 dx = x - cam.pos.x, dz = z - cam.pos.z;
+    if (dx < -TREE_FAR || dx > TREE_FAR || dz < -TREE_FAR || dz > TREE_FAR)
+        return;
+    V3 p = r_cam(v3(x, 0, z));
+    if (p.z < 64 || p.z > TREE_FAR || !in_view(cadd(p, 0, h >> 1, 0), h))
+        return;
+    int f = fog_of(p.z);
+    s32 r = h * 3 >> 3, tw = h >> 4;
+    V3 c = cadd(p, 0, h - r, 0), top = cadd(p, 0, h - r, 0);
+    static const s8 ring[6][2] = {{0, 16}, {14, 8}, {14, -8}, {0, -16}, {-14, -8}, {-14, 8}};
+    V3 crown[6], lit[6];
+    for (int i = 0; i < 6; i++) {
+        crown[i] = v3(c.x + ring[i][0] * r / 16, c.y + ring[i][1] * r / 16, c.z);
+        lit[i] = v3(c.x - r / 5 + ring[i][0] * r / 28, c.y + r / 5 + ring[i][1] * r / 28, c.z);
+    }
+    /* same depth key: the last submitted is drawn first */
+    r_poly(lit, 6, COLOR(M_GRASS, t->kind ? 3 : 2, f), p.z, 0);
+    r_poly(crown, 6, COLOR(M_GRASS, t->kind ? 1 : 0, f), p.z, 0);
+    V3 trunk[4] = {v3(p.x - tw, p.y, p.z), v3(p.x + tw, p.y, p.z), v3(top.x + tw, top.y, top.z),
+                   v3(top.x - tw, top.y, top.z)};
+    r_poly(trunk, 4, COLOR(M_BRICK, 0, f), p.z, 0);
 }
 
 /* A loop: a helix of LOOP_SEG quads, red and white like a Stunt Race FX track, shaded by
@@ -245,6 +389,12 @@ void world_draw(void)
                     break;
                 case 2:
                     if (first_visit(SEEN_RAMP + i)) draw_ramp(&world.ramp[i]);
+                    break;
+                case 4:
+                    if (first_visit(SEEN_LINE + i)) draw_line(&world.line[i]);
+                    break;
+                case 5:
+                    if (first_visit(SEEN_TREE + i)) draw_tree(&world.tree[i]);
                     break;
                 }
             }

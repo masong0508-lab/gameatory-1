@@ -8,11 +8,13 @@ World units: one Payback cell is 1024 units (about 8 m). X runs with Payback's x
 Payback's y, and Y is up.
 
 Output (little endian), see src/world.h:
-    header   'SFW1', counts and offsets
+    header   'SFW2', counts and offsets
     boxes    buildings: x0 z0 x1 z1 (cells), height (units), material
     lots     ground patches that are not road: x0 z0 x1 z1, material
     ramps    drivable slopes: x0 z0 x1 z1, h0 h1, rising direction, material
     loops    x z (units), direction, radius, width
+    lines    road centre lines: at, from, to (cells), dir (0 along z, 1 along x) | crossings << 1
+    trees    x z (units / 4), height (units / 8), kind
     sectors  16 x 16 sectors of 8 x 8 cells: index into the item list
     items    u16: kind << 13 | index
     height   128 x 128 cells: s16 low, s16 high, u8 shape, u8 material (collision and minimap)
@@ -37,7 +39,7 @@ BUILDING_MATS = (M_CONCRETE, M_GLASS, M_BRICK, M_TEAL, M_CREAM, M_STEEL)
 GRASS_TEX = {0x0c, 0x0b, 0x0d}
 WATER_MAT = M_GLASS
 
-K_BOX, K_LOT, K_RAMP, K_LOOP = range(4)
+K_BOX, K_LOT, K_RAMP, K_LOOP, K_LINE, K_TREE = range(6)
 STADIUM = (40, 24, 80, 44)      # x0, y0, x1, y1 (exclusive) of the football stadium block
 
 
@@ -110,6 +112,52 @@ def stunt_park(cells):
     return ramps
 
 
+def centre_lines(rom, cells):
+    """Dashed lines between a road's two opposite lanes (Payback marks each road cell with its
+    traffic directions: 1 / 4 for the two lanes along y, 2 / 8 along x). Runs of at most 16
+    cells. A run that ends at a junction gets a zebra crossing there."""
+    grid = rom.grid(0)
+    lanes = [rom.column(grid[i])[3] & 15 if cells[i][0] == 'road' else 0 for i in range(N * N)]
+    junction = lambda i: cells[i][0] == 'road' and lanes[i] not in (1, 2, 4, 8)
+    out = []
+    for d, pair in ((0, {1, 4}), (1, {2, 8})):
+        for a in range(N - 1):
+            # cell index of (across a / a + 1, along t)
+            idx = (lambda a, t: a * N + t) if d == 0 else (lambda a, t: t * N + a)
+            t = 0
+            while t < N:
+                if {lanes[idx(a, t)], lanes[idx(a + 1, t)]} != pair:
+                    t += 1
+                    continue
+                t0 = t
+                while t < N and t - t0 < 16 and {lanes[idx(a, t)], lanes[idx(a + 1, t)]} == pair:
+                    t += 1
+                cross = 0
+                if t0 > 0 and junction(idx(a, t0 - 1)):
+                    cross |= 1
+                if t < N and junction(idx(a, t)):
+                    cross |= 2
+                out.append((a + 1, t0, t, d | cross << 1))
+    return out
+
+
+def park_trees(cells):
+    """A tree on about every other grass cell outside the stunt arena."""
+    x0, y0, x1, y1 = STADIUM
+    out = []
+    for x in range(N):
+        for y in range(N):
+            c = cells[x * N + y]
+            if c[0] != 'ground' or c[4] != M_GRASS or (x0 <= x < x1 and y0 <= y < y1):
+                continue
+            h = (x * 73856093 ^ y * 19349663) & 0xffff
+            if h & 1:
+                continue
+            ox, oy = 256 + (h >> 1) % 512, 256 + (h >> 5) % 512
+            out.append(((x * CELL + ox) // 4, (y * CELL + oy) // 4, 60 + (h >> 9) % 40, (h >> 3) & 1))
+    return out
+
+
 def greedy(cells, want, cap):
     """Merge cells into rectangles. want(i) -> key or None. Returns [(x0, y0, x1, y1, key)]."""
     used = [False] * (N * N)
@@ -145,6 +193,8 @@ def build(rom_bytes):
     ramps = greedy(cells, lambda i: cells[i][1:5] if cells[i][0] == 'ramp' else None, 8)
     # loops: (x, z) of the entry point in units, direction (0 +z, 1 +x, 2 -z, 3 -x), radius, width
     loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)]
+    lines = centre_lines(rom, cells)
+    trees = park_trees(cells)
 
     # sector index
     sectors = [[] for _ in range(256)]
@@ -159,6 +209,13 @@ def build(rom_bytes):
         add(K_LOT, i, x0, y0, x1, y1)
     for i, (x0, y0, x1, y1, _) in enumerate(ramps):
         add(K_RAMP, i, x0, y0, x1, y1)
+    for i, (at, t0, t1, d) in enumerate(lines):
+        if d & 1:
+            add(K_LINE, i, t0, at - 1, t1, at + 1)
+        else:
+            add(K_LINE, i, at - 1, t0, at + 1, t1)
+    for i, (x, z, h, k) in enumerate(trees):
+        add(K_TREE, i, x * 4 // CELL, z * 4 // CELL, x * 4 // CELL + 1, z * 4 // CELL + 1)
     for i, (x, z, d, r, w) in enumerate(loops):
         cx, cz = x // CELL, z // CELL
         add(K_LOOP, i, max(0, cx - 4), max(0, cz - 4), min(N, cx + 5), min(N, cz + 5))
@@ -196,10 +253,15 @@ def build(rom_bytes):
     section(b''.join(struct.pack('<H', v) for v in items))
     section(b''.join(struct.pack('<hhBB', c[1], c[2], c[3], c[4]) for c in cells))
     section(b''.join(struct.pack('<Bxh', m, h) for m, h in far))
+    section(b''.join(struct.pack('<BBBB', *ln) for ln in lines))
+    section(b''.join(struct.pack('<HHBB', *t) for t in trees))
     assert len(boxes) <= 2048 and len(lots) <= 2560 and len(ramps) <= 512, 'see SEEN_* in citydraw.c'
-    header = struct.pack('<4s8I', b'SFW1', len(boxes), len(lots), len(ramps), len(loops), len(items), 0, 0, 0)
-    header += struct.pack('<8I', *[p + 4 * 9 + 4 * 8 for p in parts])
-    return header + bytes(blob), dict(boxes=len(boxes), lots=len(lots), ramps=len(ramps), items=len(items))
+    assert len(lines) <= 1024 and len(trees) <= 1024, 'see SEEN_* in citydraw.c'
+    header = struct.pack('<4s8I', b'SFW2', len(boxes), len(lots), len(ramps), len(loops), len(items),
+                         len(lines), len(trees), 0)
+    header += struct.pack('<%dI' % len(parts), *[p + 4 * 9 + 4 * len(parts) for p in parts])
+    return header + bytes(blob), dict(boxes=len(boxes), lots=len(lots), ramps=len(ramps), items=len(items),
+                                      lines=len(lines), trees=len(trees))
 
 
 if __name__ == '__main__':

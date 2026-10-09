@@ -595,7 +595,14 @@ static void draw_entities(const u8 *me)
             if (!model_place(&pl, p, &m, lk->scale ? lk->scale : 256, 0, lk->md->radius))
                 continue;
             model_body = lk->paint;
-            model_draw(lk->md, &pl);
+            if (pl.t.z > 2800 && lk->md != &mdl_tank) {
+                Model far = *lk->md;                   /* far away: no wheels (the last 24 points, 4 faces) */
+                far.nv -= 24;
+                far.nf -= 4;
+                model_draw(&far, &pl);
+            } else {
+                model_draw(lk->md, &pl);
+            }
             if (k == POLICE_CAR && pl.t.z < 9000)
                 police_lights(&pl);
             continue;
@@ -607,7 +614,7 @@ static void draw_entities(const u8 *me)
         model_body = shirts[kind % sizeof shirts];
         model_legs = (kind >> 3) & 1 ? M_STEEL : M_ROAD;
         const Model *md = &mdl_ped;
-        if (pl.t.z < 2600) {
+        if (pl.t.z < 1800) {
             const s32 *w = (const s32 *)e;
             int moving = w[E_X / 4] != w[E_PREV1 / 4] || w[E_Y / 4] != w[E_PREV1 / 4 + 1];
             md = !moving ? &mdl_stand : ((iabs(w[E_X / 4]) + iabs(w[E_Y / 4])) >> 7) & 1 ? &mdl_stride_a : &mdl_stride_b;
@@ -674,10 +681,23 @@ static void palette_show(void)
     copy32((void *)PAL_BG, buf, 512);
 }
 
+/* Payback's pause screen recolours the picture on screen into its own palette (and flips
+   pages to show it), so while that is up its palette must stay. Ours comes back once a page
+   we drew is on screen again. */
+static int pb_pal;                 /* Payback's palette is showing on purpose */
+static int our_page = -1;          /* page holding our last frame (0 or 1), -1: none */
+
 /* put ours back whenever Payback wrote its own (without a fade: then it is at full brightness) */
 static void palette_keep(void)
 {
-    if (PAL_BG[3] != faded(pal_cache[3]) || PAL_BG[COLOR(M_GRASS, 2, 0)] != faded(pal_cache[COLOR(M_GRASS, 2, 0)]) ||
+    int shown = REG_DISPCNT >> 4 & 1;
+    if (pb_pal) {
+        if (shown == our_page) {
+            pb_pal = fade_d = 0;
+            palette_commit();
+            palette_show();
+        }
+    } else if (PAL_BG[3] != faded(pal_cache[3]) || PAL_BG[COLOR(M_GRASS, 2, 0)] != faded(pal_cache[COLOR(M_GRASS, 2, 0)]) ||
         PAL_BG[COLOR(M_BRICK, 1, 1)] != faded(pal_cache[COLOR(M_BRICK, 1, 1)])) {
         fade_d = 0;
         palette_commit();
@@ -685,17 +705,22 @@ static void palette_keep(void)
     } else if (palette_commit()) {
         palette_show();
     }
+    our_page = !shown;             /* this frame went to the page not on screen */
 }
 
 /* Payback calls this in place of its palette fade (the build redirects every call): its
    fade works from its own colours in ROM, so ours are faded the same way after it. */
 void sf_fade(int level)
 {
+    u16 page = REG_DISPCNT & 0x10;
     PB_FADE(level);
     if (STATE[0] != MAGIC || __keep_canary[0] != CANARY)
         return;
     fade_d = (level - 256) >> 3;
-    palette_show();
+    if ((REG_DISPCNT & 0x10) != page)
+        pb_pal = 1, our_page = -1;     /* the pause screen: a recoloured picture, Payback's colours */
+    if (!pb_pal)
+        palette_show();
 }
 
 /* ---- the frame ---- */
