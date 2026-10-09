@@ -252,6 +252,13 @@ static u8 *controlled(void)
     return valid(e) ? e : 0;
 }
 
+/* the picture is mirrored (see camera_look), so our own vehicles steer with left and right
+   swapped to turn the way they look */
+static u16 mirror_keys(u16 k)
+{
+    return (k & ~(KEY_LEFT | KEY_RIGHT)) | (k & KEY_LEFT ? KEY_RIGHT : 0) | (k & KEY_RIGHT ? KEY_LEFT : 0);
+}
+
 static s32 heading_of(const M3 *m) { return fatan2(m->f.x, m->f.z); }
 
 /* ---- buttons ---- */
@@ -317,6 +324,9 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
     cam.m.f = vsub(target, cam.pos);
     cam.m.u = cam_up;
     morth(&cam.m);
+    /* Payback's world is the mirror image of ours (its y is our z): draw it the way Payback
+       shows it, so its walking and the minimap turn the same way as the picture */
+    cam.m.r = v3(-cam.m.r.x, -cam.m.r.y, -cam.m.r.z);
 }
 
 static void camera_update(const u8 *me)
@@ -761,12 +771,12 @@ static void step(u8 *me, int ticks)
 {
     for (int t = 0; t < ticks; t++) {
         if (mode == DRIVE) {
-            car_update(&car, keys & ~KEY_L);          /* L is Payback's: get out */
+            car_update(&car, mirror_keys(keys) & ~KEY_L);          /* L is Payback's: get out */
             car_fence();
             car_bump();
             car_stunts();
         } else if (mode == FLY) {
-            ship_update(&ship, keys);
+            ship_update(&ship, mirror_keys(keys));
             ship_events();
         }
         space_tick();
