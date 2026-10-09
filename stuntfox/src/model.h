@@ -6,7 +6,10 @@
 typedef struct { s16 x, y, z; } N3;              /* a unit vector, 1.14 */
 typedef struct { s16 x, y, z; } MVert;
 typedef struct { u8 n, mat, flags, idx[6]; } MFace;
-enum { MF_TWO = 1, MF_GLOW = 2 };              /* two-sided (thin fins and wings), self-lit */
+enum { MF_TWO = 1, MF_GLOW = 2, MF_IN = 4, MF_BACK = 8 };
+/* MF_TWO: two-sided (thin fins and wings); MF_GLOW: self-lit; MF_IN: faces into the model (the
+   walls of a room you can fly into); MF_BACK: sorted by its farthest point, so whatever stands
+   on it or in front of it is drawn over it (floors, walls, decals on them) */
 
 typedef struct {
     const MVert *v;
@@ -33,7 +36,9 @@ void model_draw(const Model *md, const Place *pl);
 void model_poly(const Place *pl, const MVert *v, int n, int color);
 
 extern Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
+extern Model mdl_bay, mdl_raider, mdl_carrier, mdl_pod, mdl_medal, mdl_crate, mdl_gate, mdl_beacon, mdl_boom;
 extern u8 model_body;                           /* paint for M_CAR faces, M_CAR by default */
+extern u8 model_hull;                           /* ... and for M_SHIP faces, M_SHIP by default */
 extern u8 model_legs;                           /* paint for M_SKY faces (people's legs) */
 void models_init(void);
 

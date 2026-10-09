@@ -6,6 +6,8 @@
 
 #define F3(m, fl, a, b, c) {3, m, fl, {a, b, c}}
 #define F4(m, fl, a, b, c, d) {4, m, fl, {a, b, c, d}}
+#define F6(m, fl, a, b, c, d, e, f) {6, m, fl, {a, b, c, d, e, f}}
+#define N(a) (sizeof a / sizeof a[0])
 
 /* The car: a low Blue Falcon style wedge with a canopy, fins and a jet. */
 static const MVert car_v[] = {
@@ -43,30 +45,65 @@ static const MFace arwing_f[] = {
     F4(M_CAR, MF_TWO, 17, 18, 19, 20), F4(M_CAR, MF_TWO, 21, 22, 23, 24),
 };
 
-/* The station's hub: a flat deck you can land on, with a pad, lit windows and a mast. */
+/* The station's hub: a flat deck you can land on, with a pad, lit windows and a mast, and the
+   docking bay's mouth in its front (+z) face. */
 #define HX HUB_HX
 #define HY HUB_HY
 #define HZ HUB_HZ
+#define BX BAY_HX
+#define B0 BAY_Y0
+#define B1 BAY_Y1
+#define BZ BAY_Z0
 static const MVert hub_v[] = {
     {-HX, -HY, -HZ}, {HX, -HY, -HZ}, {HX, -HY, HZ}, {-HX, -HY, HZ},
     {-HX, HY, -HZ}, {HX, HY, -HZ}, {HX, HY, HZ}, {-HX, HY, HZ},
     {-800, HY + 4, -800}, {800, HY + 4, -800}, {800, HY + 4, 800}, {-800, HY + 4, 800},
     {-HX - 4, -120, -1300}, {-HX - 4, -120, 1300}, {-HX - 4, 120, 1300}, {-HX - 4, 120, -1300},
     {HX + 4, -120, -1300}, {HX + 4, -120, 1300}, {HX + 4, 120, 1300}, {HX + 4, 120, -1300},
-    {-1300, -120, HZ + 4}, {1300, -120, HZ + 4}, {1300, 120, HZ + 4}, {-1300, 120, HZ + 4},
     {-1300, -120, -HZ - 4}, {1300, -120, -HZ - 4}, {1300, 120, -HZ - 4}, {-1300, 120, -HZ - 4},
+    {-BX, B0, HZ}, {BX, B0, HZ}, {BX, B1, HZ}, {-BX, B1, HZ},
     {1200, HY, 1200}, {1450, HY, 1200}, {1325, HY, 1450}, {1325, HY + 1600, 1325},
 };
 static const MFace hub_f[] = {
     F4(M_STEEL, 0, 0, 1, 2, 3), F4(M_CONCRETE, 0, 4, 5, 6, 7), F4(M_SHIP, 0, 0, 3, 7, 4),
-    F4(M_SHIP, 0, 1, 2, 6, 5), F4(M_SHIP, 0, 3, 2, 6, 7), F4(M_SHIP, 0, 0, 1, 5, 4),
+    F4(M_SHIP, 0, 1, 2, 6, 5), F4(M_SHIP, 0, 0, 1, 5, 4),
+    F4(M_SHIP, 0, 7, 6, 26, 27), F4(M_STEEL, 0, 3, 2, 25, 24), F4(M_SHIP, 0, 3, 24, 27, 7),
+    F4(M_SHIP, 0, 2, 6, 26, 25),                                                  /* the front, round the mouth */
     F4(M_ACCENT, 0, 8, 9, 10, 11), F4(M_GLOW, MF_GLOW, 12, 13, 14, 15), F4(M_GLOW, MF_GLOW, 16, 17, 18, 19),
-    F4(M_GLOW, MF_GLOW, 20, 21, 22, 23), F4(M_GLOW, MF_GLOW, 24, 25, 26, 27),
+    F4(M_GLOW, MF_GLOW, 20, 21, 22, 23),
     F3(M_STUNT, MF_TWO, 28, 29, 31), F3(M_STUNT, MF_TWO, 29, 30, 31), F3(M_STUNT, MF_TWO, 30, 28, 31),
+};
+
+/* The docking bay inside the hub: a hangar you fly into through the mouth, with a landing pad,
+   strip lights, a lit sign at the back and lights round the mouth. */
+#define PZ BAY_PAD_Z
+static const MVert bay_v[] = {
+    {-BX, B0, BZ}, {BX, B0, BZ}, {BX, B0, HZ}, {-BX, B0, HZ},
+    {-BX, B1, BZ}, {BX, B1, BZ}, {BX, B1, HZ}, {-BX, B1, HZ},
+    {-430, B0 + 3, PZ - 430}, {430, B0 + 3, PZ - 430}, {430, B0 + 3, PZ + 430}, {-430, B0 + 3, PZ + 430},
+    {-300, B0 + 6, PZ - 300}, {300, B0 + 6, PZ - 300}, {300, B0 + 6, PZ + 300}, {-300, B0 + 6, PZ + 300},
+    {-BX + 4, -20, BZ + 250}, {-BX + 4, -20, HZ - 120}, {-BX + 4, 30, HZ - 120}, {-BX + 4, 30, BZ + 250},
+    {BX - 4, -20, BZ + 250}, {BX - 4, -20, HZ - 120}, {BX - 4, 30, HZ - 120}, {BX - 4, 30, BZ + 250},
+    {-180, B1 - 4, -500}, {180, B1 - 4, -500}, {180, B1 - 4, -100}, {-180, B1 - 4, -100},
+    {-180, B1 - 4, 500}, {180, B1 - 4, 500}, {180, B1 - 4, 900}, {-180, B1 - 4, 900},
+    {-420, -230, BZ + 4}, {420, -230, BZ + 4}, {420, 30, BZ + 4}, {-420, 30, BZ + 4},
+    {-BX, B1, HZ + 4}, {BX, B1, HZ + 4}, {BX, B1 + 50, HZ + 4}, {-BX, B1 + 50, HZ + 4},
+    {-BX, B0 - 50, HZ + 4}, {BX, B0 - 50, HZ + 4}, {BX, B0, HZ + 4}, {-BX, B0, HZ + 4},
+};
+#define IN (MF_IN | MF_BACK)
+static const MFace bay_f[] = {
+    F4(M_CONCRETE, IN, 0, 1, 2, 3), F4(M_ROAD, IN, 4, 5, 6, 7), F4(M_STEEL, IN, 0, 3, 7, 4),
+    F4(M_STEEL, IN, 1, 2, 6, 5), F4(M_SHIP, IN, 0, 1, 5, 4),
+    F4(M_ACCENT, IN, 8, 9, 10, 11), F4(M_ROAD, IN, 12, 13, 14, 15),
+    F4(M_GLOW, IN | MF_GLOW, 16, 17, 18, 19), F4(M_GLOW, IN | MF_GLOW, 20, 21, 22, 23),
+    F4(M_CREAM, IN | MF_GLOW, 24, 25, 26, 27), F4(M_CREAM, IN | MF_GLOW, 28, 29, 30, 31),
+    F4(M_STUNT, IN | MF_GLOW, 32, 33, 34, 35),
+    F4(M_GLOW, MF_GLOW, 36, 37, 38, 39), F4(M_GLOW, MF_GLOW, 40, 41, 42, 43),
 };
 
 /* The ring around the hub, built at start-up: 8 sides, and 4 spokes. */
 #define RING_N 8
+#define RING_Y 400
 static MVert ring_v[RING_N * 4 + 16] EWRAM_BSS;
 static MFace ring_f[RING_N * 4 + 4] EWRAM_BSS;
 
@@ -112,8 +149,83 @@ static const MFace heli_f[] = {
     F4(M_STEEL, MF_TWO, 12, 13, 14, 15), F4(M_ROAD, MF_TWO, 16, 17, 18, 19), F4(M_ROAD, MF_TWO, 20, 21, 22, 23),
 };
 
-static N3 nbuf[160] EWRAM_BSS;
+/* A pirate raider: a dark dart with forward-swept blades and red fins. */
+static const MVert raider_v[] = {
+    {0, 0, 330}, {-70, 30, -170}, {70, 30, -170}, {0, -50, -170}, {0, 75, -120},
+    {-50, 0, 40}, {-60, 0, -130}, {-400, -30, -260}, {50, 0, 40}, {60, 0, -130}, {400, -30, -260},
+    {-400, -30, -260}, {-390, 90, -310}, {-380, -30, -170}, {400, -30, -260}, {390, 90, -310}, {380, -30, -170},
+};
+static const MFace raider_f[] = {
+    F3(M_BRICK, 0, 0, 1, 4), F3(M_BRICK, 0, 0, 4, 2), F3(M_ROAD, 0, 0, 2, 3), F3(M_ROAD, 0, 0, 3, 1),
+    F3(M_BRICK, 0, 1, 4, 2), F3(M_GLOW, MF_GLOW, 1, 2, 3),
+    F3(M_ROAD, MF_TWO, 5, 6, 7), F3(M_ROAD, MF_TWO, 8, 9, 10),
+    F3(M_STUNT, MF_TWO, 11, 12, 13), F3(M_STUNT, MF_TWO, 14, 15, 16),
+};
+
+/* The pirate carrier: a long armoured wedge with a bridge tower and two engines. */
+static const MVert carrier_v[] = {
+    {0, 0, 1700}, {0, 460, -500}, {-880, 0, -500}, {880, 0, -500}, {0, -320, -500},
+    {-620, 260, -1400}, {620, 260, -1400}, {720, -220, -1400}, {-720, -220, -1400},
+    {-130, 400, -800}, {130, 400, -800}, {0, 760, -1050},
+    {-560, -120, -1404}, {-180, -120, -1404}, {-180, 120, -1404}, {-560, 120, -1404},
+    {180, -120, -1404}, {560, -120, -1404}, {560, 120, -1404}, {180, 120, -1404},
+};
+static const MFace carrier_f[] = {
+    F3(M_ROAD, 0, 0, 1, 2), F3(M_ROAD, 0, 0, 3, 1), F3(M_BRICK, 0, 0, 2, 4), F3(M_BRICK, 0, 0, 4, 3),
+    F3(M_ROAD, 0, 1, 6, 5), F3(M_BRICK, 0, 1, 5, 2), F3(M_ROAD, 0, 2, 5, 8), F3(M_STEEL, 0, 2, 8, 4),
+    F3(M_STEEL, 0, 4, 8, 7), F3(M_STEEL, 0, 4, 7, 3), F3(M_ROAD, 0, 3, 7, 6), F3(M_BRICK, 0, 3, 6, 1),
+    F4(M_STEEL, 0, 5, 6, 7, 8),
+    F3(M_STUNT, MF_TWO, 9, 10, 11), F3(M_GLOW, MF_TWO | MF_GLOW, 9, 11, 10),
+    F4(M_GLOW, MF_GLOW, 12, 13, 14, 15), F4(M_GLOW, MF_GLOW, 16, 17, 18, 19),
+};
+
+/* a cargo pod: a striped canister */
+static const MVert pod_v[] = {{0, 150, 0}, {0, -150, 0}, {120, 0, 0}, {-120, 0, 0}, {0, 0, 120}, {0, 0, -120}};
+static const MFace pod_f[] = {
+    F3(M_ACCENT, 0, 0, 2, 4), F3(M_STEEL, 0, 0, 4, 3), F3(M_ACCENT, 0, 0, 3, 5), F3(M_STEEL, 0, 0, 5, 2),
+    F3(M_STEEL, 0, 1, 4, 2), F3(M_ACCENT, 0, 1, 3, 4), F3(M_STEEL, 0, 1, 5, 3), F3(M_ACCENT, 0, 1, 2, 5),
+};
+
+/* a fox medal: a gold coin, spinning */
+#define HEXR(r, z) {0, r, z}, {(r) * 87 / 100, (r) / 2, z}, {(r) * 87 / 100, -(r) / 2, z}, \
+                   {0, -(r), z}, {-(r) * 87 / 100, -(r) / 2, z}, {-(r) * 87 / 100, (r) / 2, z}
+static const MVert medal_v[] = {HEXR(200, 0), HEXR(120, 14), HEXR(120, -14)};
+static const MFace medal_f[] = {
+    F6(M_ACCENT, MF_TWO | MF_GLOW, 0, 1, 2, 3, 4, 5), F6(M_GLOW, MF_TWO | MF_GLOW, 6, 7, 8, 9, 10, 11),
+    F6(M_GLOW, MF_TWO | MF_GLOW, 12, 13, 14, 15, 16, 17),
+};
+
+/* a crate */
+static const MVert crate_v[] = {
+    {-110, 0, -110}, {110, 0, -110}, {110, 0, 110}, {-110, 0, 110},
+    {-110, 220, -110}, {110, 220, -110}, {110, 220, 110}, {-110, 220, 110},
+};
+static const MFace crate_f[] = {
+    F4(M_BRICK, 0, 4, 5, 6, 7), F4(M_CREAM, 0, 0, 1, 5, 4), F4(M_BRICK, 0, 1, 2, 6, 5),
+    F4(M_CREAM, 0, 2, 3, 7, 6), F4(M_BRICK, 0, 3, 0, 4, 7),
+};
+
+/* a race gate: an eight-sided ring facing along z, in the paint of model_body */
+static MVert gate_v[16] EWRAM_BSS;
+static MFace gate_f[8] EWRAM_BSS;
+
+/* a beacon: a tall shaft of light over a rooftop (two crossed panels) */
+static const MVert beacon_v[] = {
+    {-70, 0, 0}, {70, 0, 0}, {70, 6000, 0}, {-70, 6000, 0}, {0, 0, -70}, {0, 0, 70}, {0, 6000, 70}, {0, 6000, -70},
+};
+static const MFace beacon_f[] = {F4(M_CAR, MF_TWO | MF_GLOW, 0, 1, 2, 3), F4(M_CAR, MF_TWO | MF_GLOW, 4, 5, 6, 7)};
+
+/* an explosion's fireball (an octahedron of fire, scaled as it grows) */
+static const MVert boom_v[] = {{0, 256, 0}, {0, -256, 0}, {256, 0, 0}, {-256, 0, 0}, {0, 0, 256}, {0, 0, -256}};
+static const MFace boom_f[] = {
+    F3(M_GLOW, MF_GLOW, 0, 2, 4), F3(M_ACCENT, MF_GLOW, 0, 4, 3), F3(M_GLOW, MF_GLOW, 0, 3, 5),
+    F3(M_ACCENT, MF_GLOW, 0, 5, 2), F3(M_ACCENT, MF_GLOW, 1, 4, 2), F3(M_GLOW, MF_GLOW, 1, 3, 4),
+    F3(M_ACCENT, MF_GLOW, 1, 5, 3), F3(M_GLOW, MF_GLOW, 1, 2, 5),
+};
+
+static N3 nbuf[200] EWRAM_BSS;
 Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
+Model mdl_bay, mdl_raider, mdl_carrier, mdl_pod, mdl_medal, mdl_crate, mdl_gate, mdl_beacon, mdl_boom;
 
 static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int radius, N3 **nb)
 {
@@ -131,11 +243,11 @@ void models_init(void)
 {
     for (int i = 0; i < RING_N; i++) {
         s32 a = i * 65536 / RING_N + 4096, c = fcos(a), s = fsin(a);
-        s32 ro = 6600, ri = 5900, h = 260;
+        s32 ro = 6600, ri = 5900, h = RING_Y + 260, l = RING_Y - 260;   /* (above the bay's mouth) */
         ring_v[i] = (MVert){(s16)((ro * s) >> 14), (s16)h, (s16)((ro * c) >> 14)};
-        ring_v[RING_N + i] = (MVert){(s16)((ro * s) >> 14), (s16)-h, (s16)((ro * c) >> 14)};
+        ring_v[RING_N + i] = (MVert){(s16)((ro * s) >> 14), (s16)l, (s16)((ro * c) >> 14)};
         ring_v[2 * RING_N + i] = (MVert){(s16)((ri * s) >> 14), (s16)h, (s16)((ri * c) >> 14)};
-        ring_v[3 * RING_N + i] = (MVert){(s16)((ri * s) >> 14), (s16)-h, (s16)((ri * c) >> 14)};
+        ring_v[3 * RING_N + i] = (MVert){(s16)((ri * s) >> 14), (s16)l, (s16)((ri * c) >> 14)};
     }
     int nf = 0;
     for (int i = 0; i < RING_N; i++) {
@@ -150,10 +262,10 @@ void models_init(void)
     for (int k = 0; k < 4; k++) {                                                                  /* spokes */
         s32 a = k * 16384, c = fcos(a), s = fsin(a), px = (c * 120) >> 14, pz = (-s * 120) >> 14;
         s32 x0 = (s * 1600) >> 14, z0 = (c * 1600) >> 14, x1 = (s * 5900) >> 14, z1 = (c * 5900) >> 14;
-        ring_v[nv] = (MVert){(s16)(x0 + px), 0, (s16)(z0 + pz)};
-        ring_v[nv + 1] = (MVert){(s16)(x1 + px), 0, (s16)(z1 + pz)};
-        ring_v[nv + 2] = (MVert){(s16)(x1 - px), 0, (s16)(z1 - pz)};
-        ring_v[nv + 3] = (MVert){(s16)(x0 - px), 0, (s16)(z0 - pz)};
+        ring_v[nv] = (MVert){(s16)(x0 + px), RING_Y, (s16)(z0 + pz)};
+        ring_v[nv + 1] = (MVert){(s16)(x1 + px), RING_Y, (s16)(z1 + pz)};
+        ring_v[nv + 2] = (MVert){(s16)(x1 - px), RING_Y, (s16)(z1 - pz)};
+        ring_v[nv + 3] = (MVert){(s16)(x0 - px), RING_Y, (s16)(z0 - pz)};
         ring_f[nf++] = (MFace)F4(M_STEEL, MF_TWO, nv, nv + 1, nv + 2, nv + 3);
         nv += 4;
     }
@@ -165,4 +277,20 @@ void models_init(void)
     setup(&mdl_rock, rock_v, sizeof rock_v / sizeof rock_v[0], rock_f, sizeof rock_f / sizeof rock_f[0], 270, &nb);
     setup(&mdl_ped, ped_v, sizeof ped_v / sizeof ped_v[0], ped_f, sizeof ped_f / sizeof ped_f[0], 130, &nb);
     setup(&mdl_heli, heli_v, sizeof heli_v / sizeof heli_v[0], heli_f, sizeof heli_f / sizeof heli_f[0], 560, &nb);
+    for (int i = 0; i < 8; i++) {
+        s32 a = i * 8192, c = fcos(a), s = fsin(a);
+        gate_v[i] = (MVert){(s16)((700 * s) >> 14), (s16)((700 * c) >> 14), 0};
+        gate_v[8 + i] = (MVert){(s16)((560 * s) >> 14), (s16)((560 * c) >> 14), 0};
+        int j = (i + 1) & 7;
+        gate_f[i] = (MFace)F4(M_CAR, MF_TWO | MF_GLOW, i, j, 8 + j, 8 + i);
+    }
+    setup(&mdl_bay, bay_v, N(bay_v), bay_f, N(bay_f), 2000, &nb);
+    setup(&mdl_raider, raider_v, N(raider_v), raider_f, N(raider_f), 420, &nb);
+    setup(&mdl_carrier, carrier_v, N(carrier_v), carrier_f, N(carrier_f), 1800, &nb);
+    setup(&mdl_pod, pod_v, N(pod_v), pod_f, N(pod_f), 160, &nb);
+    setup(&mdl_medal, medal_v, N(medal_v), medal_f, N(medal_f), 210, &nb);
+    setup(&mdl_crate, crate_v, N(crate_v), crate_f, N(crate_f), 170, &nb);
+    setup(&mdl_gate, gate_v, 16, gate_f, 8, 710, &nb);
+    setup(&mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 6000, &nb);
+    setup(&mdl_boom, boom_v, N(boom_v), boom_f, N(boom_f), 260, &nb);
 }

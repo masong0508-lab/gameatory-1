@@ -46,6 +46,13 @@ typedef void (*Fade)(int);
 #define E_HEAD 0x12                /* s16, 5760 per turn, 0 = +y */
 #define E_HEAD32 0x10              /* the same heading in 16.16 */
 #define E_DESC 0x1c                /* descriptor: vehicles are 0x3c-byte records */
+#define E_STATE 0x10f
+#define ST_HIT 18                  /* a person: staggering from a blow */
+#define ST_DOWN 7                  /* a person: knocked down */
+#define PED_DESC0 0x08354af4u      /* the descriptor table (vehicles 0..17, then animations) */
+#define ANIM_ATTACK0 38            /* 38: a punch (seen); 39..47 taken to be the other attacks */
+#define ANIM_ATTACK1 47
+#define PB_PLAYER ((const u8 *)0x02009394)
 #define E_VX 0x40                  /* s16 velocity, units per 1/30 s */
 #define E_VY 0x42
 #define E_SPEED 0xba               /* s16 speeds */
@@ -164,6 +171,7 @@ static u8 want_ship, told;
 static u32 key_calls, frame_calls, sel_since;
 static u8 sel_down, sel_used, sel_replay, inject_l, call_req;
 
+#define PAD_TAP 4                  /* game frames (about a fifth of a second): a shorter press of UP or DOWN on foot is a tap */
 static char news[100];
 static s32 fade_d;                 /* Payback's last fade (0: none), see sf_fade */
 static u8 news_ready;
@@ -302,6 +310,31 @@ void sf_keys(void)
     if (sel_replay) {
         sel_replay--;
         PB_BTN[B_SELECT] = PB_BTN[B_SELECT2] = 1;
+    }
+    /* on foot, the D-pad walks too: hold UP to walk on, DOWN to back up; a quick tap still
+       picks the next or previous weapon (Payback sees the tap when it is let go) */
+    const u8 *who = controlled();
+    if (mode == FOOT && who == PB_PLAYER) {
+        static u8 held[2], tap[2];
+        for (int k = B_UP; k <= B_DOWN; k++) {
+            int dn = PB_BTN[k];
+            if (tap[k]) {
+                tap[k]--;
+                PB_BTN[k] = 1;
+                continue;
+            }
+            if (dn) {
+                if (held[k] < 255)
+                    held[k]++;
+                PB_BTN[k] = 0;
+                if (held[k] > PAD_TAP)
+                    PB_BTN[k == B_UP ? B_A : B_B] = 1;
+            } else {
+                if (held[k] && held[k] <= PAD_TAP)
+                    tap[k] = 2;
+                held[k] = 0;
+            }
+        }
     }
     if (inject_l) {
         const u8 *me = controlled();
@@ -627,18 +660,43 @@ static void draw_entities(const u8 *me)
                 police_lights(&pl);
             continue;
         }
-        /* a person: dressed by kind (Payback's descriptor), walking when they move */
+        /* a person: dressed for good (by their record, so a punch never recolours them), walking
+           when they move, the arm out while they punch or shoot, lying down once knocked down */
+        u8 st = e[E_STATE];
+        int down = st == ST_DOWN;
+        if (down) {
+            V3 f = m.f;
+            m.f = v3(-m.u.x, -m.u.y, -m.u.z);
+            m.u = f;
+            p.y += 20;
+        }
         if (!model_place(&pl, p, &m, 256, 0, 140))
             continue;
-        u32 kind = entity_desc(e) >> 3;
-        model_body = shirts[kind % sizeof shirts];
-        model_legs = (kind >> 3) & 1 ? M_STEEL : M_ROAD;
+        if (e == PB_PLAYER) {
+            model_body = M_GLOW;                       /* the stunt fox: orange jacket, jeans */
+            model_legs = M_GLASS;
+        } else {
+            u32 kind = ((u32)e - 0x02000000) / 0x168;
+            model_body = shirts[kind % sizeof shirts];
+            model_legs = (kind >> 3) & 1 ? M_STEEL : M_ROAD;
+        }
+        u32 a = (entity_desc(e) - PED_DESC0) / VEH_SIZE;   /* Payback's animation for them */
         const Model *md = &mdl_ped;
-        if (pl.t.z < 1800) {
+        if (pl.t.z < 1800 || e == PB_PLAYER) {
             const s32 *w = (const s32 *)e;
             int moving = w[E_X / 4] != w[E_PREV1 / 4] || w[E_Y / 4] != w[E_PREV1 / 4 + 1];
-            md = !moving ? &mdl_stand : ((iabs(w[E_X / 4]) + iabs(w[E_Y / 4])) >> 7) & 1 ? &mdl_stride_a : &mdl_stride_b;
+            int pose = a >= ANIM_ATTACK0 && a <= ANIM_ATTACK1 && !down ? 3
+                     : down || !moving ? 0 : 1 + (((iabs(w[E_X / 4]) + iabs(w[E_Y / 4])) >> 7) & 1);
+            static const Model *const crowd[4] = {&mdl_stand, &mdl_stride_a, &mdl_stride_b, &mdl_punch};
+            if (e == PB_PLAYER) {
+                model_draw(&mdl_hero[pose][0], &pl);
+                md = &mdl_hero[pose][1];
+            } else {
+                md = crowd[pose];
+            }
         }
+        if (st == ST_HIT)
+            model_body = M_STUNT;                      /* just hit: red while they stagger (no flashing) */
         model_draw(md, &pl);
     }
     model_body = M_CAR;

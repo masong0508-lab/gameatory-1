@@ -75,7 +75,7 @@ def build(payback, out):
 
 
 # --merge: Stunt Fox inside Payback
-MERGE_ONLY = {'merge.c', 'keyhook.s', 'traffic.c', 'tex.c', 'texrun.s'}
+MERGE_ONLY = {'merge.c', 'keyhook.s', 'traffic.c', 'tex.c', 'texrun.s', 'draw2d.c', 'spacegame.c'}
 MERGE_SKIP = {'main.c', 'hud.c', 'crt0.s'}
 MERGE_CALLS = (0x080177fa, 0x08017692)        # Payback's two calls to its world renderer
 MERGE_RENDERER = 0x0800adac
@@ -104,7 +104,7 @@ def build_merge(payback, out, bps_out=None):
     os.makedirs(GEN, exist_ok=True)
     orig = open(payback, 'rb').read()
     rom = PaybackRom(orig)                    # checks it is Payback (Europe); moves the column table
-    data, stats = mkworld.build(orig)
+    data, stats = mkworld.build(orig, merge=True)
     open(os.path.join(GEN, 'world.bin'), 'wb').write(data)
     mkassets.main(os.path.join(GEN, 'tables.c'))
     mkpal.main(orig, os.path.join(GEN, 'pbtables.c'))

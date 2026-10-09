@@ -49,6 +49,25 @@ def h_units(h):
     return (h - STREET) * 8
 
 
+FENCE_EDGE = {0x3: 2, 0xc: 0, 0x5: 1, 0xa: 3}    # flags' low bits -> edge (-z, +x, +z, -x)
+
+
+def fence_of(recs):
+    """A street-level cell with a sloped block standing on it whose flags mark one edge: Payback
+    draws a slanted panel there, and people walk through the cell freely except across the
+    opposite edge (measured by walking Payback's man into every such cell). That is a fence or
+    railing on that edge. Returns (edge, height in units, tile) or None."""
+    if len(recs) < 2 or recs[0][:3] != (STREET, STREET, 1):
+        return None
+    up = max(recs[1:], key=lambda r: max(r[0], r[1]))
+    if up[2] not in (2, 3, 4, 5) or min(up[0], up[1]) > STREET + 0x20 or max(up[0], up[1]) <= STREET:
+        return None
+    edge = FENCE_EDGE.get(up[4] & 15)
+    if edge is None:
+        return None
+    return edge, h_units(max(up[0], up[1])), up[5]
+
+
 def classify(rom):
     """Per cell: (kind, low, high, shape, material). kind: road, kerb, ground, ramp, building."""
     grid = rom.grid(0)
@@ -61,7 +80,7 @@ def classify(rom):
             b = col[20 * k:20 * k + 20]
             h0, h1, shape = struct.unpack_from('<HHB', b, 4)
             if shape:
-                recs.append((h0, h1, shape, b[10]))
+                recs.append((h0, h1, shape, b[10], b[9], b[10] | (b[11] & 3) << 8))
                 if max(h0, h1) >= top:
                     top, top_tex = max(h0, h1), b[10]
         lanes = col[3]
@@ -71,6 +90,13 @@ def classify(rom):
         elif len(recs) == 1 and floor[2] in (2, 3, 4, 5) and min(floor[0], floor[1]) <= STREET + 0x20:
             lo, hi = sorted((floor[0], floor[1]))
             cells.append(('ramp', h_units(lo), h_units(hi), floor[2], M_KERB))
+        elif fence_of(recs):
+            # a railing, fence or thin wall along one edge of a street-level cell (see fence_of):
+            # the cell itself is street, the fence is drawn on its own
+            tex = col[10]
+            mat = M_ROAD if lanes & 0x0f else M_KERB if lanes & 0x20 else \
+                M_GRASS if tex in GRASS_TEX else M_ROAD if tex == 0x2b else M_PLAZA
+            cells.append(('road' if lanes & 0x0f else 'kerb' if lanes & 0x20 else 'ground', 0, 0, 1, mat))
         elif top > STREET:
             mat = BUILDING_MATS[(top_tex * 7 + 3) % len(BUILDING_MATS)]
             cells.append(('building', h_units(top), h_units(top), 1, mat))
@@ -184,11 +210,11 @@ def recs_of(col):
     return out
 
 
-def tex_tables(rom, rom_bytes, cells, boxes):
+def tex_tables(rom, rom_bytes, cells, boxes, merge=False):
     """Tile ids for the top of every cell and for the walls of every box."""
     grid = rom.grid(0)
     cols = [recs_of(rom.column(grid[i])) for i in range(N * N)]
-    x0, y0, x1, y1 = STADIUM
+    x0, y0, x1, y1 = STADIUM if not merge else (0, 0, 0, 0)
     ctex = []
     for i in range(N * N):
         x, y = divmod(i, N)
@@ -255,10 +281,13 @@ def greedy(cells, want, cap):
     return out
 
 
-def build(rom_bytes):
+def build(rom_bytes, merge=False):
+    """merge: for Stunt Fox inside Payback, where Payback's own collision decides where people
+    walk, so the city is drawn exactly as Payback has it (its stadium, not the stunt arena)."""
     rom = PaybackRom(rom_bytes)
     cells = classify(rom)
-    stunt_park(cells)
+    if not merge:
+        stunt_park(cells)
 
     boxes = greedy(cells, lambda i: (cells[i][2], cells[i][4]) if cells[i][0] == 'building' else None, 4)
     lots = greedy(cells, lambda i: cells[i][4] if cells[i][0] in ('ground', 'kerb') and cells[i][4] != M_ROAD
@@ -267,8 +296,26 @@ def build(rom_bytes):
     # loops: (x, z) of the entry point in units, direction (0 +z, 1 +x, 2 -z, 3 -x), radius, width
     loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)]
     lines = centre_lines(rom, cells)
-    trees = park_trees(cells)
-    ctex, btex = tex_tables(rom, rom_bytes, cells, boxes)
+    if merge:
+        # Payback has no trees to walk round; its fences go in their place (citydraw.c draw_tree)
+        trees = []
+        grid = rom.grid(0)
+        for i in range(N * N):
+            col = rom.column(grid[i])
+            recs = []
+            for k in range(3):
+                b = col[20 * k:20 * k + 20]
+                h0, h1, shape = struct.unpack_from('<HHB', b, 4)
+                if shape:
+                    recs.append((h0, h1, shape, b[10], b[9], b[10] | (b[11] & 3) << 8))
+            fe = fence_of(recs)
+            if fe:
+                x, y = divmod(i, N)
+                tile = fe[2] if fe[2] < 512 and tile_ok(rom_bytes, fe[2], 0x280) else 511
+                trees.append((x | tile << 7, y, min(255, fe[1] // 8), 2 + fe[0]))
+    else:
+        trees = park_trees(cells)
+    ctex, btex = tex_tables(rom, rom_bytes, cells, boxes, merge)
 
     # sector index
     sectors = [[] for _ in range(256)]
@@ -289,7 +336,10 @@ def build(rom_bytes):
         else:
             add(K_LINE, i, at - 1, t0, at + 1, t1)
     for i, (x, z, h, k) in enumerate(trees):
-        add(K_TREE, i, x * 4 // CELL, z * 4 // CELL, x * 4 // CELL + 1, z * 4 // CELL + 1)
+        if k >= 2:      # a fence: cell x (low 7 bits; the tile above), cell z
+            add(K_TREE, i, x & 127, z, (x & 127) + 1, z + 1)
+        else:
+            add(K_TREE, i, x * 4 // CELL, z * 4 // CELL, x * 4 // CELL + 1, z * 4 // CELL + 1)
     for i, (x, z, d, r, w) in enumerate(loops):
         cx, cz = x // CELL, z // CELL
         add(K_LOOP, i, max(0, cx - 4), max(0, cz - 4), min(N, cx + 5), min(N, cz + 5))

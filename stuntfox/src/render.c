@@ -386,6 +386,8 @@ HOT void r_flush_fg(void)
     r_polys = npoly;
 }
 
+u8 *r_target(void) { return back; }
+
 void r_pixel(int x, int y, int color)
 {
     if ((unsigned)x >= 240 || (unsigned)y >= 160)

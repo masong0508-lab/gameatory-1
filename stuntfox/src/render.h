@@ -40,6 +40,7 @@ void r_flush_bg(void);            /* draw the background list into the back buff
 void r_flush_fg(void);            /* then everything else, far to near */
 void r_flip(void);
 void r_pixel(int x, int y, int color);
+u8 *r_target(void);                /* the page being drawn */
 int fog_of(int z);
 extern int r_nofog;               /* fog_of gives 0 (in space) */
 

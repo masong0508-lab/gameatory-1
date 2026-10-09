@@ -246,10 +246,24 @@ int penetrate(V3 p, Hit *h)
         s32 dx = px - station_pos.x, dy = py - station_pos.y, dz = pz - station_pos.z;
         s32 ox = HUB_HX - (dx < 0 ? -dx : dx), oy = HUB_HY - (dy < 0 ? -dy : dy), oz = HUB_HZ - (dz < 0 ? -dz : dz);
         if (ox > 0 && oy > 0 && oz > 0) {
+            /* the docking bay is open space; its floor, ceiling and walls push back into it */
+            s32 bx = BAY_HX - (dx < 0 ? -dx : dx), b0 = dy - BAY_Y0, b1 = BAY_Y1 - dy, bz = dz - BAY_Z0;
+            if (bx > 0 && b0 > 0 && b1 > 0 && bz > 0)
+                return 0;
+            s32 best;
             h->kind = SURF_DECK;
-            if (oy <= ox && oy <= oz) h->dist = oy << FX, h->n = v3(0, dy < 0 ? -ONE : ONE, 0);
-            else if (ox <= oz) h->dist = ox << FX, h->n = v3(dx < 0 ? -ONE : ONE, 0, 0);
-            else h->dist = oz << FX, h->n = v3(0, 0, dz < 0 ? -ONE : ONE);
+            if (oy <= ox && oy <= oz) best = oy, h->n = v3(0, dy < 0 ? -ONE : ONE, 0);
+            else if (ox <= oz) best = ox, h->n = v3(dx < 0 ? -ONE : ONE, 0, 0);
+            else best = oz, h->n = v3(0, 0, dz < 0 ? -ONE : ONE);
+            if (b0 > 0 && b1 > 0 && bz > 0 && -bx < best)
+                best = -bx, h->n = v3(dx < 0 ? ONE : -ONE, 0, 0);
+            if (bx > 0 && bz > 0 && b0 <= 0 && -b0 < best)
+                best = -b0, h->n = v3(0, ONE, 0);
+            if (bx > 0 && bz > 0 && b1 <= 0 && -b1 < best)
+                best = -b1, h->n = v3(0, -ONE, 0);
+            if (bx > 0 && b0 > 0 && b1 > 0 && bz <= 0 && -bz < best)
+                best = -bz, h->n = v3(0, 0, ONE);
+            h->dist = (best + 1) << FX;
             return 1;
         }
         for (int i = 0; i < nrocks; i++) {

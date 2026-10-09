@@ -290,9 +290,54 @@ static void draw_line(const Line *ln)
     }
 }
 
+#ifdef MERGE
+/* Payback's railings: a see-through slanted panel standing on one edge of a street cell
+   (tools/mkworld.py, fence_of). Payback stops people at that edge and lets them through
+   everywhere else, so it is drawn as an iron railing along the edge. */
+#define RAIL_FAR 5000
+static void draw_fence(const Tree *t)
+{
+    int cx = t->x & 127, e = t->kind - 2;
+    s32 x0 = cx * CELL, z0 = t->z * CELL;
+    s32 dx = x0 + 512 - cam.pos.x, dz = z0 + 512 - cam.pos.z;
+    if (dx < -RAIL_FAR || dx > RAIL_FAR || dz < -RAIL_FAR || dz > RAIL_FAR)
+        return;
+    static const s8 lo[4][4] = {{0, 0, 1, 0}, {1, 0, 1, 1}, {1, 1, 0, 1}, {0, 1, 0, 0}};
+    V3 o = r_cam(v3(x0, 0, z0));
+    V3 b0 = cadd(o, lo[e][0] * CELL, 0, lo[e][1] * CELL), b1 = cadd(o, lo[e][2] * CELL, 0, lo[e][3] * CELL);
+    if (!in_view(v3((b0.x + b1.x) >> 1, (b0.y + b1.y) >> 1, (b0.z + b1.z) >> 1), 600))
+        return;
+    s32 key = (b0.z + b1.z) >> 1;
+    int f = fog_of(key > 0 ? key : 0);
+    V3 step = v3((b1.x - b0.x) >> 2, (b1.y - b0.y) >> 2, (b1.z - b0.z) >> 2);
+    V3 up = v3(ay.x >> 4, ay.y >> 4, ay.z >> 4);                       /* (1024 units: 1.14 >> 4) */
+#define UP(p, k) v3((p).x + ((up.x * (k)) >> 10), (p).y + ((up.y * (k)) >> 10), (p).z + ((up.z * (k)) >> 10))
+    for (int bar = 0; bar < 2; bar++) {
+        s32 h0 = bar ? 150 : 70, h1 = h0 + 22;
+        V3 q[4] = {UP(b0, h0), UP(b1, h0), UP(b1, h1), UP(b0, h1)};
+        r_poly(q, 4, COLOR(M_STEEL, bar ? 3 : 2, f), key, 0);
+    }
+    if (key < 2500) {
+        V3 side = v3(step.x >> 4, step.y >> 4, step.z >> 4);           /* (16 units wide) */
+        for (int k = 0; k <= 4; k++) {
+            V3 p = v3(b0.x + step.x * k, b0.y + step.y * k, b0.z + step.z * k);
+            V3 q[4] = {p, vadd(p, side), UP(vadd(p, side), 180), UP(p, 180)};
+            r_poly(q, 4, COLOR(M_STEEL, 1, f), key, 0);
+        }
+    }
+#undef UP
+}
+#endif
+
 /* a park tree, drawn as a cut-out facing the camera: trunk, crown and a lit side */
 static void draw_tree(const Tree *t)
 {
+#ifdef MERGE
+    if (t->kind >= 2) {
+        draw_fence(t);
+        return;
+    }
+#endif
     s32 x = t->x << 2, z = t->z << 2, h = t->h << 3;
     s32 dx = x - cam.pos.x, dz = z - cam.pos.z;
     if (dx < -TREE_FAR || dx > TREE_FAR || dz < -TREE_FAR || dz > TREE_FAR)

@@ -6,6 +6,7 @@
 static const V3 sun = {6553, 13107, 7372};     /* roughly (0.4, 0.8, 0.45) */
 u8 model_body = M_CAR;                          /* material drawn for M_CAR faces (paint job) */
 u8 model_legs = M_ROAD;                         /* ... and for M_SKY faces */
+u8 model_hull = M_SHIP;                         /* ... and for M_SHIP faces */
 
 void model_init(Model *md)
 {
@@ -30,7 +31,7 @@ void model_init(Model *md)
         for (int k = 0; k < f->n; k++)
             fx += md->v[f->idx[k]].x, fy += md->v[f->idx[k]].y, fz += md->v[f->idx[k]].z;
         fx = fx / f->n - cx, fy = fy / f->n - cy, fz = fz / f->n - cz;
-        if (((n.x * fx + n.y * fy + n.z * fz) >> 4) < 0)      /* make it point outward */
+        if ((((n.x * fx + n.y * fy + n.z * fz) >> 4) < 0) != !!(f->flags & MF_IN))   /* outward (or in) */
             n = v3(-n.x, -n.y, -n.z);
         md->normal[i] = (N3){(s16)n.x, (s16)n.y, (s16)n.z};
     }
@@ -65,7 +66,7 @@ static inline V3 xf(const Place *pl, const MVert *v)
 
 void model_draw(const Model *md, const Place *pl)
 {
-    V3 cv[64];
+    V3 cv[64];                                  /* (so a model has at most 64 points) */
     for (int i = 0; i < md->nv; i++)
         cv[i] = xf(pl, &md->v[i]);
     for (int i = 0; i < md->nf; i++) {
@@ -85,7 +86,7 @@ void model_draw(const Model *md, const Place *pl)
             if (nc.x * p.x + nc.y * p.y + nc.z * p.z >= 0)
                 continue;
         }
-        int color, mat = f->mat == M_CAR ? model_body : f->mat == M_SKY ? model_legs : f->mat;
+        int color, mat = f->mat == M_CAR ? model_body : f->mat == M_SKY ? model_legs : f->mat == M_SHIP ? model_hull : f->mat;
         if (f->flags & MF_GLOW)
             color = COLOR(mat, 3, 0);
         else {
@@ -97,7 +98,7 @@ void model_draw(const Model *md, const Place *pl)
         V3 q[6];
         for (int k = 0; k < f->n; k++)
             q[k] = cv[f->idx[k]];
-        r_poly(q, f->n, color, -1, 0);
+        r_poly(q, f->n, color, f->flags & MF_BACK ? -2 : -1, 0);
     }
 }
 

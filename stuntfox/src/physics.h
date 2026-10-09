@@ -60,5 +60,11 @@ extern int nrocks;
 #define HUB_HX 1600
 #define HUB_HY 500
 #define HUB_HZ 1600
+/* the docking bay: a hangar inside the hub, open at its front (+z) face */
+#define BAY_HX 800
+#define BAY_Y0 (-420)
+#define BAY_Y1 140
+#define BAY_Z0 (-900)                 /* its back wall */
+#define BAY_PAD_Z 250                 /* the landing pad's centre */
 
 #endif

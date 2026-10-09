@@ -1,3 +1,4 @@
+
 /* Models for Payback's own vehicles and people, drawn by the MERGE build. Vehicles share the
    car's origin: the centre of the body, with the road 58 units below. People stand on their
    origin. Faces in M_CAR take the paint job (model_body), people's legs (M_SKY) take
@@ -124,13 +125,54 @@ static const MFace person_f[] = {
 static const MVert stand_v[] = {PERSON_V(0, 0)};
 static const MVert stride_a_v[] = {PERSON_V(40, 30)};
 static const MVert stride_b_v[] = {PERSON_V(-40, -30)};
+/* a punch (or a shot): the right arm straight out in front, the feet apart */
+static const MVert punch_v[] = {
+    BOX(-26, -4, 0, 100, 25, 0, 13), BOX(4, 26, 0, 100, -25, 0, 13), BOX(-34, 34, 98, 180, 0, 0, 18),
+    BOX(-16, 16, 184, 226, 0, 0, 16),
+    {-38, 175, -8}, {-38, 175, 8}, {-38, 115, 30}, {-38, 115, 14},
+    {38, 168, 0}, {38, 182, 0}, {30, 182, 115}, {30, 168, 115},
+};
+
+#define N(a) (sizeof a / sizeof a[0])
+/* The player: a better-made person. Shoes and trousers (model_legs), a jacket tapering from the
+   shoulders to the hips (model_body) with sleeves, hands, a face and hair; drawn as two models
+   (model_draw takes at most 64 points). s: how far each foot is ahead of the hips, a: how far
+   each hand swings. The punch has the right arm out in front. */
+#define HERO_LO(s)                                                                              \
+    BOX(-24, -5, 16, 100, s, 0, 11), BOX(5, 24, 16, 100, -(s), 0, 11),                          \
+    BOX(-25, -4, 0, 16, (s) + 5, (s) + 5, 16), BOX(4, 25, 0, 16, -(s) + 5, -(s) + 5, 16)
+#define HERO_TORSO                                                                              \
+    {-28, 96, -15}, {28, 96, -15}, {28, 96, 15}, {-28, 96, 15},                                  \
+    {-38, 178, -17}, {38, 178, -17}, {38, 178, 17}, {-38, 178, 17},                              \
+    BOX(-15, 15, 182, 224, 2, 2, 15), BOX(-17, 17, 210, 234, -4, -4, 17)
+#define HERO_HI(a)                                                                              \
+    HERO_TORSO, BOX(-48, -38, 108, 176, -(a), 0, 8), BOX(38, 48, 108, 176, a, 0, 8),             \
+    BOX(-48, -38, 92, 108, -(a) * 5 / 4, -(a), 7), BOX(38, 48, 92, 108, (a) * 5 / 4, a, 7)
+#define TOP(m, b) F4(m, 0, b + 4, b + 5, b + 6, b + 7)
+static const MFace hero_lo_f[] = {
+    SIDES(M_SKY, 0), SIDES(M_SKY, 8), SIDES(M_ROAD, 16), TOP(M_ROAD, 16), SIDES(M_ROAD, 24), TOP(M_ROAD, 24),
+};
+static const MFace hero_hi_f[] = {
+    SIDES(M_CAR, 0), TOP(M_CAR, 0), SIDES(M_CREAM, 8), SIDES(M_ROAD, 16), TOP(M_ROAD, 16),
+    SIDES(M_CAR, 24), SIDES(M_CAR, 32), SIDES(M_CREAM, 40), SIDES(M_CREAM, 48),
+};
+static const MVert hero_lo_v[4][32] = {{HERO_LO(0)}, {HERO_LO(36)}, {HERO_LO(-36)}, {HERO_LO(22)}};
+static const MVert hero_hi_v[4][56] = {{HERO_HI(0)}, {HERO_HI(26)}, {HERO_HI(-26)}, {
+    HERO_TORSO, BOX(-48, -38, 116, 176, 26, 0, 8),
+    {38, 166, 0}, {48, 166, 0}, {48, 180, 0}, {38, 180, 0},       /* the right arm, out straight */
+    {38, 166, 110}, {48, 166, 110}, {48, 180, 110}, {38, 180, 110},
+    BOX(-48, -38, 100, 116, 32, 26, 7),
+    {37, 164, 110}, {49, 164, 110}, {49, 182, 110}, {37, 182, 110},  /* the fist */
+    {37, 164, 128}, {49, 164, 128}, {49, 182, 128}, {37, 182, 128},
+}};
+Model mdl_hero[4][2];
+static N3 hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)] EWRAM_BSS;
 
 Model mdl_saloon, mdl_limo, mdl_pickup, mdl_sport, mdl_van, mdl_bus, mdl_tank;
-Model mdl_stand, mdl_stride_a, mdl_stride_b;
+Model mdl_stand, mdl_stride_a, mdl_stride_b, mdl_punch;
 
 static N3 tnbuf[200] EWRAM_BSS;
 
-#define N(a) (sizeof a / sizeof a[0])
 static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int radius, N3 **nb)
 {
     md->v = v;
@@ -156,4 +198,12 @@ void traffic_init(void)
     setup(&mdl_stand, stand_v, N(stand_v), person_f, N(person_f), 140, &nb);
     setup(&mdl_stride_a, stride_a_v, N(stride_a_v), person_f, N(person_f), 140, &nb);
     setup(&mdl_stride_b, stride_b_v, N(stride_b_v), person_f, N(person_f), 140, &nb);
+    setup(&mdl_punch, punch_v, N(punch_v), person_f, N(person_f), 150, &nb);
+    /* the walking poses share the standing one's normals (the limbs only lean a little; it is
+       set up last, so its normals are the ones kept) */
+    for (int i = 3; i >= 0; i--) {
+        N3 *lo = hero_n, *hi = hero_n + N(hero_lo_f) + (i == 3) * N(hero_hi_f);
+        setup(&mdl_hero[i][0], hero_lo_v[i], 32, hero_lo_f, N(hero_lo_f), 130, &lo);
+        setup(&mdl_hero[i][1], hero_hi_v[i], 56, hero_hi_f, N(hero_hi_f), 150, &hi);
+    }
 }
