@@ -143,8 +143,11 @@ void space_draw(void)
     Place pl;
     V3 d = vsub(station_pos, cam.pos);
     s32 far = (d.x > 40000 || d.x < -40000 || d.y > 40000 || d.y < -40000 || d.z > 40000 || d.z < -40000) ? 2 : 0;
-    if (model_place(&pl, station_pos, &still, 256, far, mdl_hub.radius))
+    if (model_place(&pl, station_pos, &still, 256, far, mdl_hub.radius)) {
         model_draw(&mdl_hub, &pl);
+        if (!far)
+            model_draw(&mdl_bay, &pl);                 /* the hangar, seen through its mouth */
+    }
     if (model_place(&pl, station_pos, &ring_m, 256, far, mdl_ring.radius))
         model_draw(&mdl_ring, &pl);
     for (int i = 0; i < nrocks; i++) {

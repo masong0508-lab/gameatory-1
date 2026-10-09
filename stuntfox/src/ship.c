@@ -19,6 +19,8 @@ static const V3 hull[] = {
 #define FAST (175 << FX)
 #define SLOW (40 << FX)
 
+u8 ship_engine;                    /* 0..2: the shipyard's engine upgrades */
+
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -86,7 +88,7 @@ void ship_update(Ship *s, u16 keys)
     if (s->gear)
         thrust = keys & KEY_A ? 130 : 0;
     else {
-        s32 target = keys & KEY_A ? FAST : keys & KEY_B ? SLOW : CRUISE;
+        s32 target = keys & KEY_A ? FAST + ship_engine * (35 << FX) : keys & KEY_B ? SLOW : CRUISE + ship_engine * (12 << FX);
         thrust = clampi((target - vf) >> 6, -140, 220);
     }
     b->acc = vadd(b->acc, vscale(m->f, thrust));
@@ -120,6 +122,9 @@ void ship_update(Ship *s, u16 keys)
         }
         if (keys & KEY_L) t.y = -5000;
         if (keys & KEY_R) t.y = 5000;
+        s32 yaw = (6000 * space) >> 14;                    /* no air to bank against: steer */
+        if (keys & KEY_RIGHT) t.y += yaw;
+        if (keys & KEY_LEFT) t.y -= yaw;
         if (m->u.y > 0)                                    /* banked: the lift turns you */
             t.y += (((((-m->r.y * 7000) >> 14) * la) >> 14) * m->u.y) >> 14;
         if (s->rolling) {

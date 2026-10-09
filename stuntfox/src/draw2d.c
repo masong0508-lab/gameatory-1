@@ -20,6 +20,23 @@ void d_pixel(int x, int y, int color)
         put(r_target(), x, y, pal_of(color));
 }
 
+/* one whole letter, inside the screen (ARM, in borrowed IWRAM: text is drawn every frame) */
+HOT3 static void glyph(u8 *at, const u32 *g, u32 ink, u32 shadow)
+{
+    for (int r = 0; r < 8; r++, at += 240) {
+        u32 w = g[r];
+        for (int k = 0; w; k++, w >>= 4) {
+            u32 v = w & 15;
+            if (!v)
+                continue;
+            u8 *a = at + k;
+            u16 *p = (u16 *)((u32)a & ~1);
+            u32 c = v == 1 ? ink : shadow;
+            *p = (u32)a & 1 ? (*p & 0xff) | (c << 8) : (*p & 0xff00) | c;
+        }
+    }
+}
+
 void d_text(int x, int y, const char *s, int color)
 {
     u8 *page = r_target();
@@ -31,6 +48,10 @@ void d_text(int x, int y, const char *s, int color)
         if (ch <= 32 || ch > 95)
             continue;
         const u32 *g = &font_tiles[(ch - 32) * 8];
+        if (x >= 1 && x + 7 <= 240 && y >= 0 && y + 8 <= 160) {
+            glyph(page + y * 240 + x - 1, g, ink, shadow);
+            continue;
+        }
         for (int r = 0; r < 8; r++) {
             int yy = y + r;
             if ((unsigned)yy >= 160)
@@ -53,6 +74,25 @@ void d_rect(int x, int y, int w, int h, int color)
             for (int i = x; i < x + w; i++)
                 if ((unsigned)i < 240)
                     put(r_target(), i, j, c);
+}
+
+void d_fill(int x, int y, int w, int h, int color)
+{
+    u8 *page = r_target();
+    u32 c = pal_of(color);
+    c |= c << 8;
+    c |= c << 16;
+    x &= ~3;
+    w = (w + 3) & ~3;
+    if (x < 0) w += x, x = 0;
+    if (x + w > 240) w = 240 - x;
+    if (y < 0) h += y, y = 0;
+    if (y + h > 160) h = 160 - y;
+    for (int j = 0; j < h; j++) {
+        u32 *p = (u32 *)(page + (y + j) * 240 + x);
+        for (int i = 0; i < w; i += 4)
+            *p++ = c;
+    }
 }
 
 void d_panel(int x, int y, int w, int h)

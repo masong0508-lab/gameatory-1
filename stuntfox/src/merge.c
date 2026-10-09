@@ -23,6 +23,8 @@
 #include "physics.h"
 #include "car.h"
 #include "ship.h"
+#include "spacegame.h"
+#include "draw2d.h"
 #include "traffic.h"
 #include "model.h"
 #include "space.h"
@@ -164,7 +166,7 @@ static Ship ship;
 static u8 *car_ent;                /* Payback's record of the car we drive */
 static int car_kind;               /* which of Payback's vehicles it is */
 static int vehicle_kind(const u8 *e);
-static u16 keys, prev_keys;
+static u16 keys, prev_keys, hits;
 static u8 want_ship, told;
 
 /* SELECT, as sf_keys sees it */
@@ -186,6 +188,7 @@ static void start(void)
     models_init();
     traffic_init();
     space_init();
+    sg_init();
     cam_off = v3(0, 400, -800);
     cam_up = v3(0, ONE, 0);
     last_clock = pb_clock();
@@ -205,6 +208,8 @@ static void say(const char *s)
     news[n] = 0;
     news_ready = 1;
 }
+
+void sg_say(const char *s) { say(s); }
 
 static void news_send(void)
 {
@@ -386,6 +391,12 @@ static void camera_update(const u8 *me)
             camera_look(vshr(car.b.pos, FX), fwd, up, 600, 340, 30, 250);
         else
             camera_look(vshr(car.b.pos, FX), fwd, up, 820, 300, 110, 250);
+    } else if (mode == FLY && sg_state == SG_DOCKED) {
+        /* in the hangar: the camera sways slowly in front of the Arwing on its pad */
+        M3 m;
+        myaw(&m, 41768 + fsin(frame_count * 40) * 4000 / ONE);       /* in front, to one side */
+        /* (shifted sideways, so the Arwing stands clear of the menu on the left) */
+        camera_look(vadd(sg_pad(), vscale(m.r, 300)), m.f, level, 800, 300, 40, 0);
     } else if (mode == FLY) {
         V3 up = ship.b.m.u;
         if ((ship.b.pos.y >> FX) < SPACE_HI)
@@ -523,7 +534,8 @@ static void board(u8 *me)
     mode = FLY;
     parked = 0;
     was_flying = 0;
-    say(told & 2 ? "Arwing!" : "Arwing! A thrust, B brake, DOWN pull up, L R bank. Hold SELECT on the street to get out.");
+    sg_state = SG_FLY;
+    say(told & 2 ? "Arwing!" : "Arwing! A thrust, B brake, R laser, L missile. Fly up to space to find Fox Station.");
     told |= 2;
 }
 
@@ -552,7 +564,7 @@ static void ship_events(void)
     } else if (was_flying && vlen(b->vel) < (25 << FX) && ship.gear >= 2) {
         was_flying = 0;
         if (ship.gear_kind == SURF_DECK)
-            say("DOCKED AT THE SPACE STATION!");
+            sg_landed(&ship);
         else if (ground_fine(b->pos.x, b->pos.z) > (300 << FX))
             say("ROOFTOP LANDING!");
         else
@@ -560,7 +572,7 @@ static void ship_events(void)
     }
     if (alt > SPACE_HI && !in_space) {
         in_space = 1;
-        say("SPACE! The station is near.");
+        say("SPACE! Hold SELECT near Fox Station to dock.");
     }
     if (alt < SPACE_LO)
         in_space = 0;
@@ -730,9 +742,12 @@ static void draw_ship(void)
     V3 d = vsub(p, cam.pos);
     if (iabs(d.x) > 40000 || iabs(d.y) > 40000 || iabs(d.z) > 40000)
         return;
-    if (!model_place(&pl, p, &ship.b.m, 256, 0, mdl_arwing.radius))
+    if (!sg_ship_visible() || !model_place(&pl, p, &ship.b.m, 256, 0, mdl_arwing.radius))
         return;
+    sg_paint();
     model_draw(&mdl_arwing, &pl);
+    model_hull = M_SHIP;
+    model_body = M_CAR;
     if (mode == FLY && !ship.gear) {
         int len = ship.boosting ? 380 : 200;
         MVert fl[3] = {{-30, 6, -90}, {30, 6, -90}, {0, 26, -90 - len - (int)(frame_count & 2) * 30}};
@@ -799,7 +814,7 @@ static void choose_mode(u8 *me)
     if (mode == FLY) {
         if (is_vehicle(me))
             mode = FOOT, parked = 1;                   /* a mission put the player somewhere */
-        else if (call_req)
+        else if (call_req && !sg_select(&ship))
             land(me);
     } else if (is_car(me)) {
         if (mode != DRIVE || car_ent != me)
@@ -825,6 +840,7 @@ static void choose_mode(u8 *me)
 
 static void step(u8 *me, int ticks)
 {
+    hits |= keys & ~prev_keys;                         /* (a frame can pass with no tick in it) */
     for (int t = 0; t < ticks; t++) {
         if (mode == DRIVE) {
             car_update(&car, mirror_keys(keys) & ~KEY_L);          /* L is Payback's: get out */
@@ -832,10 +848,12 @@ static void step(u8 *me, int ticks)
             car_bump();
             car_stunts();
         } else if (mode == FLY) {
-            ship_update(&ship, mirror_keys(keys));
-            ship_events();
+            sg_tick(&ship, mirror_keys(keys), t ? 0 : hits);
+            if (sg_state == SG_FLY)
+                ship_events();
         }
         space_tick();
+        hits = 0;
     }
     if (mode == DRIVE)
         entity_put(car_ent, vshr(car.b.pos, FX), heading_of(&car.b.m), car.b.vel);
@@ -885,16 +903,22 @@ void sf_frame(int a0, int a1, int a2, int a3, int s0, int s1, int s2, int view)
     r_begin();
     tex_frame();
     sky_draw(alt);
-    world_draw();
+    int hangar = mode == FLY && sg_state == SG_DOCKED;   /* inside: the city far below is out of sight */
+    if (!hangar)
+        world_draw();
     space_draw();
-    draw_entities(me);
+    if (!hangar)
+        draw_entities(me);
     if (mode == DRIVE)
         draw_car();
+    sg_draw(&ship);
     if (mode == FLY || parked)
         draw_ship();
     r_flush_bg();
     stars_draw(alt);
     r_flush_fg();
+    if (mode == FLY)
+        sg_hud(&ship);
     if (fade_d && palette_plain())
         fade_d = 0;                /* Payback has put its colours back */
     hot_restore();

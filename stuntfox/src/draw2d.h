@@ -8,7 +8,8 @@
 #define TEXT_W 6                   /* pixels per letter */
 void d_text(int x, int y, const char *s, int color);
 void d_rect(int x, int y, int w, int h, int color);
-void d_panel(int x, int y, int w, int h);          /* darkens what is there */
+void d_panel(int x, int y, int w, int h);          /* darkens what is there (slow: keep it small) */
+void d_fill(int x, int y, int w, int h, int color);  /* a solid box, fast */
 void d_hline(int x0, int x1, int y, int color);
 void d_vline(int x, int y0, int y1, int color);
 void d_pixel(int x, int y, int color);
