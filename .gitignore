@@ -6,3 +6,4 @@
 *.sav
 __pycache__/
 payback-mod/harness/mgba/
+stuntfox/build/
