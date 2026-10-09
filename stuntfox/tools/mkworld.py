@@ -196,6 +196,7 @@ def build(rom_bytes):
     section(b''.join(struct.pack('<H', v) for v in items))
     section(b''.join(struct.pack('<hhBB', c[1], c[2], c[3], c[4]) for c in cells))
     section(b''.join(struct.pack('<Bxh', m, h) for m, h in far))
+    assert len(boxes) <= 2048 and len(lots) <= 2560 and len(ramps) <= 512, 'see SEEN_* in citydraw.c'
     header = struct.pack('<4s8I', b'SFW1', len(boxes), len(lots), len(ramps), len(loops), len(items), 0, 0, 0)
     header += struct.pack('<8I', *[p + 4 * 9 + 4 * 8 for p in parts])
     return header + bytes(blob), dict(boxes=len(boxes), lots=len(lots), ramps=len(ramps), items=len(items))

@@ -1,4 +1,5 @@
-/* Model data. Units match the physics: the car is about 4 m long, the Arwing about 6 m. */
+/* Model data. Units match the physics: the car is about 4 m long, the Arwing about 6 m, a
+   person about 1.8 m tall. */
 #include "model.h"
 #include "palette.h"
 #include "physics.h"
@@ -80,10 +81,41 @@ static const MFace rock_f[] = {
     F3(M_CONCRETE, 0, 1, 5, 7), F3(M_STEEL, 0, 7, 5, 3), F3(M_BRICK, 0, 1, 4, 2), F3(M_STEEL, 0, 1, 3, 4),
 };
 
-static V3 nbuf[160] EWRAM_BSS;
-Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock;
+/* A person: legs and body in their clothes' colour (M_CAR, painted per person) and a head. */
+static const MVert ped_v[] = {
+    {-34, 0, -20}, {34, 0, -20}, {34, 0, 20}, {-34, 0, 20},
+    {-34, 180, -20}, {34, 180, -20}, {34, 180, 20}, {-34, 180, 20},
+    {-18, 180, -18}, {18, 180, -18}, {18, 180, 18}, {-18, 180, 18},
+    {-18, 228, -18}, {18, 228, -18}, {18, 228, 18}, {-18, 228, 18},
+};
+static const MFace ped_f[] = {
+    F4(M_CAR, 0, 0, 1, 5, 4), F4(M_CAR, 0, 1, 2, 6, 5), F4(M_CAR, 0, 2, 3, 7, 6), F4(M_CAR, 0, 3, 0, 4, 7),
+    F4(M_CAR, 0, 4, 5, 6, 7),
+    F4(M_CREAM, 0, 8, 9, 13, 12), F4(M_CREAM, 0, 9, 10, 14, 13), F4(M_CREAM, 0, 10, 11, 15, 14),
+    F4(M_CREAM, 0, 11, 8, 12, 15), F4(M_ROAD, 0, 12, 13, 14, 15),
+};
 
-static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int radius, V3 **nb)
+/* A helicopter: cabin, tail boom and a two-blade rotor. */
+static const MVert heli_v[] = {
+    {-90, 0, -150}, {90, 0, -150}, {90, 0, 170}, {-90, 0, 170},
+    {-90, 150, -120}, {90, 150, -120}, {90, 150, 110}, {-90, 150, 110},
+    {0, 110, -140}, {0, 120, -480}, {0, 60, -140}, {0, 230, -500},
+    {-30, 170, -30}, {30, 170, -30}, {30, 170, 30}, {-30, 170, 30},
+    {-20, 172, -520}, {20, 172, -520}, {20, 172, 520}, {-20, 172, 520},
+    {-520, 174, -20}, {520, 174, -20}, {520, 174, 20}, {-520, 174, 20},
+    {-60, 90, 172}, {60, 90, 172}, {60, 140, 112}, {-60, 140, 112},
+};
+static const MFace heli_f[] = {
+    F4(M_CAR, 0, 0, 1, 5, 4), F4(M_CAR, 0, 1, 2, 6, 5), F4(M_CAR, 0, 3, 0, 4, 7), F4(M_CAR, 0, 4, 5, 6, 7),
+    F4(M_STEEL, 0, 0, 3, 2, 1), F4(M_CAR, 0, 2, 3, 7, 6), F4(M_GLASS, MF_TWO, 24, 25, 26, 27),
+    F3(M_CAR, MF_TWO, 8, 9, 10), F3(M_CAR, MF_TWO, 8, 11, 9),
+    F4(M_STEEL, MF_TWO, 12, 13, 14, 15), F4(M_ROAD, MF_TWO, 16, 17, 18, 19), F4(M_ROAD, MF_TWO, 20, 21, 22, 23),
+};
+
+static N3 nbuf[160] EWRAM_BSS;
+Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
+
+static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int radius, N3 **nb)
 {
     md->v = v;
     md->nv = nv;
@@ -125,10 +157,12 @@ void models_init(void)
         ring_f[nf++] = (MFace)F4(M_STEEL, MF_TWO, nv, nv + 1, nv + 2, nv + 3);
         nv += 4;
     }
-    V3 *nb = nbuf;
+    N3 *nb = nbuf;
     setup(&mdl_car, car_v, sizeof car_v / sizeof car_v[0], car_f, sizeof car_f / sizeof car_f[0], 300, &nb);
     setup(&mdl_arwing, arwing_v, sizeof arwing_v / sizeof arwing_v[0], arwing_f, sizeof arwing_f / sizeof arwing_f[0], 450, &nb);
     setup(&mdl_hub, hub_v, sizeof hub_v / sizeof hub_v[0], hub_f, sizeof hub_f / sizeof hub_f[0], 2400, &nb);
     setup(&mdl_ring, ring_v, nv, ring_f, nf, 6700, &nb);
     setup(&mdl_rock, rock_v, sizeof rock_v / sizeof rock_v[0], rock_f, sizeof rock_f / sizeof rock_f[0], 270, &nb);
+    setup(&mdl_ped, ped_v, sizeof ped_v / sizeof ped_v[0], ped_f, sizeof ped_f / sizeof ped_f[0], 130, &nb);
+    setup(&mdl_heli, heli_v, sizeof heli_v / sizeof heli_v[0], heli_f, sizeof heli_f / sizeof heli_f[0], 560, &nb);
 }

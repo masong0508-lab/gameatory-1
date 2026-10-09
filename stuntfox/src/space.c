@@ -61,10 +61,10 @@ void sky_draw(s32 alt)
     r_sky(cols, bounds, 9);
 }
 
-void palette_commit(void)
+int palette_commit(void)
 {
     if (sky_pending < 0)
-        return;
+        return 0;
     int t = sky_pending;
     sky_pending = -1;
     static const u8 zd[3] = {6, 12, 26}, hd[3] = {22, 26, 30}, fd[3] = {22, 26, 30};
@@ -76,6 +76,7 @@ void palette_commit(void)
         f[k] = lerp8(fd[k], fs[k], t);
     }
     palette_set(z, h, f);
+    return 1;
 }
 
 void stars_draw(s32 alt)

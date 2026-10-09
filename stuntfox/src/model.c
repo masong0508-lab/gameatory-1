@@ -4,6 +4,7 @@
 #include "palette.h"
 
 static const V3 sun = {6553, 13107, 7372};     /* roughly (0.4, 0.8, 0.45) */
+u8 model_body = M_CAR;                          /* material drawn for M_CAR faces (paint job) */
 
 void model_init(Model *md)
 {
@@ -30,7 +31,7 @@ void model_init(Model *md)
         fx = fx / f->n - cx, fy = fy / f->n - cy, fz = fz / f->n - cz;
         if (((n.x * fx + n.y * fy + n.z * fz) >> 4) < 0)      /* make it point outward */
             n = v3(-n.x, -n.y, -n.z);
-        md->normal[i] = n;
+        md->normal[i] = (N3){(s16)n.x, (s16)n.y, (s16)n.z};
     }
 }
 
@@ -68,7 +69,7 @@ void model_draw(const Model *md, const Place *pl)
         cv[i] = xf(pl, &md->v[i]);
     for (int i = 0; i < md->nf; i++) {
         const MFace *f = &md->f[i];
-        V3 n = md->normal[i];
+        V3 n = v3(md->normal[i].x, md->normal[i].y, md->normal[i].z);
         int two = f->flags & MF_TWO;
         if (!two) {
             /* camera-space normal (unscaled direction is enough for the sign) */
@@ -83,14 +84,14 @@ void model_draw(const Model *md, const Place *pl)
             if (nc.x * p.x + nc.y * p.y + nc.z * p.z >= 0)
                 continue;
         }
-        int color;
+        int color, mat = f->mat == M_CAR ? model_body : f->mat;
         if (f->flags & MF_GLOW)
-            color = COLOR(f->mat, 3, 0);
+            color = COLOR(mat, 3, 0);
         else {
             s32 l = vdot(mlocal(pl->m, n), sun);
             if (two && l < 0) l = -l;
             int lv = (l + 16384) >> 13;
-            color = COLOR(f->mat, lv > 3 ? 3 : lv, pl->fog);
+            color = COLOR(mat, lv > 3 ? 3 : lv, pl->fog);
         }
         V3 q[6];
         for (int k = 0; k < f->n; k++)

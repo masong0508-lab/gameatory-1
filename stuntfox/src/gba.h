@@ -13,6 +13,16 @@ typedef long long s64;
 #define IWRAM_CODE __attribute__((section(".iwram"), target("arm"), noinline))
 #define IWRAM_DATA __attribute__((section(".iwram_data")))
 #define EWRAM_BSS __attribute__((section(".sbss")))
+/* Inside Payback (MERGE) only a few kilobytes of IWRAM can be borrowed, so just the hottest
+   functions go there; buffers rebuilt every frame (SCRATCH) go into RAM that Payback's own
+   world renderer used to own. */
+#if defined(MERGE) && defined(__arm__)
+#define HOT IWRAM_CODE
+#define SCRATCH __attribute__((section(".scratch")))
+#else
+#define HOT
+#define SCRATCH EWRAM_BSS
+#endif
 
 #define REG_DISPCNT (*(volatile u16 *)0x04000000)
 #define REG_DISPSTAT (*(volatile u16 *)0x04000004)

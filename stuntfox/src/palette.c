@@ -21,6 +21,7 @@ static const u8 base[16][3] = {
     {31, 6, 11},     /* stunt red */
 };
 static const u8 light[4] = {12, 17, 22, 27};   /* of 27 */
+u16 *palette_out = (u16 *)PAL_BG;
 
 static u16 rgb(int r, int g, int b)
 {
@@ -36,7 +37,7 @@ static u16 rgb(int r, int g, int b)
 void palette_set(const u8 *zenith, const u8 *horizon, const u8 *fog)
 {
     for (int i = 0; i < 16; i++) {           /* sky ramp: 0 zenith .. 15 horizon */
-        PAL_BG[i] = rgb(zenith[0] + (horizon[0] - zenith[0]) * i / 15,
+        palette_out[i] = rgb(zenith[0] + (horizon[0] - zenith[0]) * i / 15,
                         zenith[1] + (horizon[1] - zenith[1]) * i / 15,
                         zenith[2] + (horizon[2] - zenith[2]) * i / 15);
     }
@@ -45,7 +46,7 @@ void palette_set(const u8 *zenith, const u8 *horizon, const u8 *fog)
             for (int f = 0; f < 4; f++) {
                 int r = base[m][0] * light[l] / 27, g = base[m][1] * light[l] / 27, b = base[m][2] * light[l] / 27;
                 int k = f * 5;                   /* fog weight of 16 */
-                PAL_BG[m * 16 + l * 4 + f] = rgb(r + (fog[0] - r) * k / 16, g + (fog[1] - g) * k / 16,
+                palette_out[m * 16 + l * 4 + f] = rgb(r + (fog[0] - r) * k / 16, g + (fog[1] - g) * k / 16,
                                                  b + (fog[2] - b) * k / 16);
             }
 }

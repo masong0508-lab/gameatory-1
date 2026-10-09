@@ -5,10 +5,25 @@
 #include "palette.h"
 #include "loops.h"
 
-static u8 box_seen[2048] EWRAM_BSS, lot_seen[2560] EWRAM_BSS, ramp_seen[512] EWRAM_BSS;
-static u8 stamp;
+/* which buildings, lots and ramps were already drawn this frame (one bit each) */
+#define SEEN_LOT 2048
+#define SEEN_RAMP (2048 + 2560)
+static u32 seen[(2048 + 2560 + 512) / 32] SCRATCH;
+static inline int first_visit(int i)
+{
+    u32 *w = &seen[i >> 5], b = 1u << (i & 31);
+    if (*w & b)
+        return 0;
+    *w |= b;
+    return 1;
+}
 
+#ifdef MERGE
+#define VIEW_CELLS 14              /* inside Payback, its game shares the frame time ... */
+#define STREET_CELLS 10            /* ... and in the streets the nearest walls hide the rest */
+#else
 #define VIEW_CELLS 18
+#endif
 #define FAR_CELLS 72
 
 /* camera-space images of the world axes, scaled by 1/16384 per unit */
@@ -103,8 +118,8 @@ static void draw_ramp(const Ramp *r)
 
 /* A loop: a helix of LOOP_SEG quads, red and white like a Stunt Race FX track, shaded by
    which way each piece faces. Its points are worked out once. */
-static V3 loop_pts[4][LOOP_SEG + 1][2] EWRAM_BSS;
-static u8 loop_light[4][LOOP_SEG] EWRAM_BSS;
+static V3 loop_pts[4][LOOP_SEG + 1][2] SCRATCH;
+static u8 loop_light[4][LOOP_SEG] SCRATCH;
 static int loops_ready;
 
 static void loops_prepare(void)
@@ -126,6 +141,8 @@ static void loops_prepare(void)
 
 static void draw_loop(int k)
 {
+    if (!loops_ready)
+        loops_prepare();
     V3 a0 = r_cam(loop_pts[k][0][0]), a1 = r_cam(loop_pts[k][0][1]);
     for (int i = 0; i < LOOP_SEG; i++) {
         V3 b0 = r_cam(loop_pts[k][i + 1][0]), b1 = r_cam(loop_pts[k][i + 1][1]);
@@ -159,14 +176,11 @@ void world_draw(void)
     ax = v3(cam.m.r.x, cam.m.u.x, cam.m.f.x);
     ay = v3(cam.m.r.y, cam.m.u.y, cam.m.f.y);
     az = v3(cam.m.r.z, cam.m.u.z, cam.m.f.z);
-    if (!loops_ready)
-        loops_prepare();
-    if (++stamp == 0) {
-        memset(box_seen, 0, sizeof box_seen);
-        memset(lot_seen, 0, sizeof lot_seen);
-        memset(ramp_seen, 0, sizeof ramp_seen);
-        stamp = 1;
-    }
+#ifdef MERGE
+    loops_ready = 0;               /* scratch RAM: worked out again whenever a loop is in view */
+#endif
+    for (unsigned i = 0; i < sizeof seen / 4; i += 4)
+        seen[i] = seen[i + 1] = seen[i + 2] = seen[i + 3] = 0;
     s32 ccx = cam.pos.x >> 13, ccz = cam.pos.z >> 13;    /* camera sector */
     int alt = cam.pos.y > 0 ? cam.pos.y : 0;
 
@@ -180,6 +194,10 @@ void world_draw(void)
 
     /* from the air you see more of each block, so look a little less far */
     int view = VIEW_CELLS * CELL - (alt < 3000 ? alt : 3000);
+#ifdef STREET_CELLS
+    if (alt < 1500)
+        view = STREET_CELLS * CELL;
+#endif
     if (alt > 30000) view = 0;
     int vs = (view >> 13) + 1, fs = FAR_CELLS / 8;
     /* flat patches for distant sectors: only worth it from the air */
@@ -220,13 +238,13 @@ void world_draw(void)
                 int kind = *it >> 13, i = *it & 0x1fff;
                 switch (kind) {
                 case 0:
-                    if (box_seen[i] != stamp) { box_seen[i] = stamp; draw_box(&world.box[i]); }
+                    if (first_visit(i)) draw_box(&world.box[i]);
                     break;
                 case 1:
-                    if (lot_seen[i] != stamp) { lot_seen[i] = stamp; draw_lot(&world.lot[i]); }
+                    if (first_visit(SEEN_LOT + i)) draw_lot(&world.lot[i]);
                     break;
                 case 2:
-                    if (ramp_seen[i] != stamp) { ramp_seen[i] = stamp; draw_ramp(&world.ramp[i]); }
+                    if (first_visit(SEEN_RAMP + i)) draw_ramp(&world.ramp[i]);
                     break;
                 }
             }

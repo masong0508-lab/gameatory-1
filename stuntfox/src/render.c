@@ -1,39 +1,52 @@
-/* Flat-shaded polygon renderer. Compiled as ARM code and run from IWRAM (see gba.ld).
+/* Flat-shaded polygon renderer. The hot parts (HOT) are ARM code run from IWRAM.
 
    Polygons are clipped against the view frustum in camera space, projected to 28.4 fixed
    point screen coordinates, bucket-sorted by depth and filled far to near (painter's
    algorithm) into the mode 4 back buffer. */
 #include "render.h"
 
-#define MAXP 900
 #define NBUCKET 1024
 #define MAXBG 400
 
+/* Polygons live in a pool of variable-size records (4 + 4 * n bytes) and are linked by their
+   EWRAM word index, so the pool can be split over several free stretches of RAM (inside
+   Payback only scattered buffers are free). */
 typedef struct {
     u16 next;
     u8 n, color;
-    s16 xy[2 * MAXV];
+    s16 xy[];
 } Poly;
+
+#define PIDX(p) ((u16)(((u32)(p) >> 2) & 0xffff))
+#define PPTR(i) ((Poly *)(0x02000000 + ((u32)(i) << 2)))
 
 Camera cam;
 int r_polys;
-static Poly polys[MAXP] EWRAM_BSS;
-static u16 bucket[NBUCKET];
-static u16 bglist[MAXBG];
+#ifdef MERGE
+extern u8 __pool_a[], __pool_a_end[], __pool_b[], __pool_b_end[], __pool_c[], __pool_c_end[], __pool_d[], __pool_d_end[];
+static u8 *const pool_parts[] = {__pool_a, __pool_a_end, __pool_b, __pool_b_end, __pool_c, __pool_c_end,
+                                 __pool_d, __pool_d_end};
+#else
+static u32 pool[15000] EWRAM_BSS;
+static u8 *const pool_parts[] = {(u8 *)pool, (u8 *)(pool + 15000)};
+#endif
+#define NPARTS (int)(sizeof pool_parts / sizeof pool_parts[0] / 2)
+static u8 *pool_at, *pool_end;
+static int pool_part;
+static u16 bucket[NBUCKET] SCRATCH;
+static u16 bglist[MAXBG] SCRATCH;
 static int npoly, nbg;
 static u8 *back;
-static u32 rtab[2048] EWRAM_BSS;            /* 2^31 / (2048 + i) */
-static u32 erecip[2561] EWRAM_BSS;          /* (1 << 24) / i, for edge slopes */
+extern const u32 rtab[2048];                /* 2^31 / (2048 + i) (tables.c) */
+extern const u32 erecip[2561];              /* (1 << 24) / i, for edge slopes */
 static const u16 inv_n[MAXV + 1] = {0, 65535, 32768, 21845, 16384, 13107, 10923, 9362, 8192, 7282, 6554, 5958, 5461, 5041, 4681, 4369, 4096};
 
 void r_init(void)
 {
-    for (int i = 0; i < 2048; i++)
-        rtab[i] = (u32)(0x80000000u / (u32)(2048 + i));
-    for (int i = 1; i < 2561; i++)
-        erecip[i] = (1u << 24) / (u32)i;
+#ifndef MERGE
     REG_DISPCNT = 4 | 0x400 | 0x1000 | 0x40;  /* mode 4, BG2, OBJ, 1D tiles */
     back = (u8 *)0x0600a000;
+#endif
 }
 
 void r_begin(void)
@@ -42,6 +55,13 @@ void r_begin(void)
     for (int i = 0; i < NBUCKET / 2; i += 4)
         b[i] = b[i + 1] = b[i + 2] = b[i + 3] = 0;
     npoly = nbg = 0;
+    pool_at = pool_parts[0];
+    pool_end = pool_parts[1];
+    pool_part = 0;
+#ifdef MERGE
+    /* draw into the page Payback is not showing */
+    back = (REG_DISPCNT & 0x10) ? (u8 *)0x06000000 : (u8 *)0x0600a000;
+#endif
 }
 
 V3 r_cam(V3 p)
@@ -63,23 +83,17 @@ int fog_of(int z)
 
 /* ---- clipping ---- */
 
-static s32 plane(const V3 *v, int k)
-{
-    switch (k) {
-    case 0: return v->z - NEAR;
-    case 1: return v->z * 121 - v->x * FOCAL;      /* right */
-    case 2: return v->z * 121 + v->x * FOCAL;      /* left */
-    case 3: return v->z * 81 - v->y * FOCAL;       /* top */
-    default: return v->z * 81 + v->y * FOCAL;      /* bottom */
-    }
-}
+/* signed distance of v from clip plane k: 0 near, 1 right, 2 left, 3 top, 4 bottom */
+#define PLANE(v, k) ((k) == 0 ? (v)->z - NEAR : (k) == 1 ? (v)->z * 121 - (v)->x * FOCAL : \
+                     (k) == 2 ? (v)->z * 121 + (v)->x * FOCAL : (k) == 3 ? (v)->z * 81 - (v)->y * FOCAL : \
+                     (v)->z * 81 + (v)->y * FOCAL)
 
-static int clip(V3 *in, int n, V3 *out, int k)
+HOT static int clip(V3 *in, int n, V3 *out, int k)
 {
     int m = 0;
     for (int i = 0; i < n; i++) {
         V3 *a = &in[i], *b = &in[i + 1 == n ? 0 : i + 1];
-        s32 da = plane(a, k), db = plane(b, k);
+        s32 da = PLANE(a, k), db = PLANE(b, k);
         if (da >= 0)
             out[m++] = *a;
         if ((da >= 0) != (db >= 0)) {
@@ -98,34 +112,40 @@ static int clip(V3 *in, int n, V3 *out, int k)
     return m;
 }
 
-static Poly *alloc(int key, int bg)
+HOT static Poly *alloc(int key, int bg, int n)
 {
-    if (npoly >= MAXP)
-        return 0;
-    Poly *p = &polys[npoly];
+    u32 size = 4 + 4 * n;
+    while (pool_at + size > pool_end) {
+        if (++pool_part >= NPARTS)
+            return 0;
+        pool_at = pool_parts[2 * pool_part];
+        pool_end = pool_parts[2 * pool_part + 1];
+    }
+    Poly *p = (Poly *)pool_at;
     if (bg) {
         if (nbg >= MAXBG)
             return 0;
-        bglist[nbg++] = npoly;
+        bglist[nbg++] = PIDX(p);
     } else {
         int b = key >> 5;
         if (b < 0) b = 0;
         if (b >= NBUCKET) b = NBUCKET - 1;
         p->next = bucket[b];
-        bucket[b] = npoly + 1;
+        bucket[b] = PIDX(p);
     }
+    pool_at += size;
     npoly++;
     return p;
 }
 
-void r_poly(const V3 *v, int n, int color, int key, int bg)
+HOT void r_poly(const V3 *v, int n, int color, int key, int bg)
 {
     V3 a[MAXV], b[MAXV];
     int outcode_all = 0x1f, outcode_any = 0;
     for (int i = 0; i < n; i++) {
-        int oc = 0;
-        for (int k = 0; k < 5; k++)
-            if (plane(&v[i], k) < 0) oc |= 1 << k;
+        const V3 *p = &v[i];
+        s32 zx = p->z * 121, zy = p->z * 81, x = p->x * FOCAL, y = p->y * FOCAL;
+        int oc = (p->z < NEAR) | ((zx < x) << 1) | ((zx < -x) << 2) | ((zy < y) << 3) | ((zy < -y) << 4);
         outcode_all &= oc;
         outcode_any |= oc;
         a[i] = v[i];
@@ -149,7 +169,7 @@ void r_poly(const V3 *v, int n, int color, int key, int bg)
         key = cur[0].z;
         for (int i = 1; i < n; i++) if (cur[i].z > key) key = cur[i].z;
     }
-    Poly *p = alloc(key, bg);
+    Poly *p = alloc(key, bg, n);
     if (!p)
         return;
     p->n = n;
@@ -174,7 +194,7 @@ void r_poly(const V3 *v, int n, int color, int key, int bg)
 
 void r_poly2d(const s32 *xy, int n, int color, int key, int bg)
 {
-    Poly *p = alloc(key, bg);
+    Poly *p = alloc(key, bg, n);
     if (!p)
         return;
     p->n = n;
@@ -189,8 +209,8 @@ static int clip2d(const s32 *in, int n, s32 *out, s32 a, s32 b, s32 c)
     int m = 0;
     for (int i = 0; i < n; i++) {
         const s32 *p = &in[2 * i], *q = &in[2 * (i + 1 == n ? 0 : i + 1)];
-        s32 dp = (s32)(((s64)a * p[0] + (s64)b * p[1] + c) >> 8);
-        s32 dq = (s32)(((s64)a * q[0] + (s64)b * q[1] + c) >> 8);
+        s32 dp = (a * p[0] + b * p[1] + c) >> 8;          /* |a|, |b| <= 16384: fits in 32 bits */
+        s32 dq = (a * q[0] + b * q[1] + c) >> 8;
         if (dp >= 0) {
             out[2 * m] = p[0];
             out[2 * m + 1] = p[1];
@@ -242,7 +262,7 @@ void fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, u32 color4);
 
 /* Fill a convex polygon: walk the two chains down from the top vertex and fill each run of
    rows between vertex events in one go (fill.s). */
-static void raster(const Poly *p)
+HOT static void raster(const Poly *p)
 {
     int n = p->n;
     const s16 *xy = p->xy;
@@ -298,14 +318,14 @@ static void raster(const Poly *p)
 void r_flush_bg(void)
 {
     for (int i = 0; i < nbg; i++)
-        raster(&polys[bglist[i]]);
+        raster(PPTR(bglist[i]));
 }
 
-void r_flush_fg(void)
+HOT void r_flush_fg(void)
 {
     for (int b = NBUCKET - 1; b >= 0; b--)
-        for (int i = bucket[b]; i; i = polys[i - 1].next)
-            raster(&polys[i - 1]);
+        for (int i = bucket[b]; i; i = PPTR(i)->next)
+            raster(PPTR(i));
     r_polys = npoly;
 }
 
@@ -317,6 +337,7 @@ void r_pixel(int x, int y, int color)
     *p = x & 1 ? (*p & 0xff) | (color << 8) : (*p & 0xff00) | color;
 }
 
+#ifndef MERGE
 void r_flip(void)
 {
     static u32 last;
@@ -327,3 +348,4 @@ void r_flip(void)
     REG_DISPCNT ^= 0x10;
     back = (REG_DISPCNT & 0x10) ? (u8 *)0x06000000 : (u8 *)0x0600a000;
 }
+#endif

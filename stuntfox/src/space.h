@@ -8,6 +8,6 @@ void space_tick(void);
 void sky_draw(s32 alt);            /* sky and sea bands (background); sets the palette */
 void stars_draw(s32 alt);          /* after the background is drawn */
 void space_draw(void);             /* the station and the asteroids */
-void palette_commit(void);         /* during vblank: apply a pending sky palette */
+int palette_commit(void);          /* during vblank: apply a pending sky palette (1 if it did) */
 
 #endif

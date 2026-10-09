@@ -1,5 +1,33 @@
 # Stunt Fox
 
+Two ways to play it, both built from your own Payback ROM:
+
+- **Stunt Fox x Payback** (`--merge`): Payback itself, with Stunt Fox inside it. Payback keeps
+  running Freedom City (traffic, people, police, missions, the phone, the minimap, sound) while
+  Stunt Fox draws the city with its faster renderer, drives your car with its stunt physics and
+  brings the Arwing whenever you hold SELECT.
+- **Stunt Fox** on its own: the stunt arena, the city and space without Payback's game.
+
+## Stunt Fox x Payback
+
+    python3 build.py "Payback (Europe) (En,Fr,De,Es,It).gba" --merge -o stuntfox-payback.gba --bps stuntfox-payback.bps
+
+The build patches a copy of the ROM; the `.bps` patch applies to the untouched Payback ROM.
+
+| Button | Does |
+| --- | --- |
+| Hold SELECT | The Arwing lands next to you and you take off (in a car you get out first) |
+| Tap SELECT | Payback's phone, as before |
+| L | Payback's get in / get out of a car |
+| A / B / R | In a car: gas, brake, boost |
+| Hold SELECT, landed on a street | Get out of the Arwing; it stays parked there |
+
+How it fits: `src/merge.c` (the glue), `src/merge.ld` (which of Payback's memory it borrows),
+`src/keyhook.s`, and `build_merge()` in `build.py`, which redirects Payback's calls to its world
+renderer, keypad reader and palette fade.
+
+## Stunt Fox on its own
+
 A GBA game with its own flat-shaded 3D engine: drive a Blue Falcon style car around a stunt
 arena with a real loop, hop into the Arwing parked beside you, fly over Freedom City and keep
 climbing into space to land on the station.
@@ -8,13 +36,13 @@ Everything here is new code. The only thing taken from Payback is Freedom City's
 (streets, kerbs, plazas and building footprints and heights), and it is read from **your own
 Payback ROM at build time**. No ROM data is stored in this repository.
 
-## Build
+### Build
 
 Needs Python 3, clang and ld.lld (no devkitARM).
 
     python3 build.py "Payback (Europe) (En,Fr,De,Es,It).gba" -o stuntfox.gba
 
-## Controls
+### Controls
 
 Car
 

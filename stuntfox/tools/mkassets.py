@@ -1,6 +1,7 @@
 """Generates Stunt Fox's own tables and font (nothing here comes from another game).
 
-Writes gen/tables.c: sin table, and an 8x8 4bpp HUD font for ASCII 32..95.
+Writes gen/tables.c: sin table, reciprocal tables for the renderer, and an 8x8 4bpp HUD
+font for ASCII 32..95.
 """
 import math
 import sys
@@ -92,6 +93,13 @@ def main(out):
         for i in range(0, len(t), 8):
             f.write('    ' + ', '.join('0x%08x' % v for v in t[i:i + 8]) + ',\n')
         f.write('};\n')
+        rtab = [0x80000000 // (2048 + i) for i in range(2048)]
+        erecip = [0] + [(1 << 24) // i for i in range(1, 2561)]
+        for name, t in (('rtab', rtab), ('erecip', erecip)):
+            f.write('\nconst u32 %s[%d] = {\n' % (name, len(t)))
+            for i in range(0, len(t), 8):
+                f.write('    ' + ', '.join('0x%08x' % v for v in t[i:i + 8]) + ',\n')
+            f.write('};\n')
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@
 #define MODEL_H
 #include "fx.h"
 
+typedef struct { s16 x, y, z; } N3;              /* a unit vector, 1.14 */
 typedef struct { s16 x, y, z; } MVert;
 typedef struct { u8 n, mat, flags, idx[6]; } MFace;
 enum { MF_TWO = 1, MF_GLOW = 2 };              /* two-sided (thin fins and wings), self-lit */
@@ -12,7 +13,7 @@ typedef struct {
     const MFace *f;
     u8 nv, nf;
     s16 radius;
-    V3 *normal;                                 /* per face, local, filled by model_init */
+    N3 *normal;                                 /* per face, local, filled by model_init */
 } Model;
 
 /* camera-space placement of a model for one frame */
@@ -31,7 +32,8 @@ void model_draw(const Model *md, const Place *pl);
 /* one extra polygon in a placed model's frame (local units); two-sided */
 void model_poly(const Place *pl, const MVert *v, int n, int color);
 
-extern Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock;
+extern Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
+extern u8 model_body;                           /* paint for M_CAR faces, M_CAR by default */
 void models_init(void);
 
 #endif
