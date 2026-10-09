@@ -49,15 +49,37 @@ void space_tick(void)
 
 static u8 lerp8(int a, int b, int t) { return a + (b - a) * t / 16; }
 
+#ifdef MERGE
+/* Inside Payback the sky is drawn in Payback's own blues: its palette has a ramp from pale
+   sky to the black of night, so the palette never has to change. Higher up, each band steps
+   down the ramp, one shade at a time. */
+static const u8 sky_ramp[22] = {193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207,
+                                240, 241, 242, 243, 244, 245, 246};
+static const u8 sky_day[5] = {6, 5, 4, 2, 1}, sky_space[5] = {21, 19, 15, 12, 9};   /* zenith .. horizon */
+#endif
+
 void sky_draw(s32 alt)
 {
-    int t = alt <= 3000 ? 0 : alt >= 24000 ? 16 : (alt - 3000) * 16 / 21000;
+    /* how far toward space the sky is, 0..16, with 300 units of slack either way so that
+       hovering at the edge of a step does not switch it back and forth */
+    int up = (alt - 3300) * 16 / 21000, down = (alt - 2700) * 16 / 21000;
+    if (up > 16) up = 16;
+    if (down < 0) down = 0;
+    int t = sky_step < 0 ? (up > 0 ? up : 0) : sky_step < up ? up : sky_step > down ? down : sky_step;
     if (t != sky_step) {
         sky_step = t;
         sky_pending = t;
     }
-    static const u8 cols[] = {0, 3, 7, 11, 15, COLOR(M_GLASS, 1, 3), COLOR(M_GLASS, 1, 2), COLOR(M_GLASS, 1, 1),
-                              COLOR(M_GLASS, 1, 0)};
+#ifdef MERGE
+    u16 cols[9];
+    for (int k = 0; k < 5; k++)
+        cols[k] = 0x100 | sky_ramp[sky_day[k] + (sky_space[k] - sky_day[k]) * t / 16];
+    for (int f = 3; f >= 0; f--)
+        cols[8 - f] = COLOR(M_GLASS, 1, f);
+#else
+    static const u16 cols[] = {0, 3, 7, 11, 15, COLOR(M_GLASS, 1, 3), COLOR(M_GLASS, 1, 2), COLOR(M_GLASS, 1, 1),
+                               COLOR(M_GLASS, 1, 0)};
+#endif
     static const s32 bounds[] = {9000, 5000, 2500, 800, 0, -300, -1200, -3000};
     /* Over the island the city covers the sea, except beyond its nearest edge: at most
        alt / edge below the horizon. Sea bands lower than that are not drawn. */
@@ -76,6 +98,9 @@ void sky_draw(s32 alt)
 
 int palette_commit(void)
 {
+#ifdef MERGE
+    return 0;                      /* (inside Payback the palette is Payback's, never changed) */
+#endif
     if (sky_pending < 0)
         return 0;
     int t = sky_pending;

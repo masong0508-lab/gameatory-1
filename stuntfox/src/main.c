@@ -1,5 +1,5 @@
-/* Stunt Fox: drive the stunt arena, take the Arwing parked beside you, fly over Freedom
-   City and keep climbing into space. */
+/* Stunt Fox: drive the stunt arena, take the Arwing parked beside you, fly over Payback's
+   city and keep climbing into space. */
 #include "gba.h"
 #include "fx.h"
 #include "render.h"

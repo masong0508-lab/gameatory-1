@@ -27,13 +27,20 @@ V3 r_cam_far(V3 world, int shift);/* same, with the offset scaled down by 2^shif
    for surfaces things stand on); bg: draw before everything else, in submission order (sky,
    ground, lots) */
 void r_poly(const V3 *v, int n, int color, int key, int bg);
+#ifdef MERGE
+/* a polygon with Payback's tiles on it (type PT_*, info its TexFloor or TexWall, copied) */
+void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const void *info);
+extern const u8 *r_pmap;          /* our colours -> the palette on screen (0: the same); colours
+                                     from 0x100 up are that palette's own indices */
+#endif
 /* screen-space polygon in 28.4 fixed point (already inside the screen) */
 void r_poly2d(const s32 *xy, int n, int color, int key, int bg);
-void r_sky(const u8 *colors, const s32 *bounds, int nbands, int ndraw);
+void r_sky(const u16 *colors, const s32 *bounds, int nbands, int ndraw);
 void r_flush_bg(void);            /* draw the background list into the back buffer */
 void r_flush_fg(void);            /* then everything else, far to near */
 void r_flip(void);
 void r_pixel(int x, int y, int color);
 int fog_of(int z);
+extern int r_nofog;               /* fog_of gives 0 (in space) */
 
 #endif

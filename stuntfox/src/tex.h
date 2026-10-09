@@ -27,17 +27,19 @@ typedef struct {
     const u8 *lut;                 /* darker colours, or 0 */
 } TexWall;
 
-extern const u8 pb_pmap[256], pb_shade[3][256], pb_sky[16], pb_avg[TEX_IDS];
+extern const u8 pb_pmap[256], pb_sky[16], pb_avg[TEX_IDS];
+extern u8 pb_shade[3][256];          /* (in RAM: read for every wall texel) */
 
 void tex_frame(void);              /* per frame, after the camera is set: ground for every row */
+extern int tex_on;                 /* textures this frame (Payback's palette is up, low enough) */
 const u8 *tex_tile(int id);        /* Payback's tile id -> its texels, or 0 */
 /* a wall's mapping from camera space: o its origin (units), along the wall and down (1.14) */
 void tex_wall_setup(TexWall *t, V3 o, V3 along, V3 down);
-s32 tex_floor_k(s32 h);            /* TexFloor.k for a roof at height h (units) */
+void tex_floor(TexFloor *fl, s32 h);   /* a roof at height h (units) */
 
 /* the rasterisers (render.c calls these) */
 void tex_rows(u8 *back, int y, int rows, s32 xl, s32 sl, s32 xr, s32 sr, int type, const void *info,
-              int color);
+              int color, int *done);
 void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color);
 
 #endif

@@ -4,7 +4,7 @@
 @ 26..16 its fraction, bits 15..11 the row and 10..0 its fraction, so one add steps both and
 @ each wraps around its tile by itself. Every texel covers 2 x 2 pixels.
     .syntax unified
-    .section .iwram, "ax"
+    .section .iwram2, "ax"
     .arm
 
 @ void tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
@@ -49,6 +49,30 @@ tex_hrun:
 3:  pop     {r4-r8, lr}
     bx      lr
 
+@ void tex_hrun4(u32 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
+@ the same with one texel for every four pixels (close up), dst word aligned
+    .global tex_hrun4
+    .type tex_hrun4, %function
+tex_hrun4:
+    push    {r4-r7, lr}
+    ldr     r4, [sp, #20]           @ tile
+    ldr     r7, [sp, #24]           @ row2
+    mov     r5, #0x3e0
+    subs    r1, r1, #1
+    blt     2f
+1:  and     r6, r5, r2, lsr #6
+    orr     r6, r6, r2, lsr #27
+    ldrb    r6, [r4, r6]
+    add     r2, r2, r3
+    orr     r6, r6, r6, lsl #8
+    orr     r6, r6, r6, lsl #16
+    str     r6, [r0, r7]
+    str     r6, [r0], #4
+    subs    r1, r1, #1
+    bge     1b
+2:  pop     {r4-r7, lr}
+    bx      lr
+
 @ void tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, int row2)
 @ n texels down a column two pixels wide, two rows each (the second only if row2 is 240);
 @ lut, if not 0, darkens them.
@@ -88,3 +112,34 @@ tex_vrun:
     bgt     2b
 3:  pop     {r4-r9, lr}
     bx      lr
+
+@ void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut)
+@ n texels down a column two pixels wide, four rows each (close up)
+    .section .iwram3, "ax"
+    .global tex_vrun4
+    .type tex_vrun4, %function
+tex_vrun4:
+    push    {r4-r9, lr}
+    ldr     r4, [sp, #28]           @ tile
+    ldr     r7, [sp, #32]           @ lut
+    mov     r5, #0x3e0
+    mov     r9, #960
+    subs    r1, r1, #1
+    blt     2f
+1:  and     r6, r5, r2, lsr #6
+    orr     r6, r6, r2, lsr #27
+    ldrb    r6, [r4, r6]
+    add     r2, r2, r3
+    cmp     r7, #0
+    ldrbne  r6, [r7, r6]
+    orr     r6, r6, r6, lsl #8
+    add     r8, r0, #480
+    strh    r6, [r0, #240]
+    strh    r6, [r8]
+    strh    r6, [r8, #240]
+    strh    r6, [r0], r9
+    subs    r1, r1, #1
+    bge     1b
+2:  pop     {r4-r9, lr}
+    bx      lr
+

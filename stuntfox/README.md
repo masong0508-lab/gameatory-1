@@ -3,7 +3,7 @@
 Two ways to play it, both built from your own Payback ROM:
 
 - **Stunt Fox x Payback** (`--merge`): Payback itself, with Stunt Fox inside it. Payback keeps
-  running Freedom City (traffic, people, police, missions, the phone, the minimap, sound) while
+  running Payback's city (traffic, people, police, missions, the phone, the minimap, sound) while
   Stunt Fox draws the city with its faster renderer, drives your car with its stunt physics and
   brings the Arwing whenever you hold SELECT. Each of Payback's vehicles gets its own model
   (saloons, sports cars, vans, pickups, the limo, buses, police cars with flashing lights, the
@@ -32,10 +32,10 @@ renderer, keypad reader and palette fade.
 ## Stunt Fox on its own
 
 A GBA game with its own flat-shaded 3D engine: drive a Blue Falcon style car around a stunt
-arena with a real loop, hop into the Arwing parked beside you, fly over Freedom City and keep
+arena with a real loop, hop into the Arwing parked beside you, fly over Payback's city and keep
 climbing into space to land on the station.
 
-Everything here is new code. The only thing taken from Payback is Freedom City's layout
+Everything here is new code. The only thing taken from Payback is the city's layout
 (streets, kerbs, plazas and building footprints and heights), and it is read from **your own
 Payback ROM at build time**. No ROM data is stored in this repository.
 

@@ -1,4 +1,4 @@
-/* The city: built at build time from Payback's Freedom City layout (tools/mkworld.py). */
+/* The city: built at build time from Payback's city layout (tools/mkworld.py). */
 #ifndef WORLD_H
 #define WORLD_H
 #include "fx.h"
@@ -26,6 +26,8 @@ typedef struct {
     const u16 *far;           /* 256 x (material, height) */
     const Line *line;
     const Tree *tree;
+    const u16 *ctex;          /* 128 x 128: Payback tile id of each cell's top, 0xffff none */
+    const u16 *btex;          /* per box: 4 sides (-z, +x, +z, -x) x 4 cells, tile ids */
 } World;
 
 extern World world;

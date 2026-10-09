@@ -2,7 +2,7 @@
 
 Like IW4L reading a game install, nothing from Payback is stored in this repository: the
 city layout (roads, kerbs, plazas, building footprints and heights, ramps) is decoded from
-Freedom City's level grid at build time and turned into Stunt Fox's own world format.
+the city's level grid at build time and turned into Stunt Fox's own world format.
 
 World units: one Payback cell is 1024 units (about 8 m). X runs with Payback's x, Z with
 Payback's y, and Y is up.
@@ -15,6 +15,8 @@ Output (little endian), see src/world.h:
     loops    x z (units), direction, radius, width
     lines    road centre lines: at, from, to (cells), dir (0 along z, 1 along x) | crossings << 1
     trees    x z (units / 4), height (units / 8), kind
+    ctex     128 x 128 cells: Payback tile id of the cell's top surface (0xffff: none)
+    btex     per box, 4 sides (-z, +x, +z, -x) x 4 cells along it: Payback tile id (0xffff: none)
     sectors  16 x 16 sectors of 8 x 8 cells: index into the item list
     items    u16: kind << 13 | index
     height   128 x 128 cells: s16 low, s16 high, u8 shape, u8 material (collision and minimap)
@@ -158,6 +160,77 @@ def park_trees(cells):
     return out
 
 
+# Payback's 32 x 32 tiles: ids below TILE_IDS index a bank in ROM. Only ids are stored here;
+# the game finds the tiles through Payback's own table at run time.
+TILE_BANK = 0x0ce0bc
+TILE_IDS = 0x318
+
+
+def tile_ok(rom_bytes, tid, most=0x100):
+    """A tile that is not mostly see-through (colour 0): railings and fences are left out."""
+    if tid >= TILE_IDS:
+        return False
+    a = TILE_BANK + tid * 0x400
+    return rom_bytes[a:a + 0x400].count(0) < most
+
+
+def recs_of(col):
+    out = []
+    for k in range(3):
+        b = col[20 * k:20 * k + 20]
+        h0, h1, shape = struct.unpack_from('<HHB', b, 4)
+        if shape:
+            out.append((max(h0, h1), b[10] | (b[11] & 3) << 8, struct.unpack_from('<4H', b, 12)))
+    return out
+
+
+def tex_tables(rom, rom_bytes, cells, boxes):
+    """Tile ids for the top of every cell and for the walls of every box."""
+    grid = rom.grid(0)
+    cols = [recs_of(rom.column(grid[i])) for i in range(N * N)]
+    x0, y0, x1, y1 = STADIUM
+    ctex = []
+    for i in range(N * N):
+        x, y = divmod(i, N)
+        tid = 0xffff
+        if cols[i] and not (x0 <= x < x1 and y0 <= y < y1) and cells[i][0] != 'ramp':
+            top = max(cols[i], key=lambda r: r[0])
+            if top[0] < 0x8000 and tile_ok(rom_bytes, top[1]):
+                tid = top[1]
+        ctex.append(tid)
+
+    def side(i, s):
+        for h, _, sides in sorted(cols[i], key=lambda r: -r[0]):
+            t = sides[s] & 0x3ff
+            if t and tile_ok(rom_bytes, t, 0x280):    # (dark see-through windows are fine on walls)
+                return t
+        return None
+    btex = []
+    for bx0, by0, bx1, by1, k in boxes:
+        ids = []
+        for s in range(4):
+            if s == 0:
+                cl = [x * N + by0 for x in range(bx0, bx1)]
+            elif s == 1:
+                cl = [(bx1 - 1) * N + y for y in range(by0, by1)]
+            elif s == 2:
+                cl = [x * N + by1 - 1 for x in range(bx0, bx1)]
+            else:
+                cl = [bx0 * N + y for y in range(by0, by1)]
+            t = [side(i, s) for i in cl]
+            fill = next((v for v in t if v is not None), None)
+            if fill is None:      # nothing on this side: borrow from another side of the box
+                for s2 in range(4):
+                    fill = fill or next((side(i, s2) for i in cl if side(i, s2) is not None), None)
+            if fill is None and ctex[cl[0]] != 0xffff:
+                fill = ctex[cl[0]]  # still nothing: the box's own roof, as a plain wall
+            t = [v if v is not None else fill for v in t]
+            t = [0xffff if v is None or k[1] == M_STUNT else v for v in t] + [0xffff] * (4 - len(t))
+            ids += t[:4]
+        btex.append(ids)
+    return ctex, btex
+
+
 def greedy(cells, want, cap):
     """Merge cells into rectangles. want(i) -> key or None. Returns [(x0, y0, x1, y1, key)]."""
     used = [False] * (N * N)
@@ -195,6 +268,7 @@ def build(rom_bytes):
     loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)]
     lines = centre_lines(rom, cells)
     trees = park_trees(cells)
+    ctex, btex = tex_tables(rom, rom_bytes, cells, boxes)
 
     # sector index
     sectors = [[] for _ in range(256)]
@@ -255,6 +329,8 @@ def build(rom_bytes):
     section(b''.join(struct.pack('<Bxh', m, h) for m, h in far))
     section(b''.join(struct.pack('<BBBB', *ln) for ln in lines))
     section(b''.join(struct.pack('<HHBB', *t) for t in trees))
+    section(struct.pack('<%dH' % len(ctex), *ctex))
+    section(b''.join(struct.pack('<16H', *b) for b in btex))
     assert len(boxes) <= 2048 and len(lots) <= 2560 and len(ramps) <= 512, 'see SEEN_* in citydraw.c'
     assert len(lines) <= 1024 and len(trees) <= 1024, 'see SEEN_* in citydraw.c'
     header = struct.pack('<4s8I', b'SFW2', len(boxes), len(lots), len(ramps), len(loops), len(items),

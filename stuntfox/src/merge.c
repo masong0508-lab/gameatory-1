@@ -2,7 +2,7 @@
 
    Like SkyCraft running Minecraft's player inside Skyrim's world, the two games share one
    cartridge and each does what it is good at. Payback keeps running everything it owns:
-   Freedom City's traffic and people, the police, missions, the phone ticker, the minimap,
+   the city's traffic and people, the police, missions, the phone ticker, the minimap,
    music and sound. Its world renderer is gone: where Payback used to draw its 3D view it now
    calls sf_frame(), and Stunt Fox draws the city and everyone in it from a chase camera with
    its own faster renderer.
@@ -12,13 +12,14 @@
    working around it. Hold SELECT anywhere and the Arwing lands next to you; Payback's man rides
    along under it so the city, the minimap and the police follow you into the sky.
 
-   Payback's code is never copied: the build patches the player's own ROM and reads Freedom
-   City's layout from it. */
+   Payback's code is never copied: the build patches the player's own ROM and reads the
+   city's layout from it. */
 #include "gba.h"
 #include "fx.h"
 #include "render.h"
 #include "world.h"
 #include "palette.h"
+#include "tex.h"
 #include "physics.h"
 #include "car.h"
 #include "ship.h"
@@ -71,11 +72,13 @@ enum { B_UP = 0, B_DOWN = 1, B_SELECT = 2, B_LEFT = 4, B_RIGHT = 5, B_A = 6, B_B
 #define STATE ((volatile u32 *)0x0203ffd0)
 #define MAGIC 0x53465831           /* "SFX1": our memory is set up */
 
-/* cells and their column pointers for Freedom City, written by build.py */
+/* cells and their column pointers for Payback's city, written by build.py */
 extern const u32 merge_sig[32][2];
 
 /* linker symbols, merge.ld */
-extern u8 __hot_start[], __hot_end[], __hot_lma[];
+extern u8 __hot_start[], __hot_end[], __hot_lma[], __hot2_start[], __hot2_end[], __hot2_lma[];
+extern u8 __hot3_start[], __hot3_end[], __hot3_lma[];
+static u32 hot3_save[0x2f0 / 4] __attribute__((section(".noinit")));   /* (start() must not clear it) */
 extern u8 __data_start[], __data_end[], __data_lma[];
 extern u8 __bss_start[], __bss_end[];
 extern u32 __keep_canary[];
@@ -90,6 +93,8 @@ u32 frame_count;
 /* DMA 3 copy. Payback's sound interrupt uses DMA 3 too, so interrupts wait meanwhile. */
 static void copy32(void *d, const void *s, u32 bytes)
 {
+    if (!bytes)
+        return;                        /* (a count of 0 would copy 64 KiB) */
     u16 ime = REG_IME;
     REG_IME = 0;
     REG_DMA3CNT = 0;
@@ -103,15 +108,22 @@ static void copy32(void *d, const void *s, u32 bytes)
    length of our frame; Payback's own code is put back from its ROM image afterwards. */
 static void hot_install(void)
 {
-    if (*(u32 *)__hot_start != *(const u32 *)__hot_lma)
+    if (*(u32 *)__hot_start != *(const u32 *)__hot_lma) {
         copy32(__hot_start, __hot_lma, __hot_end - __hot_start);
+        copy32(__hot2_start, __hot2_lma, __hot2_end - __hot2_start);
+        copy32(hot3_save, __hot3_start, __hot3_end - __hot3_start);
+        copy32(__hot3_start, __hot3_lma, __hot3_end - __hot3_start);
+    }
 }
 
 static void hot_restore(void)
 {
     const u8 *orig = PB_IWRAM_IMAGE + ((u32)__hot_start - 0x03000000);
-    if (*(u32 *)__hot_start != *(const u32 *)orig)
+    if (*(u32 *)__hot_start != *(const u32 *)orig) {
         copy32(__hot_start, orig, __hot_end - __hot_start);
+        copy32(__hot2_start, PB_IWRAM_IMAGE + ((u32)__hot2_start - 0x03000000), __hot2_end - __hot2_start);
+        copy32(__hot3_start, hot3_save, __hot3_end - __hot3_start);
+    }
 }
 
 static int in_freedom_city(void)
@@ -139,7 +151,6 @@ enum { FOOT, DRIVE, FLY };         /* FOOT: Payback moves the player (walking, i
 
 static u32 last_clock, tick_acc;
 static V3 cam_off, cam_up;
-static u16 pal_cache[256] __attribute__((aligned(4)));   /* DMA copies words */
 static int mode, parked;           /* parked: the Arwing waits where we left it */
 static Car car;
 static Ship ship;
@@ -154,7 +165,7 @@ static u32 key_calls, frame_calls, sel_since;
 static u8 sel_down, sel_used, sel_replay, inject_l, call_req;
 
 static char news[100];
-static s32 fade_d;                 /* added to each colour channel, from Payback's fade */
+static s32 fade_d;                 /* Payback's last fade (0: none), see sf_fade */
 static u8 news_ready;
 
 static void start(void)
@@ -167,7 +178,6 @@ static void start(void)
     models_init();
     traffic_init();
     space_init();
-    palette_out = pal_cache;
     cam_off = v3(0, 400, -800);
     cam_up = v3(0, ONE, 0);
     last_clock = pb_clock();
@@ -672,65 +682,53 @@ static void draw_ship(void)
     }
 }
 
-/* The BG palette is ours (Payback's HUD uses the sprite palettes), shown as bright as
-   Payback's fades want it: darker while paused, black between scenes. */
+/* ---- colours ----
+   Inside Payback the screen keeps Payback's own palette, always: its tiles need it, our flat
+   colours are matched to it (tools/mkpal.py) and the sky is drawn in its blues (space.c). We
+   never write a colour, so nothing is ever shown in the wrong colours, and Payback's fades
+   (pause, scene changes) work as they always did, except that none of them goes toward white
+   any more: those were bright full-screen flashes. */
 
-static u16 faded(u16 c)
+#define PB_PALETTE ((const u16 *)0x086367a8)              /* red and blue swapped */
+typedef void (*FadeBy)(int);
+#define PB_FADE_ADD ((FadeBy)0x080777ed)                    /* + level / 8 to every channel */
+#define PB_FADE_MUL ((FadeBy)0x080779bd)                    /* * (level >> 16) / 256 */
+#define PB_FADE_MUL2 ((FadeBy)0x08077f45)                   /* the same, another copy */
+
+/* is Payback's palette on screen as it is (not faded)? */
+static int palette_plain(void)
 {
-    if (!fade_d)
-        return c;
-    s32 r = (c & 31) + fade_d, g = (c >> 5 & 31) + fade_d, b = (c >> 10 & 31) + fade_d;
-    return clamp(r, 0, 31) | clamp(g, 0, 31) << 5 | clamp(b, 0, 31) << 10;
-}
-
-static void palette_show(void)
-{
-    u16 buf[256] __attribute__((aligned(4)));
-    for (int i = 0; i < 256; i++)
-        buf[i] = faded(pal_cache[i]);
-    copy32((void *)PAL_BG, buf, 512);
-}
-
-/* Payback's pause screen recolours the picture on screen into its own palette (and flips
-   pages to show it), so while that is up its palette must stay. Ours comes back once a page
-   we drew is on screen again. */
-static int pb_pal;                 /* Payback's palette is showing on purpose */
-static int our_page = -1;          /* page holding our last frame (0 or 1), -1: none */
-
-/* put ours back whenever Payback wrote its own (without a fade: then it is at full brightness) */
-static void palette_keep(void)
-{
-    int shown = REG_DISPCNT >> 4 & 1;
-    if (pb_pal) {
-        if (shown == our_page) {
-            pb_pal = fade_d = 0;
-            palette_commit();
-            palette_show();
-        }
-    } else if (PAL_BG[3] != faded(pal_cache[3]) || PAL_BG[COLOR(M_GRASS, 2, 0)] != faded(pal_cache[COLOR(M_GRASS, 2, 0)]) ||
-        PAL_BG[COLOR(M_BRICK, 1, 1)] != faded(pal_cache[COLOR(M_BRICK, 1, 1)])) {
-        fade_d = 0;
-        palette_commit();
-        palette_show();
-    } else if (palette_commit()) {
-        palette_show();
+    static const u8 probe[] = {3, 104, 197};
+    for (unsigned i = 0; i < sizeof probe; i++) {
+        u16 c = PB_PALETTE[probe[i]];
+        if (PAL_BG[probe[i]] != ((c >> 10 & 31) | (c & 0x3e0) | (c & 31) << 10))
+            return 0;
     }
-    our_page = !shown;             /* this frame went to the page not on screen */
+    return 1;
 }
 
-/* Payback calls this in place of its palette fade (the build redirects every call): its
-   fade works from its own colours in ROM, so ours are faded the same way after it. */
+/* Payback calls these in place of its palette fades (the build redirects every call) */
 void sf_fade(int level)
 {
-    u16 page = REG_DISPCNT & 0x10;
-    PB_FADE(level);
+    PB_FADE(level > 256 ? 256 : level);
     if (STATE[0] != MAGIC || __keep_canary[0] != CANARY)
         return;
-    fade_d = (level - 256) >> 3;
-    if ((REG_DISPCNT & 0x10) != page)
-        pb_pal = 1, our_page = -1;     /* the pause screen: a recoloured picture, Payback's colours */
-    if (!pb_pal)
-        palette_show();
+    fade_d = (level - 256) >> 3;   /* (not 0: paused, or a scene is changing) */
+}
+
+void sf_fade_add(int level)
+{
+    PB_FADE_ADD(level > 0 ? 0 : level);
+}
+
+void sf_fade_mul(int level)
+{
+    PB_FADE_MUL(level > 256 << 16 ? 256 << 16 : level);
+}
+
+void sf_fade_mul2(int level)
+{
+    PB_FADE_MUL2(level > 256 << 16 ? 256 << 16 : level);
 }
 
 /* ---- the frame ---- */
@@ -823,7 +821,11 @@ void sf_frame(int a0, int a1, int a2, int a3, int s0, int s1, int s2, int view)
     camera_update(me);
 
     s32 alt = cam.pos.y;
+    r_pmap = pb_pmap;
+    tex_on = alt < 12000;          /* Payback's tiles, while the city is near */
+    r_nofog = alt > 16000;         /* (our fog colours are the sky's; in space there is none) */
     r_begin();
+    tex_frame();
     sky_draw(alt);
     world_draw();
     space_draw();
@@ -835,7 +837,8 @@ void sf_frame(int a0, int a1, int a2, int a3, int s0, int s1, int s2, int view)
     r_flush_bg();
     stars_draw(alt);
     r_flush_fg();
-    palette_keep();
+    if (fade_d && palette_plain())
+        fade_d = 0;                /* Payback has put its colours back */
     hot_restore();
     news_send();
 }

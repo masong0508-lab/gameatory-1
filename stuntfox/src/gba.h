@@ -9,6 +9,7 @@ typedef signed char s8;
 typedef short s16;
 typedef int s32;
 typedef long long s64;
+typedef unsigned long long u64;
 
 #define IWRAM_CODE __attribute__((section(".iwram"), target("arm"), noinline))
 #define IWRAM_DATA __attribute__((section(".iwram_data")))
@@ -18,9 +19,13 @@ typedef long long s64;
    world renderer used to own. */
 #if defined(MERGE) && defined(__arm__)
 #define HOT IWRAM_CODE
+#define HOT2 __attribute__((section(".iwram2"), target("arm"), noinline))   /* see merge.ld */
+#define HOT3 __attribute__((section(".iwram3"), target("arm"), noinline))
 #define SCRATCH __attribute__((section(".scratch")))
 #else
 #define HOT
+#define HOT2
+#define HOT3
 #define SCRATCH EWRAM_BSS
 #endif
 

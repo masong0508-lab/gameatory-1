@@ -25,6 +25,8 @@ void world_init(void)
     world.far = (const u16 *)(base + h[16]);
     world.line = (const Line *)(base + h[17]);
     world.tree = (const Tree *)(base + h[18]);
+    world.ctex = (const u16 *)(base + h[19]);
+    world.btex = (const u16 *)(base + h[20]);
 }
 
 const Cell *world_cell(s32 x, s32 z)

@@ -4,6 +4,9 @@
    point screen coordinates, bucket-sorted by depth and filled far to near (painter's
    algorithm) into the mode 4 back buffer. */
 #include "render.h"
+#ifdef MERGE
+#include "tex.h"
+#endif
 
 #define NBUCKET 1024
 #define MAXBG 640
@@ -13,8 +16,8 @@
    Payback only scattered buffers are free). */
 typedef struct {
     u16 next;
-    u8 n, color;
-    s16 xy[];
+    u8 n, color;                  /* n: vertices, and the kind (PT_*) << 6 */
+    s16 xy[];                     /* then, for a textured kind, its TexFloor or TexWall */
 } Poly;
 
 #define PIDX(p) ((u16)(((u32)(p) >> 2) & 0xffff))
@@ -22,6 +25,12 @@ typedef struct {
 
 Camera cam;
 int r_polys;
+#ifdef MERGE
+const u8 *r_pmap;
+#define MAPC(c) ((c) >= 0x100 ? (c) & 0xff : r_pmap ? r_pmap[c] : (c))
+#else
+#define MAPC(c) (c)
+#endif
 #ifdef MERGE
 extern u8 __pool_a[], __pool_a_end[], __pool_b[], __pool_b_end[], __pool_c[], __pool_c_end[], __pool_d[], __pool_d_end[];
 static u8 *const pool_parts[] = {__pool_a, __pool_a_end, __pool_b, __pool_b_end, __pool_c, __pool_c_end,
@@ -76,8 +85,12 @@ V3 r_cam_far(V3 p, int shift)
     return v3(vdot(cam.m.r, d), vdot(cam.m.u, d), vdot(cam.m.f, d));
 }
 
+int r_nofog;
+
 int fog_of(int z)
 {
+    if (r_nofog)
+        return 0;
     return z < 9000 ? 0 : z < 14000 ? 1 : z < 19000 ? 2 : 3;
 }
 
@@ -112,9 +125,9 @@ HOT static int clip(V3 *in, int n, V3 *out, int k)
     return m;
 }
 
-HOT static Poly *alloc(int key, int bg, int n)
+HOT static Poly *alloc(int key, int bg, int n, int extra)
 {
-    u32 size = 4 + 4 * n;
+    u32 size = 4 + 4 * n + extra;
     while (pool_at + size > pool_end) {
         if (++pool_part >= NPARTS)
             return 0;
@@ -138,7 +151,7 @@ HOT static Poly *alloc(int key, int bg, int n)
     return p;
 }
 
-HOT void r_poly(const V3 *v, int n, int color, int key, int bg)
+HOT static void poly(const V3 *v, int n, int color, int key, int bg, int type, const void *info, int isize)
 {
     V3 a[MAXV], b[MAXV];
     int outcode_all = 0x1f, outcode_any = 0;
@@ -169,11 +182,13 @@ HOT void r_poly(const V3 *v, int n, int color, int key, int bg)
         key = cur[0].z;
         for (int i = 1; i < n; i++) if (cur[i].z > key) key = cur[i].z;
     }
-    Poly *p = alloc(key, bg, n);
+    Poly *p = alloc(key, bg, n, isize);
     if (!p)
         return;
-    p->n = n;
-    p->color = color;
+    p->n = n | type << 6;
+    p->color = MAPC(color);
+    for (int i = 0; i < isize >> 2; i++)
+        ((u32 *)&p->xy[2 * n])[i] = ((const u32 *)info)[i];
     for (int i = 0; i < n; i++) {
         s32 z = cur[i].z, s = 0;
         u32 zn = (u32)z;
@@ -192,13 +207,25 @@ HOT void r_poly(const V3 *v, int n, int color, int key, int bg)
     }
 }
 
+void r_poly(const V3 *v, int n, int color, int key, int bg)
+{
+    poly(v, n, color, key, bg, 0, 0, 0);
+}
+
+#ifdef MERGE
+void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const void *info)
+{
+    poly(v, n, color, key, bg, type, info, type == PT_WALL ? sizeof(TexWall) : sizeof(TexFloor));
+}
+#endif
+
 void r_poly2d(const s32 *xy, int n, int color, int key, int bg)
 {
-    Poly *p = alloc(key, bg, n);
+    Poly *p = alloc(key, bg, n, 0);
     if (!p)
         return;
     p->n = n;
-    p->color = color;
+    p->color = MAPC(color);
     for (int i = 0; i < 2 * n; i++)
         p->xy[i] = xy[i];
 }
@@ -232,7 +259,7 @@ static int clip2d(const s32 *in, int n, s32 *out, s32 a, s32 b, s32 c)
 /* Sky and ground as bands parallel to the horizon. bounds[] holds nbands - 1 sines of
    elevation (1.14), descending; band k lies between bounds[k] (below) and bounds[k - 1].
    Only the first ndraw bands are drawn (the rest is known to be covered). */
-void r_sky(const u8 *colors, const s32 *bounds, int nbands, int ndraw)
+void r_sky(const u16 *colors, const s32 *bounds, int nbands, int ndraw)
 {
     /* world up in camera space; the ray through screen point (sx, sy) (28.4) is
        ((sx - 1920) / 16, (1280 - sy) / 16, FOCAL), and its elevation test against level L is
@@ -278,8 +305,16 @@ void fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, u32 color4);
    rows between vertex events in one go (fill.s). */
 HOT static void raster(const Poly *p)
 {
-    int n = p->n;
+    int n = p->n & 0x3f;
     const s16 *xy = p->xy;
+#ifdef MERGE
+    int type = p->n >> 6, done = -1;
+    const void *info = &xy[2 * n];
+    if (type == PT_WALL) {
+        tex_wall(back, xy, n, info, p->color);
+        return;
+    }
+#endif
     int top = 0;
     s32 ymin = xy[1], ymax = xy[1];
     for (int i = 1; i < n; i++) {
@@ -319,6 +354,14 @@ HOT static void raster(const Poly *p)
         int y1 = enda < endb ? enda : endb;
         if (y1 > ye) y1 = ye;
         int rows = y1 - y;
+#ifdef MERGE
+        if (type) {
+            if (xa + sa * (rows >> 1) <= xb + sb * (rows >> 1))
+                tex_rows(back, y, rows, xa, sa, xb, sb, type, info, p->color, &done);
+            else
+                tex_rows(back, y, rows, xb, sb, xa, sa, type, info, p->color, &done);
+        } else
+#endif
         if (xa + sa * (rows >> 1) <= xb + sb * (rows >> 1))
             fill_trap(back + y * 240, rows, xa, sa, xb, sb, c);
         else
@@ -348,6 +391,7 @@ void r_pixel(int x, int y, int color)
     if ((unsigned)x >= 240 || (unsigned)y >= 160)
         return;
     u16 *p = (u16 *)(back + y * 240 + (x & ~1));
+    color = MAPC(color);
     *p = x & 1 ? (*p & 0xff) | (color << 8) : (*p & 0xff00) | color;
 }
 

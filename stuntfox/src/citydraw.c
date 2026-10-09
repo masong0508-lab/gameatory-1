@@ -4,6 +4,18 @@
 #include "render.h"
 #include "palette.h"
 #include "loops.h"
+#ifdef MERGE
+#include "tex.h"
+static const TexFloor ground = {65536, 65536};
+/* Payback's own colour for a tile seen from afar (light 0..3), as a raw palette index */
+static int tile_color(int id, int l, int fallback)
+{
+    if ((unsigned)id >= TEX_IDS)
+        return fallback;
+    int c = pb_avg[id];
+    return 0x100 | (l < 3 ? pb_shade[l][c] : c);
+}
+#endif
 
 /* which buildings, lots and ramps were already drawn this frame (one bit each) */
 #define SEEN_LOT 2048
@@ -77,13 +89,34 @@ static void wquad(V3 a, V3 b, V3 c, V3 d, int color, s32 key)
 /* One side of a building from its bottom corner a, len units along dir, h high. The wall and
    its windows share one depth key: within it the last submitted is drawn first, so the panes'
    pillars go in before the window rows and those before the wall. */
-static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f)
+static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f, const u16 *tiles)
 {
     V3 b = wpt(a, dir, len, 0), at = wpt(a, dir, 0, h), bt = wpt(a, dir, len, h);
     s32 key = (a.z + b.z + at.z + bt.z) >> 2, near = a.z < b.z ? a.z : b.z;
     if (key < 0)
         key = 0;
     int wc = COLOR(m, l, f);
+#ifdef MERGE
+    if (tex_on && m != M_STUNT) {
+        /* Payback's own wall tiles near by, their average colour further off */
+        wc = tile_color(tiles[0] != 0xffff ? tiles[0] : tiles[1], l, wc);
+        V3 q[4] = {a, b, bt, at};
+        s32 nz = near < at.z ? near : at.z;
+        if (nz < TEX_WALL_FAR) {
+            TexWall t;
+            tex_wall_setup(&t, at, dir, v3(-ay.x, -ay.y, -ay.z));
+            for (int i = 0; i < 4; i++)
+                t.tile[i] = tex_tile(tiles[i]);
+            t.lut = l < 3 ? pb_shade[l] : 0;
+            r_poly_tex(q, 4, wc, key, 0, PT_WALL, &t);
+        } else {
+            r_poly(q, 4, wc, key, 0);
+        }
+        return;
+    }
+#else
+    (void)tiles;
+#endif
     if (h >= STOREY + 96 && near < WINDOWS_FAR && m != M_STUNT) {
         int floors = (h - 96) / STOREY;
         int glass = m == M_GLASS ? COLOR(M_STEEL, l, f) : COLOR(M_GLASS, l < 3 ? l + 1 : 3, f);
@@ -117,16 +150,27 @@ static void draw_box(const Box *b)
     V3 c000 = p, c100 = cadd(p, w, 0, 0), c001 = cadd(p, 0, 0, d);
     V3 c010 = cadd(p, 0, h, 0), c110 = cadd(p, w, h, 0), c011 = cadd(p, 0, h, d), c111 = cadd(p, w, h, d);
     s32 cx = cam.pos.x, cy = cam.pos.y, cz = cam.pos.z;
-    if (cy > h)
-        quad(c010, c110, c111, c011, COLOR(m, 3, f), 0);
+    const u16 *bt = &world.btex[16 * (b - world.box)];
+    if (cy > h) {
+        V3 top[4] = {c010, c110, c111, c011};
+#ifdef MERGE
+        if (tex_on && m != M_STUNT) {
+            int c = tile_color(world.ctex[b->x0 * CITY + b->z0], 3, COLOR(m, 3, f));
+            TexFloor fl;
+            tex_floor(&fl, h);
+            r_poly_tex(top, 4, c, -1, 0, PT_FLOOR, &fl);
+        } else
+#endif
+        r_poly(top, 4, COLOR(m, 3, f), -1, 0);
+    }
     if (cx > x0 + w)
-        wall(c100, az, d, h, m, 2, f);
+        wall(c100, az, d, h, m, 2, f, bt + 4);
     if (cx < x0)
-        wall(c000, az, d, h, m, 0, f);
+        wall(c000, az, d, h, m, 0, f, bt + 12);
     if (cz > z0 + d)
-        wall(c001, ax, w, h, m, 1, f);
+        wall(c001, ax, w, h, m, 1, f, bt + 8);
     if (cz < z0)
-        wall(c000, ax, w, h, m, 1, f);
+        wall(c000, ax, w, h, m, 1, f, bt);
 }
 
 static void draw_lot(const Lot *l)
@@ -138,6 +182,15 @@ static void draw_lot(const Lot *l)
     if (!in_view(centre, (w > d ? w : d) * 3 >> 2))
         return;
     int f = fog_of(centre.z);
+#ifdef MERGE
+    if (tex_on) {
+        /* textured by the island polygon under it where near; Payback's colour further off */
+        V3 q[4] = {p, cadd(p, w, 0, 0), cadd(p, w, 0, d), cadd(p, 0, 0, d)};
+        int i = ((l->x0 + l->x1) >> 1) * CITY + ((l->z0 + l->z1) >> 1);
+        r_poly_tex(q, 4, tile_color(world.ctex[i], 3, COLOR(l->mat, 2, f)), 0, 1, PT_GROUND, &ground);
+        return;
+    }
+#endif
     quad(p, cadd(p, w, 0, 0), cadd(p, w, 0, d), cadd(p, 0, 0, d), COLOR(l->mat, 2, f < 0 ? 0 : f), 1);
 }
 
@@ -194,6 +247,10 @@ static void mark(V3 o, s32 x0, s32 z0, s32 x1, s32 z1, int color)
 /* the dashed centre line of a stretch of road; along is the world axis it runs along */
 static void draw_line(const Line *ln)
 {
+#ifdef MERGE
+    if (tex_on)
+        return;                    /* Payback's road tiles have their own markings */
+#endif
     int d = ln->dir & 1;
     s32 at = ln->at * CELL, t0 = ln->from * CELL, t1 = ln->to * CELL;
     s32 ca = d ? cam.pos.z : cam.pos.x, ct = d ? cam.pos.x : cam.pos.z;
@@ -333,6 +390,11 @@ void world_draw(void)
         const s32 e = CITY * CELL;
         V3 q[4] = {r_cam_far(v3(0, 0, 0), 3), r_cam_far(v3(e, 0, 0), 3), r_cam_far(v3(e, 0, e), 3),
                    r_cam_far(v3(0, 0, e), 3)};
+#ifdef MERGE
+        if (tex_on)
+            r_poly_tex(q, 4, COLOR(M_ROAD, 2, alt > 6000 ? 2 : 0), 0, 1, PT_FLOOR, &ground);
+        else
+#endif
         r_poly(q, 4, COLOR(M_ROAD, 2, alt > 6000 ? 2 : 0), 0, 1);
     }
 
