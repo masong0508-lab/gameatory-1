@@ -230,8 +230,9 @@ static int clip2d(const s32 *in, int n, s32 *out, s32 a, s32 b, s32 c)
 }
 
 /* Sky and ground as bands parallel to the horizon. bounds[] holds nbands - 1 sines of
-   elevation (1.14), descending; band k lies between bounds[k] (below) and bounds[k - 1]. */
-void r_sky(const u8 *colors, const s32 *bounds, int nbands)
+   elevation (1.14), descending; band k lies between bounds[k] (below) and bounds[k - 1].
+   Only the first ndraw bands are drawn (the rest is known to be covered). */
+void r_sky(const u8 *colors, const s32 *bounds, int nbands, int ndraw)
 {
     /* world up in camera space; the ray through screen point (sx, sy) (28.4) is
        ((sx - 1920) / 16, (1280 - sy) / 16, FOCAL), and its elevation test against level L is
@@ -240,7 +241,7 @@ void r_sky(const u8 *colors, const s32 *bounds, int nbands)
     s32 a = wr, b = -wu, c0 = -1920 * wr + 1280 * wu + 16 * FOCAL * wf;
     static const s32 rect[8] = {0, 0, 3840, 0, 3840, 2560, 0, 2560};
     s32 t1[2 * MAXV], t2[2 * MAXV];
-    for (int k = 0; k < nbands; k++) {
+    for (int k = 0; k < ndraw; k++) {
         int n = 4;
         const s32 *src = rect;
         if (k < nbands - 1) {                       /* d >= bounds[k] */

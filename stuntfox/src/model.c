@@ -5,6 +5,7 @@
 
 static const V3 sun = {6553, 13107, 7372};     /* roughly (0.4, 0.8, 0.45) */
 u8 model_body = M_CAR;                          /* material drawn for M_CAR faces (paint job) */
+u8 model_legs = M_ROAD;                         /* ... and for M_SKY faces */
 
 void model_init(Model *md)
 {
@@ -84,7 +85,7 @@ void model_draw(const Model *md, const Place *pl)
             if (nc.x * p.x + nc.y * p.y + nc.z * p.z >= 0)
                 continue;
         }
-        int color, mat = f->mat == M_CAR ? model_body : f->mat;
+        int color, mat = f->mat == M_CAR ? model_body : f->mat == M_SKY ? model_legs : f->mat;
         if (f->flags & MF_GLOW)
             color = COLOR(mat, 3, 0);
         else {

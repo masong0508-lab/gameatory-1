@@ -34,6 +34,7 @@ void model_poly(const Place *pl, const MVert *v, int n, int color);
 
 extern Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
 extern u8 model_body;                           /* paint for M_CAR faces, M_CAR by default */
+extern u8 model_legs;                           /* paint for M_SKY faces (people's legs) */
 void models_init(void);
 
 #endif

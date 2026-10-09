@@ -3,6 +3,7 @@
 #include "render.h"
 #include "palette.h"
 #include "model.h"
+#include "world.h"
 
 #define NSTARS 40
 static V3 stars[NSTARS] EWRAM_BSS;
@@ -58,7 +59,19 @@ void sky_draw(s32 alt)
     static const u8 cols[] = {0, 3, 7, 11, 15, COLOR(M_GLASS, 1, 3), COLOR(M_GLASS, 1, 2), COLOR(M_GLASS, 1, 1),
                               COLOR(M_GLASS, 1, 0)};
     static const s32 bounds[] = {9000, 5000, 2500, 800, 0, -300, -1200, -3000};
-    r_sky(cols, bounds, 9);
+    /* Over the island the city covers the sea, except beyond its nearest edge: at most
+       alt / edge below the horizon. Sea bands lower than that are not drawn. */
+    int ndraw = 9;
+    s32 x = cam.pos.x, z = cam.pos.z, e = CITY * CELL;
+    s32 edge = x < z ? x : z;
+    if (e - x < edge) edge = e - x;
+    if (e - z < edge) edge = e - z;
+    if (edge > 2048 && alt > 0 && alt < 8000) {
+        s32 lim = -(s32)(((s64)alt << 14) / edge) - 64;
+        for (ndraw = 6; ndraw < 9 && bounds[ndraw - 1] >= lim; ndraw++)
+            ;
+    }
+    r_sky(cols, bounds, 9, ndraw);
 }
 
 int palette_commit(void)

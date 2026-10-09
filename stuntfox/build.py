@@ -74,7 +74,7 @@ def build(payback, out):
 
 
 # --merge: Stunt Fox inside Payback
-MERGE_ONLY = {'merge.c', 'keyhook.s'}
+MERGE_ONLY = {'merge.c', 'keyhook.s', 'traffic.c'}
 MERGE_SKIP = {'main.c', 'hud.c', 'crt0.s'}
 MERGE_CALLS = (0x080177fa, 0x08017692)        # Payback's two calls to its world renderer
 MERGE_RENDERER = 0x0800adac

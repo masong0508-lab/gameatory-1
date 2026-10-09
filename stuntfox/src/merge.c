@@ -22,6 +22,7 @@
 #include "physics.h"
 #include "car.h"
 #include "ship.h"
+#include "traffic.h"
 #include "model.h"
 #include "space.h"
 
@@ -77,6 +78,8 @@ extern const u32 merge_sig[32][2];
 extern u8 __hot_start[], __hot_end[], __hot_lma[];
 extern u8 __data_start[], __data_end[], __data_lma[];
 extern u8 __bss_start[], __bss_end[];
+extern u32 __keep_canary[];
+#define CANARY 0x4b454550          /* "KEEP" */
 
 u32 frame_count;
 
@@ -141,6 +144,8 @@ static int mode, parked;           /* parked: the Arwing waits where we left it 
 static Car car;
 static Ship ship;
 static u8 *car_ent;                /* Payback's record of the car we drive */
+static int car_kind;               /* which of Payback's vehicles it is */
+static int vehicle_kind(const u8 *e);
 static u16 keys, prev_keys;
 static u8 want_ship, told;
 
@@ -160,11 +165,13 @@ static void start(void)
     r_init();
     world_init();
     models_init();
+    traffic_init();
     space_init();
     palette_out = pal_cache;
     cam_off = v3(0, 400, -800);
     cam_up = v3(0, ONE, 0);
     last_clock = pb_clock();
+    __keep_canary[0] = CANARY;
     STATE[0] = MAGIC;
 }
 
@@ -254,7 +261,7 @@ static s32 heading_of(const M3 *m) { return fatan2(m->f.x, m->f.z); }
    phone. While we fly, Payback's man sees no buttons but START. */
 void sf_keys(void)
 {
-    if (STATE[0] != MAGIC)
+    if (STATE[0] != MAGIC || __keep_canary[0] != CANARY)
         return;
     key_calls++;
     if (key_calls - frame_calls > 4 || fade_d) {
@@ -347,6 +354,7 @@ static void car_take(u8 *e)
     V3 p = entity_pos(e);
     car_reset(&car, v3(p.x, (ground_fine(p.x << FX, p.z << FX) >> FX) + 140, p.z), entity_heading(e));
     car_ent = e;
+    car_kind = vehicle_kind(e);
     mode = DRIVE;
     if (!(told & 1)) {
         told |= 1;
@@ -507,11 +515,56 @@ static void ship_events(void)
 
 /* ---- drawing ---- */
 
+/* Payback's vehicles, in the order of its descriptor table: the model, the paint and how
+   far back the exhaust is */
+typedef struct { const Model *md; u8 paint, scale; s16 rear; } VehicleLook;
+static const VehicleLook looks[] = {
+    {&mdl_saloon, M_TEAL, 0, -235},       /* Mundaneo */
+    {&mdl_saloon, M_BRICK, 224, -235},    /* Pug */
+    {&mdl_sport, M_STUNT, 0, -232},       /* Diblo */
+    {&mdl_bus, M_ACCENT, 0, -520},        /* bus */
+    {&mdl_saloon, M_CONCRETE, 0, -235},   /* Vapour */
+    {&mdl_saloon, M_CAR, 224, -235},      /* Pug GTI */
+    {&mdl_saloon, M_CREAM, 0, -235},      /* Fjord */
+    {&mdl_van, M_SHIP, 0, -245},          /* van */
+    {&mdl_limo, M_ROAD, 0, -340},         /* limo */
+    {&mdl_saloon, M_SHIP, 0, -235},       /* police car */
+    {&mdl_sport, M_CAR, 0, -232},         /* Scooby */
+    {&mdl_tank, M_GRASS, 0, -280},        /* tank */
+    {&mdl_sport, M_SHIP, 0, -232},        /* Evo */
+    {&mdl_saloon, M_ACCENT, 0, -235},     /* taxi */
+    {&mdl_van, M_CREAM, 0, -245},         /* ice cream van */
+    {&mdl_pickup, M_BRICK, 0, -245},      /* pickup */
+    {&mdl_sport, M_GLOW, 0, -232},        /* hot rod */
+};
+#define POLICE_CAR 9
+
+static int vehicle_kind(const u8 *e)
+{
+    u32 k = (entity_desc(e) - VEH_FIRST) / VEH_SIZE;
+    return k < sizeof looks / sizeof looks[0] ? (int)k : 0;
+}
+
+/* red and blue lights on a police car's roof, taking turns */
+static void police_lights(const Place *pl)
+{
+    int red = frame_count & 8, f = pl->fog;
+    MVert r[4] = {{-60, 106, -36}, {-6, 106, -36}, {-6, 106, -8}, {-60, 106, -8}};
+    MVert b[4] = {{6, 106, -36}, {60, 106, -36}, {60, 106, -8}, {6, 106, -8}};
+    MVert rf[4] = {{-60, 92, -8}, {-6, 92, -8}, {-6, 106, -8}, {-60, 106, -8}};
+    MVert bf[4] = {{6, 92, -8}, {60, 92, -8}, {60, 106, -8}, {6, 106, -8}};
+    int cr = red ? COLOR(M_STUNT, 3, 0) : COLOR(M_STUNT, 0, f);
+    int cb = red ? COLOR(M_GLASS, 0, f) : COLOR(M_GLASS, 3, 0);
+    model_poly(pl, rf, 4, cr);
+    model_poly(pl, bf, 4, cb);
+    model_poly(pl, r, 4, cr);
+    model_poly(pl, b, 4, cb);
+}
+
 /* everyone Payback is running: traffic, parked cars, helicopters and people */
 static void draw_entities(const u8 *me)
 {
-    static const u8 paint[] = {M_BRICK, M_CAR, M_CREAM, M_TEAL, M_ACCENT, M_STEEL, M_GLASS, M_STUNT,
-                               M_CONCRETE, M_KERB, M_GRASS};
+    static const u8 shirts[] = {M_BRICK, M_CAR, M_CREAM, M_TEAL, M_ACCENT, M_SHIP, M_STUNT, M_GRASS};
     int n = PB_NENTITY;
     if (n > 64) n = 64;
     for (int i = 0; i < n; i++) {
@@ -528,45 +581,59 @@ static void draw_entities(const u8 *me)
             continue;
         M3 m;
         myaw(&m, entity_heading(e));
-        const Model *md = &mdl_ped;
-        u32 k = (u32)e >> 4;
-        if (is_vehicle(e)) {
-            u32 desc = entity_desc(e);
-            k = (desc - VEH_FIRST) / VEH_SIZE;
-            if (desc == VEH_HELI) {
-                md = &mdl_heli;
-            } else {
-                md = &mdl_car;
-                p.y += 58;                             /* the body rides above its wheels */
-            }
-        }
-        model_body = paint[k % sizeof paint];
         Place pl;
-        if (model_place(&pl, p, &m, 256, 0, md->radius))
-            model_draw(md, &pl);
+        if (is_vehicle(e)) {
+            if (entity_desc(e) == VEH_HELI) {
+                model_body = M_CAR;
+                if (model_place(&pl, p, &m, 256, 0, mdl_heli.radius))
+                    model_draw(&mdl_heli, &pl);
+                continue;
+            }
+            int k = vehicle_kind(e);
+            const VehicleLook *lk = &looks[k];
+            p.y += 58;                                 /* the body rides above its wheels */
+            if (!model_place(&pl, p, &m, lk->scale ? lk->scale : 256, 0, lk->md->radius))
+                continue;
+            model_body = lk->paint;
+            model_draw(lk->md, &pl);
+            if (k == POLICE_CAR && pl.t.z < 9000)
+                police_lights(&pl);
+            continue;
+        }
+        /* a person: dressed by kind (Payback's descriptor), walking when they move */
+        if (!model_place(&pl, p, &m, 256, 0, 140))
+            continue;
+        u32 kind = entity_desc(e) >> 3;
+        model_body = shirts[kind % sizeof shirts];
+        model_legs = (kind >> 3) & 1 ? M_STEEL : M_ROAD;
+        const Model *md = &mdl_ped;
+        if (pl.t.z < 2600) {
+            const s32 *w = (const s32 *)e;
+            int moving = w[E_X / 4] != w[E_PREV1 / 4] || w[E_Y / 4] != w[E_PREV1 / 4 + 1];
+            md = !moving ? &mdl_stand : ((iabs(w[E_X / 4]) + iabs(w[E_Y / 4])) >> 7) & 1 ? &mdl_stride_a : &mdl_stride_b;
+        }
+        model_draw(md, &pl);
     }
     model_body = M_CAR;
+    model_legs = M_ROAD;
 }
 
+/* the car we drive looks like the Payback vehicle it is */
 static void draw_car(void)
 {
     Place pl;
     V3 p = vshr(car.b.pos, FX);
-    if (!model_place(&pl, p, &car.b.m, 256, 0, mdl_car.radius))
+    const VehicleLook *lk = &looks[car_kind];
+    if (!model_place(&pl, p, &car.b.m, lk->scale ? lk->scale : 256, 0, lk->md->radius))
         return;
-    model_body = M_STUNT;
-    model_draw(&mdl_car, &pl);
+    model_body = lk->paint;
+    model_draw(lk->md, &pl);
     model_body = M_CAR;
-    for (int i = 0; i < 4; i++) {
-        /* wheels ride on the suspension */
-        s32 y = car_wheel[i].y - (CAR_SUSP - (car.comp[i] >> FX)) + CAR_WHEEL_R;
-        s32 x = car_wheel[i].x < 0 ? -131 : 131, z = car_wheel[i].z, r = CAR_WHEEL_R;
-        MVert w[6] = {{x, y + r, z}, {x, y + r / 2, z + r}, {x, y - r / 2, z + r},
-                      {x, y - r, z}, {x, y - r / 2, z - r}, {x, y + r / 2, z - r}};
-        model_poly(&pl, w, 6, COLOR(M_ROAD, 0, pl.fog));
-    }
+    if (car_kind == POLICE_CAR)
+        police_lights(&pl);
     if (car.boosting && (frame_count & 2)) {
-        MVert fl[3] = {{-50, -10, -232}, {50, -10, -232}, {0, 0, -420 - (int)(frame_count & 4) * 20}};
+        int z = lk->rear;
+        MVert fl[3] = {{-50, -10, z}, {50, -10, z}, {0, 0, z - 190 - (int)(frame_count & 4) * 20}};
         model_poly(&pl, fl, 3, COLOR(M_GLOW, 3, 0));
     }
 }
@@ -625,7 +692,7 @@ static void palette_keep(void)
 void sf_fade(int level)
 {
     PB_FADE(level);
-    if (STATE[0] != MAGIC)
+    if (STATE[0] != MAGIC || __keep_canary[0] != CANARY)
         return;
     fade_d = (level - 256) >> 3;
     palette_show();
@@ -696,7 +763,7 @@ void sf_frame(int a0, int a1, int a2, int a3, int s0, int s1, int s2, int view)
         return;
     }
     hot_install();
-    if (STATE[0] != MAGIC)
+    if (STATE[0] != MAGIC || __keep_canary[0] != CANARY)
         start();
     frame_calls = key_calls;
     prev_keys = keys;

@@ -5,7 +5,9 @@ Two ways to play it, both built from your own Payback ROM:
 - **Stunt Fox x Payback** (`--merge`): Payback itself, with Stunt Fox inside it. Payback keeps
   running Freedom City (traffic, people, police, missions, the phone, the minimap, sound) while
   Stunt Fox draws the city with its faster renderer, drives your car with its stunt physics and
-  brings the Arwing whenever you hold SELECT.
+  brings the Arwing whenever you hold SELECT. Each of Payback's vehicles gets its own model
+  (saloons, sports cars, vans, pickups, the limo, buses, police cars with flashing lights, the
+  tank), and people walk.
 - **Stunt Fox** on its own: the stunt arena, the city and space without Payback's game.
 
 ## Stunt Fox x Payback

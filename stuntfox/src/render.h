@@ -29,7 +29,7 @@ V3 r_cam_far(V3 world, int shift);/* same, with the offset scaled down by 2^shif
 void r_poly(const V3 *v, int n, int color, int key, int bg);
 /* screen-space polygon in 28.4 fixed point (already inside the screen) */
 void r_poly2d(const s32 *xy, int n, int color, int key, int bg);
-void r_sky(const u8 *colors, const s32 *bounds, int nbands);
+void r_sky(const u8 *colors, const s32 *bounds, int nbands, int ndraw);
 void r_flush_bg(void);            /* draw the background list into the back buffer */
 void r_flush_fg(void);            /* then everything else, far to near */
 void r_flip(void);
