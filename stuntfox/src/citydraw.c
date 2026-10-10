@@ -18,11 +18,11 @@ static int tile_color(int id, int l, int fallback)
 #endif
 
 /* which buildings, lots and ramps were already drawn this frame (one bit each) */
-#define SEEN_LOT 2048
-#define SEEN_RAMP (2048 + 2560)
-#define SEEN_LINE (2048 + 2560 + 512)
-#define SEEN_TREE (2048 + 2560 + 512 + 1024)
-static u32 seen[(2048 + 2560 + 512 + 1024 + 2048) / 32] SCRATCH;
+#define SEEN_LOT 2560
+#define SEEN_RAMP (2560 + 2048)
+#define SEEN_LINE (2560 + 2048 + 512)
+#define SEEN_TREE (2560 + 2048 + 512 + 1024)
+static u32 seen[(2560 + 2048 + 512 + 1024 + 2048) / 32] SCRATCH;
 static inline int first_visit(int i)
 {
     u32 *w = &seen[i >> 5], b = 1u << (i & 31);
@@ -143,37 +143,52 @@ static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f, const u16 *t
     wquad(a, b, bt, at, wc, key);
 }
 
+/* is the side of a deck (a box over open air) at (x, z) (units, just outside it) hidden in the
+   ground there, up to its top? */
+static inline int buried(s32 x, s32 z, s32 top)
+{
+    return world_ground(x, z) >= top;
+}
+
 static void draw_box(const Box *b)
 {
-    s32 x0 = b->x0 * CELL, z0 = b->z0 * CELL, w = (b->x1 - b->x0) * CELL, d = (b->z1 - b->z0) * CELL, h = b->h;
-    V3 p = r_cam(v3(x0, 0, z0));
+    s32 x0 = b->x0 * CELL, z0 = b->z0 * CELL, w = (b->x1 - b->x0) * CELL, d = (b->z1 - b->z0) * CELL;
+    s32 y0 = b->base * 64, h = b->h - y0;      /* (a deck: its underside y0 over open air) */
+    V3 p = r_cam(v3(x0, y0, z0));
     V3 centre = cadd(p, w >> 1, h >> 1, d >> 1);
     if (!in_view(centre, ((w > d ? w : d) * 3 >> 2) + (h >> 1)))
         return;
     int f = fog_of(centre.z), m = b->mat;
     V3 c000 = p, c100 = cadd(p, w, 0, 0), c001 = cadd(p, 0, 0, d);
     V3 c010 = cadd(p, 0, h, 0), c110 = cadd(p, w, h, 0), c011 = cadd(p, 0, h, d), c111 = cadd(p, w, h, d);
-    s32 cx = cam.pos.x, cy = cam.pos.y, cz = cam.pos.z;
+    s32 cx = cam.pos.x, cy = cam.pos.y, cz = cam.pos.z, yt = b->h;
     const u16 *bt = &world.btex[16 * (b - world.box)];
-    if (cy > h) {
+    if (cy > yt) {
         V3 top[4] = {c010, c110, c111, c011};
 #ifdef MERGE
-        if (tex_on && m != M_STUNT) {
+        /* (the tiles of a cell are the road's under a deck high over it) */
+        if (tex_on && m != M_STUNT && y0 <= 0) {
             int c = tile_color(world.ctex[b->x0 * CITY + b->z0], 3, COLOR(m, 3, f));
             TexFloor fl;
-            tex_floor(&fl, h);
+            tex_floor(&fl, yt);
             r_poly_tex(top, 4, c, -1, 0, PT_FLOOR, &fl);
         } else
 #endif
         r_poly(top, 4, COLOR(m, 3, f), -1, 0);
     }
-    if (cx > x0 + w)
+    int deck = y0 != 0;
+    if (deck && cy < y0) {                      /* under a deck: its underside, in shadow */
+        V3 c101 = cadd(p, w, 0, d);
+        quad(c000, c100, c101, c001, COLOR(m, 0, f), 0);
+    }
+    s32 mx = x0 + (w >> 1), mz = z0 + (d >> 1);
+    if (cx > x0 + w && !(deck && buried(x0 + w + 8, mz, yt)))
         wall(c100, az, d, h, m, 2, f, bt + 4);
-    if (cx < x0)
+    if (cx < x0 && !(deck && buried(x0 - 8, mz, yt)))
         wall(c000, az, d, h, m, 0, f, bt + 12);
-    if (cz > z0 + d)
+    if (cz > z0 + d && !(deck && buried(mx, z0 + d + 8, yt)))
         wall(c001, ax, w, h, m, 1, f, bt + 8);
-    if (cz < z0)
+    if (cz < z0 && !(deck && buried(mx, z0 - 8, yt)))
         wall(c000, ax, w, h, m, 1, f, bt);
 }
 
@@ -198,6 +213,27 @@ static void draw_lot(const Lot *l)
     quad(p, cadd(p, w, 0, 0), cadd(p, w, 0, d), cadd(p, 0, 0, d), COLOR(l->mat, 2, f < 0 ? 0 : f), 1);
 }
 
+/* one side of a ramp below the street, its edge down to e (< 0); (ox, oz) just outside */
+static void sunk_side(V3 b0, V3 b1, V3 t1, V3 t0, s32 e, s32 ox, s32 oz, int outside, int color)
+{
+    if (e >= 0 || world_ground(ox, oz) <= e + 64)
+        return;                                 /* level with the ground beside: open */
+    V3 q[4] = {b0, b1, t1, t0};
+    if (!outside) {
+        r_poly(q, 4, color, -1, 0);
+        return;
+    }
+    if (cam.pos.y <= 0)
+        return;
+#ifdef MERGE
+    if (tex_on) {
+        r_poly_tex(q, 4, COLOR(M_ROAD, 2, 0), -1, 0, PT_FLOOR, &ground);
+        return;
+    }
+#endif
+    r_poly(q, 4, COLOR(M_ROAD, 2, 0), -1, 0);
+}
+
 static void draw_ramp(const Ramp *r)
 {
     s32 x0 = r->x0 * CELL, z0 = r->z0 * CELL, w = (r->x1 - r->x0) * CELL, d = (r->z1 - r->z0) * CELL;
@@ -218,16 +254,37 @@ static void draw_ramp(const Ramp *r)
     V3 t00 = cadd(p, 0, h00, 0), t10 = cadd(p, w, h10, 0), t11 = cadd(p, w, h11, d), t01 = cadd(p, 0, h01, d);
     V3 b00 = p, b10 = cadd(p, w, 0, 0), b11 = cadd(p, w, 0, d), b01 = cadd(p, 0, 0, d);
     V3 top[4] = {t00, t10, t11, t01};
+#ifdef MERGE
+    if (tex_on && lo == hi && lo < 0) {         /* a floor below the street: its own tiles */
+        TexFloor fl;
+        tex_floor(&fl, lo);
+        r_poly_tex(top, 4, tile_color(world.ctex[r->x0 * CITY + r->z0], 3, COLOR(m, 3, f)), -2, 0,
+                   PT_FLOOR, &fl);
+    } else if (tex_on) {                        /* a slope: its tile's colour */
+        r_poly(top, 4, tile_color(world.ctex[r->x0 * CITY + r->z0], 3, COLOR(m, 3, f)), -2, 0);
+    } else
+#endif
     r_poly(top, 4, COLOR(m, 3, f), -2, 0);
     s32 cx = cam.pos.x, cz = cam.pos.z;
-    if (cx > x0 + w && (h10 | h11))
-        quad(b10, b11, t11, t10, COLOR(m, 1, f), 0);
-    if (cx < x0 && (h00 | h01))
-        quad(b00, t00, t01, b01, COLOR(m, 1, f), 0);
-    if (cz > z0 + d && (h01 | h11))
-        quad(b01, t01, t11, b11, COLOR(m, 0, f), 0);
-    if (cz < z0 && (h00 | h10))
-        quad(b00, b10, t10, t00, COLOR(m, 0, f), 0);
+    if (hi > 0 || lo >= 0) {
+        if (cx > x0 + w && (h10 | h11))
+            quad(b10, b11, t11, t10, COLOR(m, 1, f), 0);
+        if (cx < x0 && (h00 | h01))
+            quad(b00, t00, t01, b01, COLOR(m, 1, f), 0);
+        if (cz > z0 + d && (h01 | h11))
+            quad(b01, t01, t11, b11, COLOR(m, 0, f), 0);
+        if (cz < z0 && (h00 | h10))
+            quad(b00, b10, t10, t00, COLOR(m, 0, f), 0);
+        return;
+    }
+    /* below the street (a road under a bridge, a sunken yard): walls down to it where the ground
+       beside is higher, seen from inside. From outside, the street in front hides part of what
+       is down there: the wall is drawn as that street (its tiles where it is). */
+    s32 mx = x0 + (w >> 1), mz = z0 + (d >> 1);
+    sunk_side(b10, b11, t11, t10, h10 < h11 ? h10 : h11, x0 + w + 8, mz, cx > x0 + w, COLOR(m, 1, f));
+    sunk_side(b00, b01, t01, t00, h00 < h01 ? h00 : h01, x0 - 8, mz, cx < x0, COLOR(m, 1, f));
+    sunk_side(b01, b11, t11, t01, h01 < h11 ? h01 : h11, mx, z0 + d + 8, cz > z0 + d, COLOR(m, 0, f));
+    sunk_side(b00, b10, t10, t00, h00 < h10 ? h00 : h10, mx, z0 - 8, cz < z0, COLOR(m, 0, f));
 }
 
 /* ---- road markings and trees ---- */
@@ -506,8 +563,9 @@ void world_draw(void)
     s32 ccx = cam.pos.x >> 13, ccz = cam.pos.z >> 13;    /* camera sector */
     int alt = cam.pos.y > 0 ? cam.pos.y : 0;
 
-    /* the island the city stands on, as one big background polygon */
-    {
+    /* the island the city stands on, as one big background polygon (from above it: under the
+       street, down a road beneath a bridge, it would hang over the sky) */
+    if (cam.pos.y > 0) {
         const s32 e = CITY * CELL;
         V3 q[4] = {r_cam_far(v3(0, 0, 0), 3), r_cam_far(v3(e, 0, 0), 3), r_cam_far(v3(e, 0, e), 3),
                    r_cam_far(v3(0, 0, e), 3)};

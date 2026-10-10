@@ -239,7 +239,7 @@ HOT3 void tex_rows(u8 *back, int y, int rows, s32 xl, s32 sl, s32 xr, s32 sr, in
             if (x1 > 240) x1 = 240;
             /* a pair of rows from an even row; a polygon's first row may be odd: on its own */
             tex_hspan(back + y * 240, y >> 1, x0, x1, fl, y & 1 ? 0 : 240, color);
-            *done = y + 1;
+            *done = y | 1;                      /* (an odd row was on its own: on to the next) */
         }
         y++, rows--, xl += sl, xr += sr;
     }

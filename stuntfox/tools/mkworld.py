@@ -9,7 +9,8 @@ Payback's y, and Y is up.
 
 Output (little endian), see src/world.h:
     header   'SFW2', counts and offsets
-    boxes    buildings: x0 z0 x1 z1 (cells), height (units), material
+    boxes    buildings: x0 z0 x1 z1 (cells), height (units), material, base (units / 64: 0, or
+             the underside of a deck spanning over open air, a bridge)
     lots     ground patches that are not road: x0 z0 x1 z1, material
     ramps    drivable slopes: x0 z0 x1 z1, h0 h1, rising direction, material
     loops    x z (units), direction, radius, width
@@ -21,6 +22,7 @@ Output (little endian), see src/world.h:
     items    u16: kind << 13 | index
     height   128 x 128 cells: s16 low, s16 high, u8 shape, u8 material (collision and minimap)
     far      16 x 16 sectors: material and average height for distant rendering
+    deck     128 x 128 cells: s8 bottom, s8 top (units / 64) of a deck over the cell, 0 0: none
 """
 import os
 import struct
@@ -149,8 +151,54 @@ def edge_walls(rom, cells, skip):
     return out
 
 
-def classify(rom):
-    """Per cell: (kind, low, high, shape, material). kind: road, kerb, ground, ramp, building."""
+def s16(v):
+    return v - 0x10000 if v & 0x8000 else v
+
+
+def stack(col):
+    """Payback's column as it really stands: its three records sit on one another from height
+    0, each as thick as its h0 / h1. Shape 0 is open air, and so is a record without flag 0x20
+    (tile 0, nothing drawn: people walk through those). Measured by dropping Payback's man onto
+    them: on the bridge at cells (16..17, 49..50) the road below is at 0 (z 24000) and the deck
+    above at 0x100 (z 19904) from records 0 / 0xc0 air / 0x40; a building of 0x100 air and 0x170
+    solid has its roof at 0x270 (z 14016), not at 0x170; the slab over the road at (56, 75) is
+    0x280..0x400; the slope at (2, 18) of 0x100 air and 0x60 / 0xc0 is at 0x190 in its middle.
+    Returns the solid layers: [(bottom, top0, top1, shape, flags, tile)]."""
+    base, out = 0, []
+    for k in range(3):
+        b = col[20 * k:20 * k + 20]
+        h0, h1, shape = struct.unpack_from('<HHB', b, 4)
+        h0, h1 = s16(h0), s16(h1)
+        if shape and b[9] & 0x20:
+            out.append((base, base + h0, base + h1, shape, b[9], b[10] | (b[11] & 3) << 8))
+        base += h0      # (after a slope, from its h0 edge: both parapets of that bridge at 0x150)
+    return out
+
+
+def floor_and_deck(col):
+    """The surface Payback's people and traffic stand on in a cell, and what spans over it with
+    open air in between (a bridge deck, a walkway, a building over the road), from stack().
+    Returns (floor layer or None, its top, deck or None): deck = (bottom, top, tile)."""
+    layers = stack(col)
+    if not layers:
+        return (0, STREET, STREET, 1, 0, 0), STREET, None
+    floor, top, deck, tile = layers[0], max(layers[0][1], layers[0][2]), None, layers[0][5]
+    for lay in layers[1:]:
+        t = max(lay[1], lay[2])
+        if deck is None and lay[0] <= top:
+            floor, top, tile = None, max(top, t), lay[5]     # solid on solid: one block
+        elif deck is None:
+            deck = (lay[0], t, lay[5])
+        else:
+            deck = (deck[0], max(deck[1], t), lay[5])
+    return floor if floor is not None else (0, top, top, 1, 0, tile), top, deck
+
+
+def classify(rom, stacked=False, decks=None):
+    """Per cell: (kind, low, high, shape, material). kind: road, kerb, ground, ramp, building.
+    stacked (Stunt Fox inside Payback): heights as Payback has them (stack()), and cells with
+    open air under something get their floor here and the thing over it in decks (index ->
+    (bottom, top, material, tile)), so the road goes on under bridges."""
     grid = rom.grid(0)
     cells = []
     for i in range(N * N):
@@ -166,11 +214,29 @@ def classify(rom):
                     top, top_tex = max(h0, h1), b[10]
         lanes = col[3]
         floor = recs[0] if recs else (STREET, STREET, 1, col[10])
+        if stacked and top < 0x8000:
+            fl, top, deck = floor_and_deck(col)
+            top_tex = fl[5] & 0xff if top_tex is None else top_tex
+            if deck and decks is not None:
+                tile = deck[2]
+                decks[i] = (h_units(deck[0]), h_units(deck[1]),
+                            BUILDING_MATS[((tile & 0xff) * 7 + 3) % len(BUILDING_MATS)], tile)
+                recs = [(fl[1], fl[2], fl[3])]   # the floor alone decides what the cell is
+            elif len(recs) == 1:
+                recs = [(fl[1], fl[2], fl[3])]
+            floor = recs[0] if recs else floor
+            if top < STREET and fl[3] == 1:
+                # a flat floor below the street (the road under a bridge): a flat ramp down there
+                cells.append(('ramp', h_units(top), h_units(top), 1, M_ROAD if lanes & 0x0f else M_KERB))
+                continue
         if top >= 0x8000:                     # below-street cells (water / pits): flat water
             cells.append(('ground', 0, 0, 1, WATER_MAT))
         elif len(recs) == 1 and floor[2] in (2, 3, 4, 5) and min(floor[0], floor[1]) <= STREET + 0x20:
             lo, hi = sorted((floor[0], floor[1]))
-            cells.append(('ramp', h_units(lo), h_units(hi), floor[2], M_KERB))
+            # the shape says which way h0 -> h1 runs (h0 on the -y / -x edge for 2 / 3, measured
+            # on the slopes into the underpass at (16, 45..47)); a ramp coming down runs the other way
+            shape = floor[2] if floor[0] <= floor[1] else {2: 4, 3: 5, 4: 2, 5: 3}[floor[2]]
+            cells.append(('ramp', h_units(lo), h_units(hi), shape, M_KERB))
         elif fence_of(recs):
             # a railing, fence or thin wall along one edge of a street-level cell (see fence_of):
             # the cell itself is street, the fence is drawn on its own
@@ -291,16 +357,24 @@ def recs_of(col):
     return out
 
 
-def tex_tables(rom, rom_bytes, cells, boxes, merge=False):
+def tex_tables(rom, rom_bytes, cells, boxes, merge=False, decks=None):
     """Tile ids for the top of every cell and for the walls of every box."""
     grid = rom.grid(0)
     cols = [recs_of(rom.column(grid[i])) for i in range(N * N)]
     x0, y0, x1, y1 = STADIUM if not merge else (0, 0, 0, 0)
+    decks = decks or {}
     ctex = []
     for i in range(N * N):
         x, y = divmod(i, N)
         tid = 0xffff
-        if cols[i] and not (x0 <= x < x1 and y0 <= y < y1) and cells[i][0] != 'ramp':
+        if merge and (i in decks or cells[i][0] == 'ramp'):
+            # a ramp, the road under a bridge or a sunken floor: its own tile, unless a deck at
+            # street level covers it (then that is the street people walk on)
+            fl, _, deck = floor_and_deck(rom.column(grid[i]))
+            t = deck[2] if deck and i in decks and decks[i][1] <= 256 else fl[5]
+            if tile_ok(rom_bytes, t):
+                tid = t
+        elif cols[i] and not (x0 <= x < x1 and y0 <= y < y1) and cells[i][0] != 'ramp':
             top = max(cols[i], key=lambda r: r[0])
             if top[0] < 0x8000 and tile_ok(rom_bytes, top[1]):
                 tid = top[1]
@@ -366,11 +440,14 @@ def build(rom_bytes, merge=False):
     """merge: for Stunt Fox inside Payback, where Payback's own collision decides where people
     walk, so the city is drawn exactly as Payback has it (its stadium, not the stunt arena)."""
     rom = PaybackRom(rom_bytes)
-    cells = classify(rom)
+    decks = {}
+    cells = classify(rom, stacked=merge, decks=decks)
     if not merge:
         stunt_park(cells)
 
-    boxes = greedy(cells, lambda i: (cells[i][2], cells[i][4]) if cells[i][0] == 'building' else None, 4)
+    boxes = greedy(cells, lambda i: (cells[i][2], cells[i][4], 0) if cells[i][0] == 'building' else None, 4)
+    # what spans over open air (bridge decks, walkways, buildings over a road): boxes with a base
+    boxes += greedy(cells, lambda i: (decks[i][1], decks[i][2], decks[i][0]) if i in decks else None, 4)
     lots = greedy(cells, lambda i: cells[i][4] if cells[i][0] in ('ground', 'kerb') and cells[i][4] != M_ROAD
                   else None, 16)
     ramps = greedy(cells, lambda i: cells[i][1:5] if cells[i][0] == 'ramp' else None, 8)
@@ -399,7 +476,7 @@ def build(rom_bytes, merge=False):
         trees += objects + edge_walls(rom, cells, skip)
     else:
         trees = park_trees(cells)
-    ctex, btex = tex_tables(rom, rom_bytes, cells, boxes, merge)
+    ctex, btex = tex_tables(rom, rom_bytes, cells, boxes, merge, decks)
 
     # sector index
     sectors = [[] for _ in range(256)]
@@ -452,7 +529,8 @@ def build(rom_bytes, merge=False):
         parts.append(len(blob))
         blob.extend(data)
 
-    section(b''.join(struct.pack('<BBBBhBB', x0, y0, x1, y1, k[0], k[1], 0) for x0, y0, x1, y1, k in boxes))
+    assert all(k[2] % 64 == 0 and -128 * 64 <= k[2] < 128 * 64 for *_, k in boxes)
+    section(b''.join(struct.pack('<BBBBhBb', x0, y0, x1, y1, k[0], k[1], k[2] // 64) for x0, y0, x1, y1, k in boxes))
     section(b''.join(struct.pack('<BBBBB', x0, y0, x1, y1, k) for x0, y0, x1, y1, k in lots))
     section(b''.join(struct.pack('<BBBBhhBB', x0, y0, x1, y1, k[0], k[1], k[2], k[3])
                      for x0, y0, x1, y1, k in ramps))
@@ -465,7 +543,10 @@ def build(rom_bytes, merge=False):
     section(b''.join(struct.pack('<HHBB', *t) for t in trees))
     section(struct.pack('<%dH' % len(ctex), *ctex))
     section(b''.join(struct.pack('<16H', *b) for b in btex))
-    assert len(boxes) <= 2048 and len(lots) <= 2560 and len(ramps) <= 512, 'see SEEN_* in citydraw.c'
+    # per cell: bottom and top (units / 64) of what spans over it, 0 0 for nothing (collision)
+    section(b''.join(struct.pack('<bb', decks[i][0] // 64, min(127, decks[i][1] // 64)) if i in decks
+                     else b'\0\0' for i in range(N * N)))
+    assert len(boxes) <= 2560 and len(lots) <= 2048 and len(ramps) <= 512, 'see SEEN_* in citydraw.c'
     assert len(lines) <= 1024 and len(trees) <= 2048, 'see SEEN_* in citydraw.c'
     header = struct.pack('<4s8I', b'SFW2', len(boxes), len(lots), len(ramps), len(loops), len(items),
                          len(lines), len(trees), 0)

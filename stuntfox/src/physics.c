@@ -114,6 +114,24 @@ s32 ground_fine(s32 x, s32 z)
     }
 }
 
+/* a deck over the cell under p (fine): 1 with its bottom and top (fine) */
+static int deck_at(V3 p, s32 *bottom, s32 *top)
+{
+    if (!world_deck(p.x >> FX, p.z >> FX, bottom, top))
+        return 0;
+    *bottom <<= FX;
+    *top <<= FX;
+    return 1;
+}
+
+s32 surface_fine(V3 p)
+{
+    s32 db, dt;
+    if (deck_at(p, &db, &dt) && p.y > ((db + dt) >> 1))
+        return dt;
+    return ground_fine(p.x, p.z);
+}
+
 /* Where p (fine) is relative to a loop. On the track's footprint returns 1 with the gap from
    p out to the track surface (fine, positive inside the loop), the surface normal (pointing
    in, toward the loop's axis) and the angle around the loop. */
@@ -155,9 +173,14 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
     s32 best = max + 1;
     int found = 0;
     V3 n = world_normal(p.x >> FX, p.z >> FX);
+    s32 g = ground_fine(p.x, p.z), db, dt;
+    if (deck_at(p, &db, &dt) && p.y > ((db + dt) >> 1)) {
+        g = dt;                                   /* on a bridge deck: flat */
+        n = v3(0, ONE, 0);
+    }
     s32 un = vdot(up, n);
     if (un > 6000) {
-        s32 s = p.y - ground_fine(p.x, p.z);
+        s32 s = p.y - g;
         if (s > -max && s < 2 * max) {
             s32 t = s * n.y / un;
             if (t < best) {
@@ -209,6 +232,47 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
 
 int penetrate(V3 p, Hit *h)
 {
+    s32 db, dt;
+    if (deck_at(p, &db, &dt) && p.y > db && p.y < dt) {
+        /* inside a bridge deck: out over the top or down under it, whichever is nearer ... */
+        h->kind = SURF_GROUND;
+        if (dt - p.y > STEP) {
+            /* ... unless it came in from the side (a parapet, a wall): then out sideways,
+               through the nearest edge of the cell that has no deck at this height beyond it,
+               when that is deep in the deck or the cell beyond has a floor about here (a car
+               on a bridge running into its parapet sits right on the parapet's bottom) */
+            s32 cx = p.x & ((CELL << FX) - 1), cz = p.z & ((CELL << FX) - 1);
+            s32 gap[4] = {cx, (CELL << FX) - cx, cz, (CELL << FX) - cz};
+            static const s8 dir[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+            int best = -1;
+            for (int k = 0; k < 4; k++) {
+                V3 q = v3(p.x + dir[k][0] * (gap[k] + (8 << FX)), p.y, p.z + dir[k][1] * (gap[k] + (8 << FX)));
+                s32 qb, qt;
+                if (deck_at(q, &qb, &qt) && p.y > qb && p.y < qt)
+                    continue;
+                if (p.y - db <= STEP) {
+                    s32 f = surface_fine(q);
+                    if (f > p.y + STEP || f < p.y - 2 * STEP)
+                        continue;
+                }
+                if (best < 0 || gap[k] < gap[best])
+                    best = k;
+            }
+            if (best >= 0) {
+                h->n = v3(dir[best][0] * ONE, 0, dir[best][1] * ONE);
+                h->dist = gap[best] + (8 << FX);
+                return 1;
+            }
+        }
+        if (dt - p.y <= STEP || dt - p.y < p.y - db) {
+            h->n = v3(0, ONE, 0);
+            h->dist = dt - p.y;
+        } else {
+            h->n = v3(0, -ONE, 0);
+            h->dist = p.y - db;
+        }
+        return 1;
+    }
     s32 g = ground_fine(p.x, p.z);
     if (p.y < g) {
         s32 d = g - p.y;

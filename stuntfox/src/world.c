@@ -27,6 +27,19 @@ void world_init(void)
     world.tree = (const Tree *)(base + h[18]);
     world.ctex = (const u16 *)(base + h[19]);
     world.btex = (const u16 *)(base + h[20]);
+    world.deck = (const s8 *)(base + h[21]);
+}
+
+int world_deck(s32 x, s32 z, s32 *bottom, s32 *top)
+{
+    if (x < 0 || z < 0 || x >= CITY * CELL || z >= CITY * CELL)
+        return 0;
+    const s8 *d = &world.deck[2 * ((x >> 10) * CITY + (z >> 10))];
+    if (!(d[0] | d[1]))
+        return 0;
+    *bottom = d[0] * 64;
+    *top = d[1] * 64;
+    return 1;
 }
 
 const Cell *world_cell(s32 x, s32 z)

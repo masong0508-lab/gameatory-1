@@ -51,6 +51,8 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h);
 /* If p (fine) is inside solid geometry: depth (fine) and the way out. */
 int penetrate(V3 p, Hit *h);
 s32 ground_fine(s32 x, s32 z);
+/* the surface under p (fine): the ground, or the top of a deck (a bridge) p is above */
+s32 surface_fine(V3 p);
 
 /* the space station and asteroids, positioned by space.c */
 typedef struct { V3 c; s32 r; } Rock;

@@ -6,7 +6,8 @@
 #define CELL 1024
 #define CITY 128
 
-typedef struct { u8 x0, z0, x1, z1; s16 h; u8 mat, pad; } Box;
+/* a building, or (base above or below 0, units / 64) a deck spanning over open air: a bridge */
+typedef struct { u8 x0, z0, x1, z1; s16 h; u8 mat; s8 base; } Box;
 typedef struct { u8 x0, z0, x1, z1, mat; } Lot;
 typedef struct { u8 x0, z0, x1, z1; s16 h0, h1; u8 dir, mat; } Ramp;
 typedef struct { s32 x, z; u8 dir, pad; s16 r, w; s16 pad2; } Loop;
@@ -28,6 +29,7 @@ typedef struct {
     const Tree *tree;
     const u16 *ctex;          /* 128 x 128: Payback tile id of each cell's top, 0xffff none */
     const u16 *btex;          /* per box: 4 sides (-z, +x, +z, -x) x 4 cells, tile ids */
+    const s8 *deck;           /* 128 x 128 x (bottom, top), units / 64, of a deck over the cell */
 } World;
 
 extern World world;
@@ -39,5 +41,7 @@ s32 world_ground(s32 x, s32 z);
 const Cell *world_cell(s32 x, s32 z);
 /* surface normal of the ground at (x, z), 1.14 */
 V3 world_normal(s32 x, s32 z);
+/* a deck spanning over the cell under (x, z) (units): 1 with its bottom and top, else 0 */
+int world_deck(s32 x, s32 z, s32 *bottom, s32 *top);
 
 #endif

@@ -471,7 +471,7 @@ static void camera_update(const u8 *me)
 static void car_take(u8 *e)
 {
     V3 p = entity_pos(e);
-    car_reset(&car, v3(p.x, (ground_fine(p.x << FX, p.z << FX) >> FX) + 140, p.z), entity_heading(e));
+    car_reset(&car, v3(p.x, (surface_fine(v3(p.x << FX, p.y << FX, p.z << FX)) >> FX) + 140, p.z), entity_heading(e));
     car_ent = e;
     car_kind = vehicle_kind(e);
     mode = DRIVE;
@@ -584,7 +584,7 @@ static void board(u8 *me)
         M3 m;
         myaw(&m, entity_heading(me));
         V3 at = vadd(p, vscale(m.r, -500));
-        ship_reset(&ship, v3(at.x, ground_fine(at.x << FX, at.z << FX) >> FX, at.z), entity_heading(me));
+        ship_reset(&ship, v3(at.x, surface_fine(v3(at.x << FX, at.y << FX, at.z << FX)) >> FX, at.z), entity_heading(me));
     }
     mode = FLY;
     parked = 0;
@@ -598,7 +598,7 @@ static void land(u8 *me)
 {
     Body *b = &ship.b;
     V3 p = vshr(b->pos, FX);
-    s32 g = ground_fine(b->pos.x, b->pos.z) >> FX;
+    s32 g = surface_fine(b->pos) >> FX;
     if (ship.gear < 2 || vlen(b->vel) > (25 << FX) || p.y - g > 160 || g > 40) {
         say("Land on the street to get out.");
         return;
@@ -620,7 +620,7 @@ static void ship_events(void)
         was_flying = 0;
         if (ship.gear_kind == SURF_DECK)
             sg_landed(&ship);
-        else if (ground_fine(b->pos.x, b->pos.z) > (300 << FX))
+        else if (surface_fine(b->pos) > (300 << FX))
             say("ROOFTOP LANDING!");
         else
             say("Nice landing. Hold SELECT to get out.");
