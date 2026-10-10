@@ -81,19 +81,10 @@ void sky_draw(s32 alt)
                                COLOR(M_GLASS, 1, 0)};
 #endif
     static const s32 bounds[] = {9000, 5000, 2500, 800, 0, -300, -1200, -3000};
-    /* Over the island the city covers the sea, except beyond its nearest edge: at most
-       alt / edge below the horizon. Sea bands lower than that are not drawn. */
-    int ndraw = 9;
-    s32 x = cam.pos.x, z = cam.pos.z, e = CITY * CELL;
-    s32 edge = x < z ? x : z;
-    if (e - x < edge) edge = e - x;
-    if (e - z < edge) edge = e - z;
-    if (edge > 2048 && alt > 0 && alt < 8000) {
-        s32 lim = -(s32)(((s64)alt << 14) / edge) - 64;
-        for (ndraw = 6; ndraw < 9 && bounds[ndraw - 1] >= lim; ndraw++)
-            ;
-    }
-    r_sky(cols, bounds, 9, ndraw);
+    /* All of the bands, every frame, also the ones the city should cover: wherever it does not
+       (past the draw distance, a gap between two faces) the page would otherwise still show
+       what was drawn there two frames ago, smeared copies of old frames */
+    r_sky(cols, bounds, 9, 9);
 }
 
 int palette_commit(void)
