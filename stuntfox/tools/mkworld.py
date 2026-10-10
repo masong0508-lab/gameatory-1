@@ -131,7 +131,7 @@ def blocked_edges(recs):
 
 def edge_walls(rom, cells, skip):
     """Fences (trees list entries, kind 2 + edge) on every edge Payback blocks where nothing
-    solid is drawn: not beside a building or a ramp (both are seen), not in cells that already
+    solid is drawn: not beside a building or a ramp up (both are seen), not in cells that already
     have a fence or a bench or bin (skip), each shared edge once."""
     grid = rom.grid(0)
     out, done = [], set()
@@ -141,8 +141,11 @@ def edge_walls(rom, cells, skip):
         x, y = divmod(i, N)
         for e in blocked_edges(floors(rom.column(grid[i]))):
             nx, ny = x + EDGE_STEP[e][0], y + EDGE_STEP[e][1]
-            if not (0 <= nx < N and 0 <= ny < N) or cells[nx * N + ny][0] in ('building', 'ramp'):
+            if not (0 <= nx < N and 0 <= ny < N):
                 continue
+            o = cells[nx * N + ny]
+            if o[0] == 'building' or o[0] == 'ramp' and o[2] > 0:
+                continue                      # (a slope down into an underpass gets its railing)
             key = (min(i, nx * N + ny), e & 1)
             if key in done:
                 continue

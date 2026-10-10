@@ -107,12 +107,28 @@ void ship_update(Ship *s, u16 keys)
     }
 
     /* attitude */
+#define BANK 10500                                     /* sin of the bank LEFT / RIGHT hold (1.14) */
     if (!s->gear) {
         V3 wl = mworld(m, b->w), t = v3(0, 0, 0);
         if (keys & KEY_UP) t.x = 9000;
         if (keys & KEY_DOWN) t.x = -9000;
         if (keys & KEY_RIGHT) t.z = -15000;
         if (keys & KEY_LEFT) t.z = 15000;
+        /* ... and in the air, the nose drifts back to level too (not in a loop) */
+        if (air > ONE / 4 && !(keys & (KEY_UP | KEY_DOWN)) && m->u.y > 0 && iabs(m->f.y) < 11000)
+            t.x = (m->f.y * 5000) >> 14;
+        int held = air > ONE / 4 && m->u.y > 0 && (keys & (KEY_LEFT | KEY_RIGHT));
+        if (held) {
+            /* in the air, upright: LEFT / RIGHT bank to about 40 degrees and hold it there,
+               turning about the world's up (a level turn), instead of rolling on and over */
+            s32 want = keys & KEY_RIGHT ? -BANK : BANK;
+            t.z = clampi(((want - m->r.y) * 3) >> 1, -15000, 15000);
+            V3 turn = mworld(m, v3(0, (-m->r.y * 9000) >> 14, 0));
+            t.y = turn.y;
+            t.x += turn.x;
+            /* the lift the bank tips sideways is made up for */
+            b->acc.y += (((G_ACC * la) >> 14) * (ONE - m->u.y)) >> 14;
+        }
         /* hands off the stick: level the wings (and roll back upright) by itself */
         if (!(keys & (KEY_LEFT | KEY_RIGHT | KEY_UP | KEY_DOWN)) && iabs(m->f.y) < 11000) {
             if (m->u.y > 0)
@@ -125,7 +141,7 @@ void ship_update(Ship *s, u16 keys)
         s32 yaw = (6000 * space) >> 14;                    /* no air to bank against: steer */
         if (keys & KEY_RIGHT) t.y += yaw;
         if (keys & KEY_LEFT) t.y -= yaw;
-        if (m->u.y > 0)                                    /* banked: the lift turns you */
+        if (m->u.y > 0 && !held)                           /* banked: the lift turns you */
             t.y += (((((-m->r.y * 7000) >> 14) * la) >> 14) * m->u.y) >> 14;
         if (s->rolling) {
             t.z = s->roll_dir;

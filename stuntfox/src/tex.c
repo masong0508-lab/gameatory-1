@@ -2,6 +2,9 @@
 
    The ground: every screen row of a flat ground lies at one depth (unless the camera rolls),
    so where the ground is along each row is worked out once a frame, at both ends of the row.
+   When the camera rolls (the Arwing banking), depth changes along a row, so the ground is
+   worked out at SEGS + 1 points along it instead and each piece in between is stepped on
+   its own; a piece with an end past the horizon or too far away is drawn flat.
    A span then walks across the city cells it covers, a tile for each. Roofs reuse the same
    rows: a plane h units up is the ground scaled toward the camera.
 
@@ -25,10 +28,24 @@ void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut);
 
 /* per pair of screen rows: the ground under the left pixel (units * 256), its step per pixel,
    2^30 / the step per texel (two pixels), and how far the rows reach (units, 0: no ground) */
-static s32 gx[80] EWRAM_BSS, gz[80] EWRAM_BSS, gdx[80] EWRAM_BSS, gdz[80] EWRAM_BSS;
-static u32 gix[80] EWRAM_BSS, giz[80] EWRAM_BSS;
+static u32 gix[80] SCRATCH, giz[80] SCRATCH;
 static s32 gfar[80] EWRAM_BSS;
 static s32 camx8, camz8, camy;
+#define SEGS 6                               /* pieces of a row when rolled, 40 pixels each */
+#define NOGROUND (-32768)
+/* when rolled: the ground at each piece's ends, units from the camera (NOGROUND: none) */
+/* (a frame uses one set or the other) */
+static union {
+    struct { s32 x[80], z[80], dx[80], dz[80]; } level;
+    struct { s16 x[80][SEGS + 1], z[80][SEGS + 1]; } rolled;
+} gt EWRAM_BSS;
+#define gx gt.level.x
+#define gz gt.level.z
+#define gdx gt.level.dx
+#define gdz gt.level.dz
+#define sgx gt.rolled.x
+#define sgz gt.rolled.z
+static int rolled, steep;
 int tex_on;
 
 /* a texture position and a step (texels, 16.16) as packed words (see texrun.s) */
@@ -92,34 +109,46 @@ void tex_frame(void)
     camy = cam.pos.y;
     V3 r = cam.m.r, u = cam.m.u, f = cam.m.f;
     int on = tex_on && camy >= 16 && camy <= 12000;
+    rolled = (r.y > 160 || r.y < -160);      /* (about half a degree) */
+    /* walls in pieces only when looked at steeply or rolled: from a level camera the depth
+       down a column barely changes, and the pieces cost about a frame a second */
+    steep = rolled || f.y > 4000 || f.y < -4000;
     for (int j = 0; j < 80; j++) {
         gfar[j] = 0;
         if (!on)
             continue;
-        /* rays through the row pair's end pixels, doubled, >> 9 (32-bit sums only: this is
+        /* rays through the row pair's pixels, doubled, >> 9 (32-bit sums only: this is
            Thumb code, where 64-bit products are slow calls) */
         s32 k = 158 - 4 * j;
         V3 base = v3(k * u.x + 2 * FOCAL * f.x, k * u.y + 2 * FOCAL * f.y, k * u.z + 2 * FOCAL * f.z);
-        s32 xo[2], zo[2], far = 0;
-        int ok = 1;
-        for (int end = 0; end < 2; end++) {
-            s32 c = end ? 239 : -239;
+        int np = rolled ? SEGS + 1 : 2;
+        s32 xo[SEGS + 1], zo[SEGS + 1], fa[SEGS + 1], near = 0x7fffffff;
+        for (int end = 0; end < np; end++) {
+            s32 c = rolled ? 80 * end - 239 : end ? 239 : -239;
             s32 dx = (base.x + c * r.x) >> 9, ndy = -((base.y + c * r.y) >> 9), dz = (base.z + c * r.z) >> 9;
             s32 ax = dx < 0 ? -dx : dx, az = dz < 0 ? -dz : dz, m = ax > az ? ax : az;
-            if (ndy <= 0 || camy * m >= ndy * 16000) {
-                ok = 0;
-                break;
-            }
+            fa[end] = 0;
+            xo[end] = zo[end] = 0;
+            if (ndy <= 0 || camy * m >= ndy * 16000)
+                continue;                   /* past the horizon or out of reach */
             int e;
             u32 inv = recip(ndy, &e);       /* 1 / ndy = inv / 2^(31 + e), inv < 2^21 */
             s32 t = (s32)(camy * (inv >> 5)), sh = 10 + e;   /* t >> sh: camy * 65536 / ndy */
             t = sh >= 0 ? t >> sh : t << -sh;
             xo[end] = (dx * t) >> 8;        /* (|dx * t| < 2^30: rays reach at most 16000 units) */
             zo[end] = (dz * t) >> 8;
-            s32 dist = (m * t) >> 16;
-            if (dist > far) far = dist;
+            fa[end] = ((m * t) >> 16) + 1;
+            if (fa[end] < near) near = fa[end];
         }
-        if (!ok)
+        if (rolled) {
+            for (int i = 0; i < np; i++) {
+                sgx[j][i] = fa[i] ? xo[i] >> 8 : NOGROUND;
+                sgz[j][i] = zo[i] >> 8;
+            }
+            gfar[j] = near == 0x7fffffff ? 0 : near;   /* (each piece is checked again) */
+            continue;
+        }
+        if (!fa[0] || !fa[1])
             continue;
         gx[j] = camx8 + xo[0];
         gz[j] = camz8 + zo[0];
@@ -127,7 +156,7 @@ void tex_frame(void)
         gdz[j] = (((zo[1] - zo[0]) >> 6) * 17549) >> 16;
         gix[j] = inv30(2 * gdx[j]);
         giz[j] = inv30(2 * gdz[j]);
-        gfar[j] = far + 1;
+        gfar[j] = fa[0] > fa[1] ? fa[0] : fa[1];
     }
 }
 
@@ -151,27 +180,13 @@ static void flat_pairs(u8 *d, int n, int color, int row2)
     }
 }
 
-/* one textured span of a floor on row pair j's row (and the row below when row2 is 240), x0..x1 */
-HOT void tex_hspan(u8 *row, int j, int x0, int x1, const TexFloor *fl, int row2, int color)
+/* n pixel pairs of a floor from d, the ground under the first at X, Z (units * 256, already
+   scaled for the floor's height), stepping dX, dZ a pair; ix, iz: 2^30 / |dX|, |dZ| */
+HOT __attribute__((noinline)) static void tex_walk(u8 *d, int n, s32 X, s32 Z, s32 dX, s32 dZ, u32 ix, u32 iz, int row2, int color)
 {
-    int p0 = x0 >> 1, n = ((x1 + 1) >> 1) - p0;
-    if (n <= 0)
-        return;
-    s32 dX = 2 * gdx[j], dZ = 2 * gdz[j];
-    s32 X = gx[j] + 2 * p0 * gdx[j] + (gdx[j] >> 1), Z = gz[j] + 2 * p0 * gdz[j] + (gdz[j] >> 1);
-    u32 ix = gix[j], iz = giz[j];
-    if (fl->k != 65536) {
-        X = camx8 + (s32)(((s64)(X - camx8) * fl->k) >> 16);
-        Z = camz8 + (s32)(((s64)(Z - camz8) * fl->k) >> 16);
-        dX = (s32)(((s64)dX * fl->k) >> 16);
-        dZ = (s32)(((s64)dZ * fl->k) >> 16);
-        ix = (u32)(((u64)ix * (u32)fl->kinv) >> 16);
-        iz = (u32)(((u64)iz * (u32)fl->kinv) >> 16);
-    }
     u32 duv = PSTEP(dX << 3, dZ << 3);        /* units * 256 -> texels 16.16: * 8 */
     /* close up, a texel covers many pixels: one sample for every four */
     int quad = dX < 0x1000 && dX > -0x1000 && dZ < 0x1000 && dZ > -0x1000;
-    u8 *d = row + 2 * p0;
     while (n > 0) {
         int cx = X >> 18, cz = Z >> 18;
         if ((unsigned)cx >= CITY || (unsigned)cz >= CITY) {
@@ -211,6 +226,66 @@ HOT void tex_hspan(u8 *row, int j, int x0, int x1, const TexFloor *fl, int row2,
         Z += m * dZ;
         n -= m;
     }
+}
+
+
+/* tex_hspan with the camera rolled: piece by piece, 20 pairs each */
+static void tex_hspan_rolled(u8 *row, int j, int p0, int n, const TexFloor *fl, int row2, int color)
+{
+    while (n > 0) {
+        int sg = p0 / 20, m = 20 * (sg + 1) - p0;
+        if (m > n) m = n;
+        s32 xa = sgx[j][sg], xb = sgx[j][sg + 1], za = sgz[j][sg], zb = sgz[j][sg + 1];
+        s32 far = 0;
+        if (xa != NOGROUND && xb != NOGROUND) {
+            s32 v[4] = {xa, xb, za, zb};
+            for (int i = 0; i < 4; i++) {
+                s32 a = v[i] < 0 ? -v[i] : v[i];
+                if (a > far) far = a;
+            }
+        }
+        if (!far || ((far * fl->k) >> 16) >= TEX_FAR) {
+            flat_pairs(row + 2 * p0, m, color, row2);
+        } else {
+            s32 dX = ((xb - xa) << 8) / 20, dZ = ((zb - za) << 8) / 20;   /* a pair */
+            int q = p0 - 20 * sg;
+            s32 X = camx8 + (xa << 8) + q * dX + (dX >> 2), Z = camz8 + (za << 8) + q * dZ + (dZ >> 2);
+            if (fl->k != 65536) {
+                X = camx8 + (s32)(((s64)(X - camx8) * fl->k) >> 16);
+                Z = camz8 + (s32)(((s64)(Z - camz8) * fl->k) >> 16);
+                dX = (s32)(((s64)dX * fl->k) >> 16);
+                dZ = (s32)(((s64)dZ * fl->k) >> 16);
+            }
+            tex_walk(row + 2 * p0, m, X, Z, dX, dZ, inv30(dX), inv30(dZ), row2, color);
+        }
+        p0 += m;
+        n -= m;
+    }
+}
+
+/* one textured span of a floor on row pair j's row (and the row below when row2 is 240), x0..x1
+   (Thumb: only the setup, tex_walk does the pixels) */
+void tex_hspan(u8 *row, int j, int x0, int x1, const TexFloor *fl, int row2, int color)
+{
+    int p0 = x0 >> 1, n = ((x1 + 1) >> 1) - p0;
+    if (n <= 0)
+        return;
+    if (rolled) {
+        tex_hspan_rolled(row, j, p0, n, fl, row2, color);
+        return;
+    }
+    s32 dX = 2 * gdx[j], dZ = 2 * gdz[j];
+    s32 X = gx[j] + 2 * p0 * gdx[j] + (gdx[j] >> 1), Z = gz[j] + 2 * p0 * gdz[j] + (gdz[j] >> 1);
+    u32 ix = gix[j], iz = giz[j];
+    if (fl->k != 65536) {
+        X = camx8 + (s32)(((s64)(X - camx8) * fl->k) >> 16);
+        Z = camz8 + (s32)(((s64)(Z - camz8) * fl->k) >> 16);
+        dX = (s32)(((s64)dX * fl->k) >> 16);
+        dZ = (s32)(((s64)dZ * fl->k) >> 16);
+        ix = (u32)(((u64)ix * (u32)fl->kinv) >> 16);
+        iz = (u32)(((u64)iz * (u32)fl->kinv) >> 16);
+    }
+    tex_walk(row + 2 * p0, n, X, Z, dX, dZ, ix, iz, row2, color);
 }
 
 void fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, u32 color4);
@@ -332,25 +407,47 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
                 *(u16 *)d = c;
             continue;
         }
-        /* per pair of rows */
-        s32 ds = 0, dt = 0;
-        if (rows > 2) {
-            u32 inv = erecip[rows - 1];      /* 2^24 / (rows - 1), the step per row ... */
-            ds = (s32)(((s64)(s1 - s0) * inv) >> 23);   /* ... doubled */
-            dt = (s32)(((s64)(t1 - t0) * inv) >> 23);
+        /* per pair of rows, stepped linearly; where the wall's depth changes much down the
+           column (looked at from above or below, or with the camera rolled) in pieces of 16
+           rows, each with its own exact ends, so the texture keeps its perspective */
+        s32 w0 = wc + r0 * t->w[2], w1 = wc + rb * t->w[2], dw = w1 - w0;
+        if (w0 < 0) w0 = -w0;
+        int split = steep && rows > 16 && (dw < 0 ? -dw : dw) > (w0 >> 3) ? 16 : rows;
+        int ra = r0;
+        while (ra < r1) {
+            int L = r1 - ra;
+            s32 ds = 0, dt = 0, sb = s1, tb = t1;
+            if (L > split) {
+                L = split;
+                int R = ra + L;
+                w = wc + R * t->w[2], A = ac + R * t->a[2], B = bc + R * t->b[2];
+                if (w < 0) w = -w, A = -A, B = -B;
+                r = recip(w | 1, &e);
+                sb = DIVR(A, r, e), tb = DIVR(B, r, e);
+                ds = (sb - s0) >> 3;         /* (16 rows: the step per pair) */
+                dt = (tb - t0) >> 3;
+            } else if (L > 2) {
+                u32 inv = erecip[L - 1];      /* 2^24 / (L - 1), the step per row ... */
+                ds = (s32)(((s64)(s1 - s0) * inv) >> 23);   /* ... doubled */
+                dt = (s32)(((s64)(t1 - t0) * inv) >> 23);
+            }
+            u32 uv = PACK(s0, t0), duv = PSTEP(ds, dt);
+            int left = L, tall = dt < 0x5555 && dt > -0x5555 && L >= 4;
+            u8 *dd = d;
+            if (tall) {
+                tex_vrun4(dd, L >> 2, uv, duv << 1, tile, t->lut);
+                dd += 960 * (L >> 2), uv += (duv << 1) * (L >> 2), left = L & 3;
+            }
+            if (left >> 1) {
+                tex_vrun(dd, left >> 1, uv, duv, tile, t->lut, 240);
+                dd += 480 * (left >> 1), uv += duv * (left >> 1);
+            }
+            if (left & 1)
+                tex_vrun(dd, 1, uv, duv, tile, t->lut, 0);
+            d += 240 * L;
+            ra += L;
+            s0 = sb, t0 = tb;
         }
-        u32 uv = PACK(s0, t0), duv = PSTEP(ds, dt);
-        int left = rows, tall = dt < 0x5555 && dt > -0x5555 && rows >= 4;
-        if (tall) {
-            tex_vrun4(d, rows >> 2, uv, duv << 1, tile, t->lut);
-            d += 960 * (rows >> 2), uv += (duv << 1) * (rows >> 2), left = rows & 3;
-        }
-        if (left >> 1) {
-            tex_vrun(d, left >> 1, uv, duv, tile, t->lut, 240);
-            d += 480 * (left >> 1), uv += duv * (left >> 1);
-        }
-        if (left & 1)
-            tex_vrun(d, 1, uv, duv, tile, t->lut, 0);
     }
 }
 
