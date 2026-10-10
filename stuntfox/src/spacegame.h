@@ -25,5 +25,6 @@ void sg_dock_now(Ship *s);         /* put it in the hangar, on the pad */
 int sg_ship_visible(void);
 
 void sg_say(const char *s);        /* merge.c: one line on Payback's ticker */
+int city_hit(V3 p, int dmg);       /* merge.c: a shot into Payback's people and cars, 1 if hit */
 
 #endif

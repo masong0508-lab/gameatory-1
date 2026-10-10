@@ -210,8 +210,22 @@ static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /* one line for Payback's ticker; sent once our frame is over */
+/* every line said once at most: the ticker is Payback's phone, and our hints and stunt calls
+   repeating on it drown out the missions (the space game also shows its notes in its own
+   banner, so a repeat there is still seen) */
+static u16 said[48];
+static u8 nsaid;
+
 static void say(const char *s)
 {
+    u16 h = 5381;
+    for (const char *c = s; *c; c++)
+        h = (u16)(h * 33 + (u8)*c);
+    for (int i = 0; i < nsaid; i++)
+        if (said[i] == h)
+            return;
+    if (nsaid < sizeof said / sizeof said[0])
+        said[nsaid++] = h;
     int n = 0;
     while (s[n] && n < (int)sizeof news - 1)
         news[n] = s[n], n++;
@@ -283,6 +297,38 @@ static u8 *controlled(void)
         return 0;
     u8 *e = PB_ENTITY[i];
     return valid(e) ? e : 0;
+}
+
+/* An Arwing shot at p (units): hurts the Payback person or vehicle it is in, Payback's own
+   way: its health (+0x68, 100 when whole) goes down, and Payback does the rest (a vehicle at
+   0 burns, then blows up; a person at 0 is knocked down). 1 if it hit one. */
+#define E_HEALTH 0x68
+#define E_FOE 0x108                /* who hurt it last (Payback sets it when one is hit) */
+int city_hit(V3 p, int dmg)
+{
+    u8 *me = controlled();
+    for (int i = 0; i < PB_NENTITY; i++) {
+        u8 *e = PB_ENTITY[i];
+        if (!valid(e) || e == me || e == PB_PLAYER)
+            continue;
+        u32 d = *(u32 *)(e + E_DESC);
+        if (d < VEH_FIRST)
+            continue;
+        int person = d > VEH_HELI;
+        s32 x = *(s32 *)(e + E_X) >> 1, z = *(s32 *)(e + E_Y) >> 1;
+        s32 y = (19904 - *(u16 *)(e + E_Z)) >> 1, r = person ? 150 : 300;
+        if (iabs(p.x - x) > r || iabs(p.z - z) > r || p.y < y - 80 || p.y > y + 280)
+            continue;
+        s16 *hp = (s16 *)(e + E_HEALTH);
+        if (*hp <= 0)
+            continue;                  /* (already down or burning: the shot flies on) */
+        *hp = *hp > dmg ? *hp - dmg : 0;
+        *(u8 **)(e + E_FOE) = me;
+        if (person && !*hp)
+            e[E_STATE] = ST_DOWN;
+        return 1;
+    }
+    return 0;
 }
 
 /* the picture is mirrored (see camera_look), so our own vehicles steer with left and right

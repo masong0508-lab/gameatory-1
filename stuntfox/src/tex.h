@@ -9,7 +9,7 @@
 #include "fx.h"
 
 #define TEX_FAR 6500               /* ground and roofs nearer than this are textured */
-#define TEX_WALL_FAR 5000          /* ... and walls */
+#define TEX_WALL_FAR 5000          /* ... and walls (each column on its own) */
 #define TEX_IDS 0x318              /* Payback's tile ids */
 #define PB_TEXTAB ((const u8 *const *)0x02002c60)   /* Payback's tile pointers, by id */
 
@@ -25,6 +25,7 @@ typedef struct {
     s32 w[3], a[3], b[3];          /* at screen (x, y): w0 + x * w1 + y * w2, and so a and b */
     const u8 *tile[4];             /* a tile for each 1024 units along the wall */
     const u8 *lut;                 /* darker colours, or 0 */
+    s32 wlim;                      /* columns with |w| below this are past TEX_WALL_FAR: flat */
 } TexWall;
 
 extern const u8 pb_pmap[256], pb_sky[16], pb_avg[TEX_IDS];

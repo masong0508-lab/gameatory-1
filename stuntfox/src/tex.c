@@ -109,7 +109,7 @@ void tex_frame(void)
     camy = cam.pos.y;
     V3 r = cam.m.r, u = cam.m.u, f = cam.m.f;
     int on = tex_on && camy >= 16 && camy <= 12000;
-    rolled = (r.y > 160 || r.y < -160);      /* (about half a degree) */
+    rolled = r.y > 600 || r.y < -600;      /* (two degrees: below that a row barely changes depth) */
     /* walls in pieces only when looked at steeply or rolled: from a level camera the depth
        down a column barely changes, and the pieces cost about a frame a second */
     steep = rolled || f.y > 4000 || f.y < -4000;
@@ -335,6 +335,12 @@ void tex_wall_setup(TexWall *t, V3 o, V3 s, V3 d)
     t->w[0] = n.z * FOCAL - 120 * n.x + 80 * n.y, t->w[1] = n.x, t->w[2] = -n.y;
     t->a[0] = a.z * FOCAL - 120 * a.x + 80 * a.y, t->a[1] = a.x, t->a[2] = -a.y;
     t->b[0] = b.z * FOCAL - 120 * b.x + 80 * b.y, t->b[1] = b.x, t->b[2] = -b.y;
+    /* w is n . (the ray through the pixel), so a column's depth is FOCAL * (n . o) / w: past
+       TEX_WALL_FAR where |w| < FOCAL * |n . o| / TEX_WALL_FAR (each column switches on its
+       own, at one distance, rather than a whole wall at once) */
+    s64 no = (s64)n.x * o.x + (s64)n.y * o.y + (s64)n.z * o.z;
+    if (no < 0) no = -no;
+    t->wlim = (s32)((no * (FOCAL * 65536 / TEX_WALL_FAR)) >> 16);
 }
 
 /* 2^25 * a / w with 1 / w as r / 2^(31 + e) from recip() */
@@ -386,6 +392,14 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
         /* the texture at the top and bottom of the column (one division each) */
         int xc = x + 1, rb = r1 - 1, e;
         s32 wc = t->w[0] + xc * t->w[1], ac = t->a[0] + xc * t->a[1], bc = t->b[0] + xc * t->b[1];
+        s32 wm = wc + ((r0 + r1) >> 1) * t->w[2];
+        if ((wm < 0 ? -wm : wm) < t->wlim) {
+            u16 c = color | color << 8;      /* too far for its tiles */
+            u8 *d = back + r0 * 240 + x;
+            for (int k = 0; k < rows; k++, d += 240)
+                *(u16 *)d = c;
+            continue;
+        }
         s32 w = wc + r0 * t->w[2], A = ac + r0 * t->a[2], B = bc + r0 * t->b[2];
         if (w < 0) w = -w, A = -A, B = -B;
         u32 r = recip(w | 1, &e);

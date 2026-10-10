@@ -40,7 +40,7 @@ static V3 dir_of(V3 d)
 }
 
 /* a message: on Payback's ticker, and at once on our own HUD for a couple of seconds */
-static char banner[40];
+static char banner[72];
 static u8 banner_t;
 static void note(const char *s)
 {
@@ -776,6 +776,11 @@ static void shots_tick(Ship *s)
                 }
                 continue;
             }
+            if (sg_state == SG_FLY && city_hit(sh->p, sh->who == S_MISSILE ? 100 : 25)) {
+                sh->life = 0;            /* a person or a car down in the city */
+                boom(sh->p, sh->who == S_MISSILE);
+                break;
+            }
             for (int k = 0; k < NFOE; k++) {
                 Foe *f = &foes[k];
                 if (!f->kind)
@@ -1200,9 +1205,25 @@ void sg_hud(const Ship *s)
         return;
     }
     if (banner_t) {
-        int n = 0;
+        /* (on two lines when long: the ticker only says each line once) */
+        int n = 0, most = 232 / TEXT_W, cut;
         while (banner[n]) n++;
-        d_text(120 - n * TEXT_W / 2, 100, banner, TITLE);
+        if (n <= most) {
+            d_text(120 - n * TEXT_W / 2, 100, banner, TITLE);
+        } else {
+            for (cut = most; cut > 0 && banner[cut] != ' '; cut--)
+                ;
+            if (!cut) cut = most;
+            char t[48];
+            int k = 0;
+            for (; k < cut && k < 47; k++) t[k] = banner[k];
+            t[k] = 0;
+            d_text(120 - k * TEXT_W / 2, 92, t, TITLE);
+            const char *r = banner + cut + (banner[cut] == ' ');
+            for (k = 0; r[k] && k < 47; k++) t[k] = r[k];
+            t[k] = 0;
+            d_text(120 - k * TEXT_W / 2, 102, t, TITLE);
+        }
     }
     if (sg_state == SG_DOCKING) {
         d_text(84, 40, "DOCKING...", HI);
