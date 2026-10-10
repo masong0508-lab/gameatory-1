@@ -26,7 +26,7 @@ MEMORY {
     poold (rw)  : ORIGIN = 0x02017268, LENGTH = 0x2154
 }
 SECTIONS {
-    .text : { KEEP(*(.text.sf_frame)) KEEP(*(.text.sf_keyhook)) KEEP(*(.text.sf_fade)) KEEP(*(.text.sf_fade_add)) KEEP(*(.text.sf_fade_mul)) KEEP(*(.text.sf_fade_mul2)) *(.text .text.*) *(.rodata .rodata.*) . = ALIGN(4); } > rom
+    .text : { KEEP(*(.text.sf_frame)) KEEP(*(.text.sf_keyhook)) KEEP(*(.text.sf_fade)) KEEP(*(.text.sf_fade_add)) KEEP(*(.text.sf_fade_mul)) KEEP(*(.text.sf_fade_mul2)) KEEP(*(.text.sf_studio_film)) KEEP(*(.text.sf_intro_film)) KEEP(*(.rodata.sf_menu_logo)) *(.text .text.*) *(.rodata .rodata.*) . = ALIGN(4); } > rom
     .hot : { __hot_start = .; *(.iwram .iwram.*) . = ALIGN(4); __hot_end = .; } > hot AT > rom
     __hot_lma = LOADADDR(.hot);
     .hot2 : { __hot2_start = .; *(.iwram2 .iwram2.*) . = ALIGN(4); __hot2_end = .; } > hot2 AT > rom

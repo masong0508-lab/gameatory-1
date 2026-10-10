@@ -33,3 +33,15 @@ All addresses are for SHA-1 08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7.
 - 0x02001d39 is 1 in Rampage (free roam) and 0 in the story.
 - Vehicle descriptors: 0x3c bytes each from 0x08354af4; the helicopter is 0x08354ef0. +0x1a engine power, +0x1c steering rate, +0x16 top speed (measured).
 - Lane ramps were removed: on real hardware their raised sides read as invisible walls.
+
+## Films, title and menu logo
+- Film player: ARM code at IWRAM 0x03001660 (copied from ROM 0x087e1058), called with the film's address in r0 through a
+  `bx r4` veneer; it decodes straight into mode 3 VRAM at about 25 frames per second and returns 1 when A or B skipped it.
+  Two calls, each loading the film and the player from a literal pair: the studio film 0x086f7cd8 (literals 0x080236bc)
+  and the intro film 0x08700ccc ending on the burning PAYBACK title (literals 0x08025530). The menu's "view intro"
+  replays the whole boot sequence. When the intro returns anything but 1, Payback waits out the film's full length.
+- Menu logo: image descriptor 0x08099444 (u16 w, u8 h, u8 0, u32 offset from 0x0809d694; 128 x 63 bytes, indices of the
+  BG palette 0x086367a8), blitted by 0x08028df4 through a 256 x 256 colour table (0x0866dbaa + [0x02002690]; the menu uses
+  +0x20000, a lighten table; index 0 leaves the picture alone). Drawn at x = 56 by the menu (0x08038392) and on the
+  credits' last page (0x0803081c / 0x08030832, from the centre). The menu also lays a glow over it with four
+  semi-transparent affine sprites.

@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(HERE, '..', 'payback-mod'))
 import mkworld   # noqa: E402
 import mkassets  # noqa: E402
 import mkpal    # noqa: E402
+import mklogo   # noqa: E402
 
 CFLAGS = ['--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-O2', '-ffreestanding', '-fno-builtin',
           '-nostdlib', '-ffunction-sections', '-Wall', '-Wno-unused-function']
@@ -75,7 +76,7 @@ def build(payback, out):
 
 
 # --merge: Stunt Fox inside Payback
-MERGE_ONLY = {'merge.c', 'keyhook.s', 'traffic.c', 'tex.c', 'texrun.s', 'draw2d.c', 'spacegame.c'}
+MERGE_ONLY = {'merge.c', 'keyhook.s', 'traffic.c', 'tex.c', 'texrun.s', 'draw2d.c', 'spacegame.c', 'title.c'}
 MERGE_SKIP = {'main.c', 'hud.c', 'crt0.s'}
 MERGE_CALLS = (0x080177fa, 0x08017692)        # Payback's two calls to its world renderer
 MERGE_RENDERER = 0x0800adac
@@ -86,6 +87,14 @@ MERGE_FADES = ((0x080777ec, 'sf_fade_add', 3),   # its other fades: + a level (t
                (0x080779bc, 'sf_fade_mul', 6),   # ... and * a level (toward black), twice
                (0x08077f44, 'sf_fade_mul2', None))
 MERGE_BASE = 0x081b0000                       # see src/merge.ld
+FILM_PLAYER = 0x03001660                      # Payback's film player (IWRAM), see src/title.c
+FILM_CALLS = ((0x080236bc, 0x086f7cd8, 'sf_studio_film'),   # (literals: the film, then the player)
+              (0x08025530, 0x08700ccc, 'sf_intro_film'))
+LOGO_DESC = 0x08099444                        # Payback's menu logo: u16 w, u8 h, u8 0, u32 offset
+LOGO_BASE = 0x0809d694                        # (from here); it is drawn at x = 56 in the menu
+LOGO_X = ((0x08038392, 0x2138),               # movs r1, #56 (the menu)
+          (0x0803081c, 0x3980),               # subs r1, #128 (the credits' last page, ...
+          (0x08030832, 0x3940))               # subs r1, #64   ... from its centre, two ways)
 
 
 def bl_target(d, site):
@@ -140,6 +149,7 @@ def build_merge(payback, out, bps_out=None):
     open(os.path.join(GEN, 'world.bin'), 'wb').write(data)
     mkassets.main(os.path.join(GEN, 'tables.c'))
     mkpal.main(orig, os.path.join(GEN, 'pbtables.c'))
+    mklogo.main(orig, os.path.join(GEN, 'logo.c'))
     grid = rom.grid(0)
     cells = [(i * 509 + 77) % len(grid) for i in range(32)]
     with open(os.path.join(GEN, 'merge_sig.c'), 'w') as f:
@@ -151,7 +161,8 @@ def build_merge(payback, out, bps_out=None):
     objs = []
     sources = [os.path.join(SRC, f) for f in sorted(os.listdir(SRC))
                if f.endswith(('.c', '.s')) and f not in MERGE_SKIP]
-    sources += [os.path.join(GEN, 'tables.c'), os.path.join(GEN, 'merge_sig.c'), os.path.join(GEN, 'pbtables.c')]
+    sources += [os.path.join(GEN, 'tables.c'), os.path.join(GEN, 'merge_sig.c'), os.path.join(GEN, 'pbtables.c'),
+                os.path.join(GEN, 'logo.c')]
     for src in sources:
         name = os.path.basename(src)
         obj = os.path.join(BUILD, 'merge', name + '.o')
@@ -190,6 +201,18 @@ def build_merge(payback, out, bps_out=None):
         assert count is None or len(sites) == count, 'expected %d calls to %x, found %d' % (count, fn, len(sites))
         for site in sites:
             redirect(site, fn, sym[hook])
+    for lit, film, hook in FILM_CALLS:         # no films: they flash white (src/title.c)
+        a = lit - 0x08000000
+        assert struct.unpack_from('<II', rom.d, a) == (film, FILM_PLAYER), 'expected a film call at %x' % lit
+        struct.pack_into('<I', rom.d, a + 4, sym[hook] | 1)
+    a = LOGO_DESC - 0x08000000                 # the STAR-FLYBACK logo (tools/mklogo.py)
+    assert struct.unpack_from('<HBBI', rom.d, a) == (128, 63, 0, 0xd9a), 'expected the menu logo'
+    struct.pack_into('<HBBI', rom.d, a, mklogo.LOGO_W, mklogo.LOGO_H, 0, sym['sf_menu_logo'] - LOGO_BASE)
+    for site, op in LOGO_X:                    # wider: drawn further left, still centred
+        assert struct.unpack_from('<H', rom.d, site - 0x08000000)[0] == op
+        imm = (op & 0xff) + (1 if op >> 11 == 7 else -1) * ((mklogo.LOGO_W - 128) // 2)
+        assert 0 <= imm < 256
+        struct.pack_into('<H', rom.d, site - 0x08000000, (op & 0xff00) | imm)
     rename(rom.d)
     img = rom.data()
     open(out, 'wb').write(img)

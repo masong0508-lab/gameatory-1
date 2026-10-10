@@ -27,7 +27,9 @@ The build patches a copy of the ROM; the `.bps` patch applies to the untouched P
 
 How it fits: `src/merge.c` (the glue), `src/merge.ld` (which of Payback's memory it borrows),
 `src/keyhook.s`, and `build_merge()` in `build.py`, which redirects Payback's calls to its world
-renderer, keypad reader and palette fade.
+renderer, keypad reader and palette fade. The title is STAR-FLYBACK: `tools/mklogo.py` draws it at build
+time (our own letters, burning in Payback's style) as the menu logo and as a title card that
+`src/title.c` shows in place of Payback's intro films, which flash the screen white.
 
 ## Stunt Fox on its own
 
