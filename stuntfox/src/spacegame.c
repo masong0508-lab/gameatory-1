@@ -69,7 +69,7 @@ static u8 shield_lv;
 typedef struct { const char *name; u8 hull, tips; } Paint;
 static const Paint paints[] = {
     {"FOX BLUE", M_SHIP, M_CAR},  {"STUNT RED", M_STUNT, M_ACCENT}, {"GOLD", M_ACCENT, M_GLOW},
-    {"STEALTH", M_ROAD, M_STUNT}, {"SEA TEAL", M_TEAL, M_CREAM},    {"PAYBACK", M_BRICK, M_STEEL},
+    {"STEALTH", M_ROAD, M_STUNT}, {"SEA TEAL", M_TEAL, M_CREAM},    {"FLYBACK", M_BRICK, M_STEEL},
 };
 #define NPAINT (sizeof paints / sizeof paints[0])
 
@@ -225,7 +225,7 @@ static void say_job(void)
         "COURIER: land on the rooftop under the beacon.",
         "SALVAGE: fly through the cargo pods, then dock.",
         "GATE RACE: fly through the gates in order.",
-        "CITY RAID: pirates over Payback's city! Shoot them down.",
+        "CITY RAID: pirates over the city! Shoot them down.",
         "CARRIER: destroy the pirate carrier.",
     };
     note(how[job]);

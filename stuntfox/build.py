@@ -98,6 +98,38 @@ def bl_target(d, site):
     return site + 4 + off
 
 
+NAME = 'Star-FlyBack'
+TEXT_AREA = (0x300000, 0x360000)              # Payback's game text, all five languages
+
+
+def rename(d):
+    """Star-FlyBack everywhere Payback says its own name: the cartridge title and every line of
+    game text that names it (in place: a line that grows drops its last sentence or words)."""
+    d[0xa0:0xac] = NAME.upper().encode()
+    d[0xbd] = -(sum(d[0xa0:0xbd]) + 0x19) & 0xff  # header checksum
+    n = 0
+    lo, hi = TEXT_AREA
+    for word in (b'Payback', b'PayBack', b'PAYBACK'):
+        new_word = (NAME.upper() if word.isupper() else NAME).encode()
+        at = d.find(word, lo, hi)
+        while at >= 0:
+            start = d.rfind(b'\0', lo, at) + 1
+            end = d.index(b'\0', at)
+            old = bytes(d[start:end])
+            line = old.replace(word, new_word)
+            if len(line) > len(old):
+                cut = line.rfind(b'. ', 0, len(old) - 1)
+                if cut > len(old) // 2:
+                    line = line[:cut + 1]
+                else:
+                    cut = line.rfind(b' ', 0, len(old) + 1)
+                    line = line[:cut] if cut > 0 else line[:len(old)]
+            d[start:end] = line + bytes(len(old) - len(line))
+            n += 1
+            at = d.find(word, end, hi)
+    return n
+
+
 def build_merge(payback, out, bps_out=None):
     from paybackmod.rom import PaybackRom, NEW_BASE, OLD_TABLE_START, OLD_TABLE_END
     from paybackmod import bps
@@ -158,6 +190,7 @@ def build_merge(payback, out, bps_out=None):
         assert count is None or len(sites) == count, 'expected %d calls to %x, found %d' % (count, fn, len(sites))
         for site in sites:
             redirect(site, fn, sym[hook])
+    rename(rom.d)
     img = rom.data()
     open(out, 'wb').write(img)
     if bps_out:
