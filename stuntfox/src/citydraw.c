@@ -22,7 +22,7 @@ static int tile_color(int id, int l, int fallback)
 #define SEEN_RAMP (2048 + 2560)
 #define SEEN_LINE (2048 + 2560 + 512)
 #define SEEN_TREE (2048 + 2560 + 512 + 1024)
-static u32 seen[(2048 + 2560 + 512 + 2048) / 32] SCRATCH;
+static u32 seen[(2048 + 2560 + 512 + 1024 + 2048) / 32] SCRATCH;
 static inline int first_visit(int i)
 {
     u32 *w = &seen[i >> 5], b = 1u << (i & 31);
@@ -291,9 +291,9 @@ static void draw_line(const Line *ln)
 }
 
 #ifdef MERGE
-/* Payback's railings: a see-through slanted panel standing on one edge of a street cell
-   (tools/mkworld.py, fence_of). Payback stops people at that edge and lets them through
-   everywhere else, so it is drawn as an iron railing along the edge. */
+/* Payback's railings and walls along cell edges: a see-through slanted panel standing on one
+   edge of a street cell (tools/mkworld.py, fence_of), or any other edge Payback stops people at
+   (edge_walls). Drawn as an iron railing along the edge, so no edge stops you unseen. */
 #define RAIL_FAR 5000
 static void draw_fence(const Tree *t)
 {
@@ -329,10 +329,68 @@ static void draw_fence(const Tree *t)
 }
 #endif
 
+#ifdef MERGE
+/* Payback's benches, bins and lamps (tools/mkworld.py, street_objects): Payback stops people at
+   benches and bins, so they must be seen. Little boxes, turned as Payback turns them. */
+#define PROP_FAR 4500
+static void prop_box(s32 cx, s32 cz, s32 y0, s32 y1, s32 hx, s32 hz, s32 c, s32 s, int mat, int f)
+{
+    V3 ux = v3((c * hx) >> 14, 0, (s * hx) >> 14), uz = v3((-s * hz) >> 14, 0, (c * hz) >> 14);
+    V3 w[8];
+    static const s8 sg[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+    for (int k = 0; k < 4; k++) {
+        s32 x = cx + sg[k][0] * ux.x + sg[k][1] * uz.x, z = cz + sg[k][0] * ux.z + sg[k][1] * uz.z;
+        w[k] = r_cam(v3(x, y0, z));
+        w[k + 4] = r_cam(v3(x, y1, z));
+    }
+    s32 ex = cam.pos.x - cx, ez = cam.pos.z - cz;
+    for (int k = 0; k < 4; k++) {
+        int j = (k + 1) & 3;
+        /* the side between corners k and j faces out along their average from the centre */
+        s32 nx = (sg[k][0] + sg[j][0]) * ux.x + (sg[k][1] + sg[j][1]) * uz.x;
+        s32 nz = (sg[k][0] + sg[j][0]) * ux.z + (sg[k][1] + sg[j][1]) * uz.z;
+        if ((s64)nx * (ex - (nx >> 1)) + (s64)nz * (ez - (nz >> 1)) <= 0)
+            continue;
+        V3 q[4] = {w[k], w[j], w[j + 4], w[k + 4]};
+        r_poly(q, 4, COLOR(mat, 1 + (k & 1), f), -1, 0);
+    }
+    if (cam.pos.y > y1) {
+        V3 q[4] = {w[4], w[5], w[6], w[7]};
+        r_poly(q, 4, COLOR(mat, 3, f), -1, 0);
+    }
+}
+
+static void draw_prop(const Tree *t)
+{
+    s32 cx = (t->x & 127) * CELL + CELL / 2, cz = t->z * CELL + CELL / 2;
+    s32 dx = cx - cam.pos.x, dz = cz - cam.pos.z;
+    if (dx < -PROP_FAR || dx > PROP_FAR || dz < -PROP_FAR || dz > PROP_FAR)
+        return;
+    V3 p = r_cam(v3(cx, 0, cz));
+    if (p.z < 64 || !in_view(cadd(p, 0, 300, 0), 800))
+        return;
+    int f = fog_of(p.z);
+    s32 a = (t->x >> 7) << 8, c = fcos(a), s = fsin(a);
+    if (t->kind == 6) {                                    /* a bench: seat and backrest */
+        prop_box(cx, cz, 0, 110, 290, 90, c, s, M_PLAZA, f);
+        prop_box(cx - ((-s * 80) >> 14), cz - ((c * 80) >> 14), 110, 240, 290, 18, c, s, M_PLAZA, f);
+    } else if (t->kind == 7) {                             /* a bin */
+        prop_box(cx, cz, 0, 200, 80, 80, c, s, M_GLASS, f);
+    } else {                                               /* a street lamp */
+        prop_box(cx, cz, 0, 780, 16, 16, c, s, M_STEEL, f);
+        prop_box(cx + ((c * 90) >> 14), cz + ((s * 90) >> 14), 760, 800, 110, 34, c, s, M_CREAM, f);
+    }
+}
+#endif
+
 /* a park tree, drawn as a cut-out facing the camera: trunk, crown and a lit side */
 static void draw_tree(const Tree *t)
 {
 #ifdef MERGE
+    if (t->kind >= 6) {
+        draw_prop(t);
+        return;
+    }
     if (t->kind >= 2) {
         draw_fence(t);
         return;

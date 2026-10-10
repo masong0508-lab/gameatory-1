@@ -68,6 +68,87 @@ def fence_of(recs):
     return edge, h_units(max(up[0], up[1])), up[5]
 
 
+# Payback's street objects: the object type is byte 1 of a cell's floor record, byte 0 turns it.
+# Walking Payback's man into them: trees (3, 5, 7, 8) and lamps (2, 15) are sprites he walks
+# past or through, but benches (6, 18) and bins (14) stop him: invisible walls unless drawn.
+OBJ_TREES = {3: 900, 7: 800, 5: 650, 8: 450}     # type -> height (units)
+OBJ_PROPS = {6: 6, 18: 6, 14: 7, 2: 8, 15: 8}    # type -> kind: 6 bench, 7 bin, 8 lamp
+
+
+def street_objects(rom, cells):
+    """(x, z, h, kind) entries for the trees list: trees as kind 0/1 (x, z in units / 4),
+    props as kind 6..8 with the cell (x | turn << 7, z)."""
+    out = []
+    grid = rom.grid(0)
+    for i in range(N * N):
+        if cells[i][0] not in ('road', 'kerb', 'ground') or cells[i][4] == WATER_MAT:
+            continue
+        b = rom.column(grid[i])[0:20]
+        if not b[8] or not b[1]:
+            continue
+        x, z = divmod(i, N)
+        if b[1] in OBJ_TREES:
+            out.append(((x * CELL + CELL // 2) // 4, (z * CELL + CELL // 2) // 4,
+                        OBJ_TREES[b[1]] // 8, b[1] & 1))
+        elif b[1] in OBJ_PROPS:
+            out.append((x | b[0] << 7, z, 0, OBJ_PROPS[b[1]]))
+    return out
+
+
+# Which edges of a cell Payback stops people at: the low four bits of the flags byte of the floor
+# they stand on are its corners, and an edge blocks when both its corners are set (the same
+# bits as FENCE_EDGE). Measured by walking Payback's man across about 1100 cell edges: right
+# for 51 of 56 edges this marks, and many of them had nothing drawn there.
+EDGE_CORNERS = ((0xc, 0), (0x5, 1), (0x3, 2), (0xa, 3))     # corners -> edge (-z, +x, +z, -x)
+EDGE_STEP = ((0, -1), (1, 0), (0, 1), (-1, 0))
+
+
+def floors(col):
+    """A column's floor records as classify() reads them: (h0, h1, shape, tile, flags, tile id)."""
+    out = []
+    for k in range(3):
+        b = col[20 * k:20 * k + 20]
+        h0, h1, shape = struct.unpack_from('<HHB', b, 4)
+        if shape:
+            out.append((h0, h1, shape, b[10], b[9], b[10] | (b[11] & 3) << 8))
+    return out
+
+
+def blocked_edges(recs):
+    """Edges (0..3) a street-level walker cannot cross into this cell: by the flags of the
+    highest floor at or below the street; a sloped floor only counts as a pit walled all
+    round."""
+    under = [r for r in recs if max(r[0], r[1]) <= STREET]
+    if not under:
+        return []
+    w = max(under, key=lambda r: max(r[0], r[1]))
+    if w[2] != 1 and not ((w[4] & 15) == 15 and max(w[0], w[1]) < STREET):
+        return []
+    return [e for m, e in EDGE_CORNERS if (w[4] & m) == m]
+
+
+def edge_walls(rom, cells, skip):
+    """Fences (trees list entries, kind 2 + edge) on every edge Payback blocks where nothing
+    solid is drawn: not beside a building or a ramp (both are seen), not in cells that already
+    have a fence or a bench or bin (skip), each shared edge once."""
+    grid = rom.grid(0)
+    out, done = [], set()
+    for i in range(N * N):
+        if cells[i][0] in ('building', 'ramp') or i in skip:
+            continue
+        x, y = divmod(i, N)
+        for e in blocked_edges(floors(rom.column(grid[i]))):
+            nx, ny = x + EDGE_STEP[e][0], y + EDGE_STEP[e][1]
+            if not (0 <= nx < N and 0 <= ny < N) or cells[nx * N + ny][0] in ('building', 'ramp'):
+                continue
+            key = (min(i, nx * N + ny), e & 1)
+            if key in done:
+                continue
+            done.add(key)
+            out.append((x | 511 << 7, y, 25, 2 + e))
+    return out
+
+
 def classify(rom):
     """Per cell: (kind, low, high, shape, material). kind: road, kerb, ground, ramp, building."""
     grid = rom.grid(0)
@@ -297,7 +378,7 @@ def build(rom_bytes, merge=False):
     loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)]
     lines = centre_lines(rom, cells)
     if merge:
-        # Payback has no trees to walk round; its fences go in their place (citydraw.c draw_tree)
+        # Payback's fences, trees, benches, bins and lamps (citydraw.c draw_tree)
         trees = []
         grid = rom.grid(0)
         for i in range(N * N):
@@ -313,6 +394,9 @@ def build(rom_bytes, merge=False):
                 x, y = divmod(i, N)
                 tile = fe[2] if fe[2] < 512 and tile_ok(rom_bytes, fe[2], 0x280) else 511
                 trees.append((x | tile << 7, y, min(255, fe[1] // 8), 2 + fe[0]))
+        objects = street_objects(rom, cells)
+        skip = {(t[0] & 127) * N + t[1] for t in trees + objects if t[3] >= 2}
+        trees += objects + edge_walls(rom, cells, skip)
     else:
         trees = park_trees(cells)
     ctex, btex = tex_tables(rom, rom_bytes, cells, boxes, merge)
@@ -382,7 +466,7 @@ def build(rom_bytes, merge=False):
     section(struct.pack('<%dH' % len(ctex), *ctex))
     section(b''.join(struct.pack('<16H', *b) for b in btex))
     assert len(boxes) <= 2048 and len(lots) <= 2560 and len(ramps) <= 512, 'see SEEN_* in citydraw.c'
-    assert len(lines) <= 1024 and len(trees) <= 1024, 'see SEEN_* in citydraw.c'
+    assert len(lines) <= 1024 and len(trees) <= 2048, 'see SEEN_* in citydraw.c'
     header = struct.pack('<4s8I', b'SFW2', len(boxes), len(lots), len(ramps), len(loops), len(items),
                          len(lines), len(trees), 0)
     header += struct.pack('<%dI' % len(parts), *[p + 4 * 9 + 4 * len(parts) for p in parts])
