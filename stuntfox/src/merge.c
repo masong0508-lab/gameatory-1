@@ -173,6 +173,15 @@ static u8 want_ship, told;
 static u32 key_calls, frame_calls, sel_since;
 static u8 sel_down, sel_used, sel_replay, inject_l, call_req;
 
+/* the player's camera: hold SELECT and the D-pad swings it round (LEFT, RIGHT) or pulls it in
+   and out (UP, DOWN) instead of moving you; a quick tap of SELECT brings it back behind you */
+#define PAD_ALL (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT)
+#define ZOOM_IN 170                /* 256 = the usual distance */
+#define ZOOM_OUT 440                /* (further out shows more city and costs fps) */
+static s32 cam_yaw, cam_zoom;      /* orbit (65536 per turn, from behind) and distance */
+static u16 cam_pad;                /* the D-pad, while it is the camera's */
+static u8 cam_lock, cam_home;      /* cam_home: on its way back behind you */
+
 #define PAD_TAP 4                  /* game frames (about a fifth of a second): a shorter press of UP or DOWN on foot is a tap */
 static char news[100];
 static s32 fade_d;                 /* Payback's last fade (0: none), see sf_fade */
@@ -191,6 +200,7 @@ static void start(void)
     sg_init();
     cam_off = v3(0, 400, -800);
     cam_up = v3(0, ONE, 0);
+    cam_zoom = 256;
     last_clock = pb_clock();
     __keep_canary[0] = CANARY;
     STATE[0] = MAGIC;
@@ -299,13 +309,21 @@ void sf_keys(void)
         return;
     }
     int sel = !(REG_KEYINPUT & KEY_SELECT);
+    int pad = ~REG_KEYINPUT & PAD_ALL;
+    static u8 pad_lock;                                /* the D-pad is the camera's until let go */
+    if (!pad)
+        pad_lock = 0;
+    else if (sel)
+        pad_lock = 1;
     u32 now = pb_clock();
     if (sel && !sel_down)
         sel_since = now, sel_used = 0;
+    if (sel && pad)
+        sel_used = 1;                                  /* SELECT + D-pad: no Arwing, no phone */
     if (sel && !sel_used && now - sel_since >= 8192)
         call_req = 1, sel_used = 1;
     if (!sel && sel_down && !sel_used)
-        sel_replay = 3;
+        sel_replay = 3, cam_home = 1;                  /* a tap: the phone, and the camera comes home */
     sel_down = sel;
     if (mode == FLY)
         for (int i = 0; i < B_N; i++)
@@ -319,8 +337,11 @@ void sf_keys(void)
     /* on foot, the D-pad walks too: hold UP to walk on, DOWN to back up; a quick tap still
        picks the next or previous weapon (Payback sees the tap when it is let go) */
     const u8 *who = controlled();
-    if (mode == FOOT && who == PB_PLAYER) {
-        static u8 held[2], tap[2];
+    static u8 held[2], tap[2];
+    if (pad_lock) {
+        PB_BTN[B_UP] = PB_BTN[B_DOWN] = PB_BTN[B_LEFT] = PB_BTN[B_RIGHT] = 0;
+        held[0] = held[1] = tap[0] = tap[1] = 0;
+    } else if (mode == FOOT && who == PB_PLAYER) {
         for (int k = B_UP; k <= B_DOWN; k++) {
             int dn = PB_BTN[k];
             if (tap[k]) {
@@ -350,8 +371,15 @@ void sf_keys(void)
 
 /* ---- the camera ---- */
 
-static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up, s32 aim_fwd)
+static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up, s32 aim_fwd, int free)
 {
+    if (free) {
+        /* the player's orbit and zoom (see cam_yaw): swing the whole rig round the up axis */
+        if (cam_yaw)
+            fwd = vnorm(vadd(vscale(fwd, fcos(cam_yaw)), vscale(vcross(up, fwd), fsin(cam_yaw))));
+        dist = dist * cam_zoom >> 8;
+        height = height * cam_zoom * cam_zoom >> 16;   /* further out is higher up, nearer is lower */
+    }
     V3 want = vadd(vscale(fwd, -dist), vscale(up, height));
     cam_off = vadd(cam_off, vshr(vsub(want, cam_off), 2));
     cam_up = vnorm(vadd(cam_up, vshr(vsub(up, cam_up), 2)));
@@ -377,6 +405,33 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
     cam.m.r = v3(-cam.m.r.x, -cam.m.r.y, -cam.m.r.z);
 }
 
+/* SELECT + D-pad: the screen is mirrored, so LEFT swings the view the way it looks */
+static void camera_move(int ticks)
+{
+    if (mode == FLY && sg_state == SG_DOCKED)
+        return;                                        /* the hangar's camera is fixed */
+    if (cam_pad) {
+        cam_home = 0;
+        if (cam_pad & KEY_LEFT)
+            cam_yaw += 400 * ticks;                    /* about 2.7 s a turn */
+        if (cam_pad & KEY_RIGHT)
+            cam_yaw -= 400 * ticks;
+        if (cam_pad & KEY_UP)
+            cam_zoom -= 3 * ticks;
+        if (cam_pad & KEY_DOWN)
+            cam_zoom += 3 * ticks;
+        cam_yaw = (s16)cam_yaw;
+        cam_zoom = clamp(cam_zoom, ZOOM_IN, ZOOM_OUT);
+    } else if (cam_home) {
+        for (int t = 0; t < ticks; t++) {
+            cam_yaw -= cam_yaw / 12;                   /* back behind you in about half a second */
+            cam_zoom -= (cam_zoom - 256) / 12;
+        }
+        if (iabs(cam_yaw) < 300 && iabs(cam_zoom - 256) < 12)
+            cam_yaw = 0, cam_zoom = 256, cam_home = 0;
+    }
+}
+
 static void camera_update(const u8 *me)
 {
     V3 level = v3(0, ONE, 0);
@@ -388,26 +443,26 @@ static void camera_update(const u8 *me)
             up = level;                                /* airborne: keep the horizon level */
         }
         if (car.on_loop)
-            camera_look(vshr(car.b.pos, FX), fwd, up, 600, 340, 30, 250);
+            camera_look(vshr(car.b.pos, FX), fwd, up, 600, 340, 30, 250, 1);
         else
-            camera_look(vshr(car.b.pos, FX), fwd, up, 820, 300, 110, 250);
+            camera_look(vshr(car.b.pos, FX), fwd, up, 820, 300, 110, 250, 1);
     } else if (mode == FLY && sg_state == SG_DOCKED) {
         /* in the hangar: the camera sways slowly in front of the Arwing on its pad */
         M3 m;
         myaw(&m, 41768 + fsin(frame_count * 40) * 4000 / ONE);       /* in front, to one side */
         /* (shifted sideways, so the Arwing stands clear of the menu on the left) */
-        camera_look(vadd(sg_pad(), vscale(m.r, 300)), m.f, level, 800, 300, 40, 0);
+        camera_look(vadd(sg_pad(), vscale(m.r, 300)), m.f, level, 800, 300, 40, 0, 0);
     } else if (mode == FLY) {
         V3 up = ship.b.m.u;
         if ((ship.b.pos.y >> FX) < SPACE_HI)
             up = vnorm(vadd(up, level));               /* half the bank, like Star Fox */
-        camera_look(vshr(ship.b.pos, FX), ship.b.m.f, up, 950, 250, 110, 250);
+        camera_look(vshr(ship.b.pos, FX), ship.b.m.f, up, 950, 250, 110, 250, 1);
     } else if (me) {
         M3 m;
         myaw(&m, entity_heading(me));
         int on_foot = !is_vehicle(me);
         camera_look(entity_pos(me), m.f, level, on_foot ? 560 : 900, on_foot ? 360 : 400,
-                    on_foot ? 150 : 110, on_foot ? 200 : 300);
+                    on_foot ? 150 : 110, on_foot ? 200 : 300, 1);
     }
 }
 
@@ -877,6 +932,12 @@ void sf_frame(int a0, int a1, int a2, int a3, int s0, int s1, int s2, int view)
     frame_calls = key_calls;
     prev_keys = keys;
     keys = ~REG_KEYINPUT & 0x3ff;
+    if (!(keys & PAD_ALL))
+        cam_lock = 0;
+    else if (keys & KEY_SELECT)
+        cam_lock = 1;
+    cam_pad = cam_lock ? keys & PAD_ALL : 0;
+    keys &= ~cam_pad;                                  /* the camera's, not the car's or the Arwing's */
     u32 now = pb_clock();
     tick_acc += (now - last_clock) * 60;
     last_clock = now;
@@ -890,9 +951,14 @@ void sf_frame(int a0, int a1, int a2, int a3, int s0, int s1, int s2, int view)
     u8 *me = controlled();
     choose_mode(me);
     step(me, ticks);
+    camera_move(ticks);
     if (!(told & 4) && frame_count > 240) {
         told |= 4;
         say("Hold SELECT to call your Arwing.");
+    }
+    if (!(told & 8) && frame_count > 900) {
+        told |= 8;
+        say("Camera: hold SELECT and use the D-pad to turn and zoom. Tap SELECT to reset it.");
     }
     camera_update(me);
 

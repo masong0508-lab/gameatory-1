@@ -33,7 +33,7 @@ static inline int first_visit(int i)
 }
 
 #ifdef MERGE
-#define VIEW_CELLS 14              /* inside Payback, its game shares the frame time ... */
+#define VIEW_CELLS 16              /* inside Payback, its game shares the frame time ... */
 #define STREET_CELLS 10            /* ... and in the streets the nearest walls hide the rest */
 #else
 #define VIEW_CELLS 18
@@ -102,6 +102,10 @@ static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f, const u16 *t
         wc = tile_color(tiles[0] != 0xffff ? tiles[0] : tiles[1], l, wc);
         V3 q[4] = {a, b, bt, at};
         s32 nz = near < at.z ? near : at.z;
+        /* sorted by the middle of the part in view: a wall running past the camera has corners
+           far behind it, and their average put it in front of everything beside it (the man,
+           the Arwing's wing, a car) */
+        key = -1;
         if (nz < TEX_WALL_FAR) {
             TexWall t;
             tex_wall_setup(&t, at, dir, v3(-ay.x, -ay.y, -ay.z));
@@ -227,6 +231,17 @@ static void draw_ramp(const Ramp *r)
 }
 
 /* ---- road markings and trees ---- */
+/* Lamps, benches and trees right in front of the lens, or where the player stands (Payback's
+   people walk through its lamps and trees), are left out: a lamp post there was a grey bar
+   down the middle of the screen, over the player. p: the object's foot in camera space. */
+#ifdef MERGE
+static inline int in_the_way(V3 p, s32 halfw)
+{
+    return p.z < 420 || (p.z < 760 && p.x < halfw && p.x > -halfw);
+}
+#else
+#define in_the_way(p, halfw) ((p).z < 64)
+#endif
 #ifdef MERGE
 #define DASH_FAR 6000              /* centre line dashes nearer than this */
 #define ZEBRA_FAR 3500             /* zebra crossings nearer than this */
@@ -312,17 +327,19 @@ static void draw_fence(const Tree *t)
     V3 step = v3((b1.x - b0.x) >> 2, (b1.y - b0.y) >> 2, (b1.z - b0.z) >> 2);
     V3 up = v3(ay.x >> 4, ay.y >> 4, ay.z >> 4);                       /* (1024 units: 1.14 >> 4) */
 #define UP(p, k) v3((p).x + ((up.x * (k)) >> 10), (p).y + ((up.y * (k)) >> 10), (p).z + ((up.z * (k)) >> 10))
+    /* (the bars by the middle of the part in view, like walls: a railing running past the
+       camera must not cover the man) */
     for (int bar = 0; bar < 2; bar++) {
         s32 h0 = bar ? 150 : 70, h1 = h0 + 22;
         V3 q[4] = {UP(b0, h0), UP(b1, h0), UP(b1, h1), UP(b0, h1)};
-        r_poly(q, 4, COLOR(M_STEEL, bar ? 3 : 2, f), key, 0);
+        r_poly(q, 4, COLOR(M_STEEL, bar ? 3 : 2, f), -1, 0);
     }
     if (key < 2500) {
         V3 side = v3(step.x >> 4, step.y >> 4, step.z >> 4);           /* (16 units wide) */
         for (int k = 0; k <= 4; k++) {
             V3 p = v3(b0.x + step.x * k, b0.y + step.y * k, b0.z + step.z * k);
             V3 q[4] = {p, vadd(p, side), UP(vadd(p, side), 180), UP(p, 180)};
-            r_poly(q, 4, COLOR(M_STEEL, 1, f), key, 0);
+            r_poly(q, 4, COLOR(M_STEEL, 1, f), -1, 0);
         }
     }
 #undef UP
@@ -367,7 +384,8 @@ static void draw_prop(const Tree *t)
     if (dx < -PROP_FAR || dx > PROP_FAR || dz < -PROP_FAR || dz > PROP_FAR)
         return;
     V3 p = r_cam(v3(cx, 0, cz));
-    if (p.z < 64 || !in_view(cadd(p, 0, 300, 0), 800))
+    /* (benches and bins stop people, so they go only when right at the lens) */
+    if (in_the_way(p, t->kind == 8 ? 140 : 0) || !in_view(cadd(p, 0, 300, 0), 800))
         return;
     int f = fog_of(p.z);
     s32 a = (t->x >> 7) << 8, c = fcos(a), s = fsin(a);
@@ -401,7 +419,7 @@ static void draw_tree(const Tree *t)
     if (dx < -TREE_FAR || dx > TREE_FAR || dz < -TREE_FAR || dz > TREE_FAR)
         return;
     V3 p = r_cam(v3(x, 0, z));
-    if (p.z < 64 || p.z > TREE_FAR || !in_view(cadd(p, 0, h >> 1, 0), h))
+    if (in_the_way(p, 360) || p.z > TREE_FAR || !in_view(cadd(p, 0, h >> 1, 0), h))
         return;
     int f = fog_of(p.z);
     s32 r = h * 3 >> 3, tw = h >> 4;

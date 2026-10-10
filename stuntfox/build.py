@@ -87,6 +87,12 @@ MERGE_FADES = ((0x080777ec, 'sf_fade_add', 3),   # its other fades: + a level (t
                (0x080779bc, 'sf_fade_mul', 6),   # ... and * a level (toward black), twice
                (0x08077f44, 'sf_fade_mul2', None))
 MERGE_BASE = 0x081b0000                       # see src/merge.ld
+# Payback's crime report (0x0806cb18, from 13 places: every death, mission ends, the pause
+# menu's quit...) puts "You committed 2 shunts 'n bumps, ..." on the phone ticker. Its
+# branch to that sentence becomes a branch to its return, so the report is never written.
+# (The man's own counts are then not cleared there; a respawn clears them.) "You are charged
+# with ..." (busted) and Wasted!/Busted!/Toasted! are left as they were.
+MERGE_NO_REPORT = (0x0806cbf2, 0xe0aa, 0xe063)   # b 0x0806cd4a -> b 0x0806ccbc
 FILM_PLAYER = 0x03001660                      # Payback's film player (IWRAM), see src/title.c
 FILM_CALLS = ((0x080236bc, 0x086f7cd8, 'sf_studio_film'),   # (literals: the film, then the player)
               (0x08025530, 0x08700ccc, 'sf_intro_film'))
@@ -201,6 +207,9 @@ def build_merge(payback, out, bps_out=None):
         assert count is None or len(sites) == count, 'expected %d calls to %x, found %d' % (count, fn, len(sites))
         for site in sites:
             redirect(site, fn, sym[hook])
+    site, old, new = MERGE_NO_REPORT
+    assert struct.unpack_from('<H', rom.d, site - 0x08000000)[0] == old, 'crime report not at %x' % site
+    struct.pack_into('<H', rom.d, site - 0x08000000, new)
     for lit, film, hook in FILM_CALLS:         # no films: they flash white (src/title.c)
         a = lit - 0x08000000
         assert struct.unpack_from('<II', rom.d, a) == (film, FILM_PLAYER), 'expected a film call at %x' % lit
