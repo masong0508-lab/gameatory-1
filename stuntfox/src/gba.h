@@ -13,20 +13,46 @@ typedef unsigned long long u64;
 
 #define IWRAM_CODE __attribute__((section(".iwram"), target("arm"), noinline))
 #define IWRAM_DATA __attribute__((section(".iwram_data")))
+/* rarely run: Thumb in ROM, even in a file whose code is ARM in IWRAM (gba.ld, merge.ld) */
+#ifdef __arm__
+#define COLD __attribute__((section(".coldtext"), target("thumb"), noinline))
+#else
+#define COLD               /* (tools/colhost.c: the physics built for the PC) */
+#endif
 #define EWRAM_BSS __attribute__((section(".sbss")))
 /* Inside Payback (MERGE) only a few kilobytes of IWRAM can be borrowed, so just the hottest
-   functions go there; buffers rebuilt every frame (SCRATCH) go into RAM that Payback's own
-   world renderer used to own. */
+   functions go there; buffers rebuilt every frame (SCRATCH, SCRATCH2) go into EWRAM nothing
+   else touches (merge.ld: scr, scr2), the polygons into a buffer of Payback's world renderer. */
 #if defined(MERGE) && defined(__arm__)
 #define HOT IWRAM_CODE
 #define HOT2 __attribute__((section(".iwram2"), target("arm"), noinline))   /* see merge.ld */
 #define HOT3 __attribute__((section(".iwram3"), target("arm"), noinline))
+#define HOT4 __attribute__((section(".iwram4"), target("arm"), noinline))
+#define HOT5 __attribute__((section(".iwram5"), target("arm"), noinline))
+#define HOT6 __attribute__((section(".iwram6"), target("arm"), noinline))
+#define HOT6B __attribute__((section(".iwram6b"), target("arm"), noinline))
+#define HOT7 __attribute__((section(".iwram7"), target("arm"), noinline))
+#define HOT8 __attribute__((section(".iwram8"), target("arm"), noinline))
+#define HOT9 __attribute__((section(".iwram9"), target("arm"), noinline))
+#define HOT10 __attribute__((section(".iwram10"), target("arm"), noinline))
+#define HOT11 __attribute__((section(".iwram11"), target("arm"), noinline))
 #define SCRATCH __attribute__((section(".scratch")))
+#define SCRATCH2 __attribute__((section(".scratch2")))
 #else
 #define HOT
 #define HOT2
 #define HOT3
+#define HOT4
+#define HOT5
+#define HOT6
+#define HOT6B
+#define HOT7
+#define HOT8
+#define HOT9
+#define HOT10
+#define HOT11
 #define SCRATCH EWRAM_BSS
+#define SCRATCH2 EWRAM_BSS
 #endif
 
 #define REG_DISPCNT (*(volatile u16 *)0x04000000)

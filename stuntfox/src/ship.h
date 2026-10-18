@@ -12,6 +12,7 @@ typedef struct {
     s32 impact;
     int boosting;
     int rolling;               /* barrel roll ticks left */
+    int climb;                 /* ticks of the climb out after take-off left */
     s32 roll_dir;
 } Ship;
 
@@ -20,5 +21,6 @@ extern const V3 ship_gear[3];
 
 void ship_reset(Ship *s, V3 pos_units, s32 heading);   /* parked on the ground at pos */
 void ship_update(Ship *s, u16 keys);
+void ship_settle(Ship *s);                              /* the hull's contacts alone (a wreck) */
 
 #endif

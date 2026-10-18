@@ -36,7 +36,7 @@ int body_collide(Body *b, V3 r, s32 bounce, s32 friction, s32 *impact);
 /* 0 at street level .. 16384 in space */
 s32 space_factor(s32 y_units);
 
-enum { SURF_NONE, SURF_GROUND, SURF_LOOP, SURF_DECK, SURF_ROCK };
+enum { SURF_NONE, SURF_GROUND, SURF_LOOP, SURF_DECK, SURF_ROCK, SURF_RAMP };
 
 typedef struct {
     s32 dist;                      /* fine units */
@@ -46,11 +46,23 @@ typedef struct {
     u16 ang;                       /* loop: angle around the loop where we touched */
 } Hit;
 
+/* the body point at offset r (units) touching the surface h: push it out, bounce and rub;
+   returns the impact speed (fine/tick) */
+s32 body_contact(Body *b, V3 r, const Hit *h, s32 bounce, s32 friction);
 /* Cast from p (fine) along -up up to max (fine) and return the nearest surface hit. */
 int ray_surface(V3 p, V3 up, s32 max, Hit *h);
 /* If p (fine) is inside solid geometry: depth (fine) and the way out. */
 int penetrate(V3 p, Hit *h);
 s32 ground_fine(s32 x, s32 z);
+/* water (Payback's) bears nothing: a car goes in and sinks. Set, its surface is solid: the
+   Arwing's hull skims it (its landing gear never touches it, so it never lands on water) */
+extern u8 water_floats;
+/* set while the Arwing's hull is tested: Payback's edge walls stop it only where we draw them */
+extern u8 ship_hull;
+/* Payback's cars go up any slope of its ramps: set (merge.c), so does ours (car.c, ramp_follow).
+   A ramp lifts what comes into it straight up, never out through its side. ramp_pass: penetrate
+   leaves out ramps (1), and the floors either side of one (2) */
+extern u8 ramp_grip, ramp_pass;
 /* the surface under p (fine): the ground, or the top of a deck (a bridge) p is above */
 s32 surface_fine(V3 p);
 

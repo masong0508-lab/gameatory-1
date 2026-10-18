@@ -12,8 +12,7 @@
 #define MAXBG 640
 
 /* Polygons live in a pool of variable-size records (4 + 4 * n bytes) and are linked by their
-   EWRAM word index, so the pool can be split over several free stretches of RAM (inside
-   Payback only scattered buffers are free). */
+   EWRAM word index. */
 typedef struct {
     u16 next;
     u8 n, color;                  /* n: vertices, and the kind (PT_*) << 6 */
@@ -31,20 +30,52 @@ const u8 *r_pmap;
 #else
 #define MAPC(c) (c)
 #endif
+static u8 *pool_at;
 #ifdef MERGE
-extern u8 __pool_a[], __pool_a_end[], __pool_b[], __pool_b_end[], __pool_c[], __pool_c_end[], __pool_d[], __pool_d_end[];
-static u8 *const pool_parts[] = {__pool_a, __pool_a_end, __pool_b, __pool_b_end, __pool_c, __pool_c_end,
-                                 __pool_d, __pool_d_end};
+extern u8 __pool_a[], __pool_a_end[];          /* (the most a frame was seen to want: 9.8 of its 10.2 KB, Real Park from high up) */
+/* poola lies over Payback's copies of the cells it changes (CUBE_BeginModify 0x0803c3bc: 200 slots
+   of 64 bytes from 0x02003f24, byte 8 0xff when free, the first free one taken). Most levels use
+   one or two, but Freedom City's second changes 56 cells as it starts. So the pool starts past the
+   highest slot in use, PB_SPARE free ones left for what Payback changes before our next frame,
+   and r_end marks free again the slots it covered: at a frame's start, a slot not free is Payback's.
+   Payback takes the lowest free slot, so if it has gone past the spare ones the first slot under
+   the pool is taken: only then (and now and again, to give back what it freed) look them all over. */
+#define PB_SLOT ((u8 *)0x02003f24)
+#define PB_NSLOT 200
+#define PB_SPARE 8
+static u8 *pool_lo;
+static u8 *pool_floor(void)
+{
+    static u8 n;
+    if (pool_lo && PB_SLOT[((pool_lo - PB_SLOT) & ~63) + 8] == 0xff && ++n & 63)
+        return pool_lo;
+    const u8 *f = PB_SLOT + 64 * PB_NSLOT + 8;
+    int k = PB_NSLOT;
+    while (k && f[-64] == 0xff)
+        f -= 64, k--;
+    u8 *lo = PB_SLOT + 64 * (k + PB_SPARE);
+    return lo > __pool_a ? lo : __pool_a;
+}
+
+void r_end(void)
+{
+    for (u8 *f = PB_SLOT + 8 + 64 * ((pool_lo - PB_SLOT + 55) >> 6); f < pool_at; f += 64)
+        *f = 0xff;
+}
+#define POOL_END __pool_a_end
 #else
 static u32 pool[15000] EWRAM_BSS;
-static u8 *const pool_parts[] = {(u8 *)pool, (u8 *)(pool + 15000)};
+#define POOL ((u8 *)pool)
+#define POOL_END ((u8 *)(pool + 15000))
 #endif
-#define NPARTS (int)(sizeof pool_parts / sizeof pool_parts[0] / 2)
-static u8 *pool_at, *pool_end;
-static int pool_part;
 static u16 bucket[NBUCKET] SCRATCH;
 static u16 bglist[MAXBG] SCRATCH;
 static int npoly, nbg;
+#ifdef MERGE
+#define MAXWL 96
+static u32 wl[MAXWL] SCRATCH;              /* the frame's textured walls: bucket << 16 | index */
+static int nwl;
+#endif
 static u8 *back;
 extern const u32 rtab[2048];                /* 2^31 / (2048 + i) (tables.c) */
 extern const u32 erecip[2561];              /* (1 << 24) / i, for edge slopes */
@@ -64,12 +95,13 @@ void r_begin(void)
     for (int i = 0; i < NBUCKET / 2; i += 4)
         b[i] = b[i + 1] = b[i + 2] = b[i + 3] = 0;
     npoly = nbg = 0;
-    pool_at = pool_parts[0];
-    pool_end = pool_parts[1];
-    pool_part = 0;
 #ifdef MERGE
+    pool_at = pool_lo = pool_floor();
+    nwl = 0;
     /* draw into the page Payback is not showing */
     back = (REG_DISPCNT & 0x10) ? (u8 *)0x06000000 : (u8 *)0x0600a000;
+#else
+    pool_at = POOL;
 #endif
 }
 
@@ -96,6 +128,26 @@ int fog_of(int z)
 
 /* ---- clipping ---- */
 
+/* (n << 12) / d exactly, for 0 <= n <= d < 2^20 (where a plane cuts an edge): from the
+   reciprocal table, then put right (a division is a slow BIOS call) */
+HOT8 static u32 cut12(u32 n, u32 d)
+{
+    int e = 0;
+    u32 m = d;
+    if (m >= 1 << 16) m >>= 4, e += 4;
+    if (m >= 1 << 14) m >>= 2, e += 2;
+    if (m >= 1 << 13) m >>= 1, e++;
+    if (m >= 1 << 12) m >>= 1, e++;
+    while (m < 2048) m <<= 1, e--;
+    n <<= 12;
+    u32 q = (u32)(((u64)n * rtab[m - 2048]) >> (31 + e));
+    while (q * d > n) q--;
+    while ((q + 1) * d <= n) q++;
+    return q;
+}
+/* (na << 12) / (na - nb) for na, nb of opposite signs */
+#define CUT(na, nb) (s32)cut12((na) < 0 ? -(na) : (na), (na) < (nb) ? (nb) - (na) : (na) - (nb))
+
 /* signed distance of v from clip plane k: 0 near, 1 right, 2 left, 3 top, 4 bottom */
 #define PLANE(v, k) ((k) == 0 ? (v)->z - NEAR : (k) == 1 ? (v)->z * 121 - (v)->x * FOCAL : \
                      (k) == 2 ? (v)->z * 121 + (v)->x * FOCAL : (k) == 3 ? (v)->z * 81 - (v)->y * FOCAL : \
@@ -113,7 +165,7 @@ HOT static int clip(V3 *in, int n, V3 *out, int k)
             s32 na = da, nb = db;
             while (na > 262143 || na < -262143 || nb > 262143 || nb < -262143)
                 na >>= 1, nb >>= 1;
-            s32 t = (na << 12) / (na - nb);
+            s32 t = CUT(na, nb);
             out[m].x = a->x + (((b->x - a->x) * t) >> 12);
             out[m].y = a->y + (((b->y - a->y) * t) >> 12);
             out[m].z = a->z + (((b->z - a->z) * t) >> 12);
@@ -125,15 +177,11 @@ HOT static int clip(V3 *in, int n, V3 *out, int k)
     return m;
 }
 
-HOT static Poly *alloc(int key, int bg, int n, int extra)
+HOT5 static Poly *alloc(int key, int bg, int n, int extra)
 {
     u32 size = 4 + 4 * n + extra;
-    while (pool_at + size > pool_end) {
-        if (++pool_part >= NPARTS)
-            return 0;
-        pool_at = pool_parts[2 * pool_part];
-        pool_end = pool_parts[2 * pool_part + 1];
-    }
+    if (pool_at + size > POOL_END)
+        return 0;                               /* (full: the rest of the frame is left out) */
     Poly *p = (Poly *)pool_at;
     if (bg) {
         if (nbg >= MAXBG)
@@ -185,6 +233,10 @@ HOT static void poly(const V3 *v, int n, int color, int key, int bg, int type, c
     Poly *p = alloc(key, bg, n, isize);
     if (!p)
         return;
+#ifdef MERGE
+    if (type == PT_WALL && !bg && nwl < MAXWL)
+        wl[nwl++] = (u32)(key < 0 ? 0 : key >= NBUCKET << 5 ? NBUCKET - 1 : key >> 5) << 16 | PIDX(p);
+#endif
     p->n = n | type << 6;
     p->color = MAPC(color);
     for (int i = 0; i < isize >> 2; i++)
@@ -207,7 +259,7 @@ HOT static void poly(const V3 *v, int n, int color, int key, int bg, int type, c
     }
 }
 
-void r_poly(const V3 *v, int n, int color, int key, int bg)
+HOT6B void r_poly(const V3 *v, int n, int color, int key, int bg)
 {
     poly(v, n, color, key, bg, 0, 0, 0);
 }
@@ -215,7 +267,11 @@ void r_poly(const V3 *v, int n, int color, int key, int bg)
 #ifdef MERGE
 void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const void *info)
 {
-    poly(v, n, color, key, bg, type, info, type == PT_WALL ? sizeof(TexWall) : sizeof(TexFloor));
+    if (type != PT_WALL && (cam.pos.y > TEX_TOP
+                            || (cam.pos.y < 16 && (type == PT_GROUND || ((const TexFloor *)info)->k == 65536))))
+        type = 0;                  /* (no tiles on floors from up there: flat, see tex_frame; from under
+                                      the street, only on the floors down there) */
+    poly(v, n, color, key, bg, type, info, type == PT_WALL ? sizeof(TexWall) : type ? sizeof(TexFloor) : 0);
 }
 #endif
 
@@ -247,7 +303,7 @@ static int clip2d(const s32 *in, int n, s32 *out, s32 a, s32 b, s32 c)
             s32 na = dp, nb = dq;
             while (na > 262143 || na < -262143 || nb > 262143 || nb < -262143)
                 na >>= 1, nb >>= 1;
-            s32 t = (na << 12) / (na - nb);
+            s32 t = CUT(na, nb);
             out[2 * m] = p[0] + (((q[0] - p[0]) * t) >> 12);
             out[2 * m + 1] = p[1] + (((q[1] - p[1]) * t) >> 12);
             m++;
@@ -372,13 +428,43 @@ HOT static void raster(const Poly *p)
     }
 }
 
+#ifdef MERGE
+/* which parts of walls nearer walls hide: the walls go to tex_occlude nearest first, the
+   reverse of the order r_flush_fg draws them in (buckets near to far, and in a bucket as
+   submitted, as each bucket's list starts with its last) */
+HOT7 __attribute__((minsize)) static void occlude(void)
+{
+    tex_cover_clear();
+    for (int i = 1; i < nwl; i++) {
+        u32 w = wl[i];
+        int k = i;
+        for (; k > 0 && wl[k - 1] > w; k--)
+            wl[k] = wl[k - 1];
+        wl[k] = w;
+    }
+    for (int i = 0; i < nwl; i++) {
+        Poly *p = PPTR(wl[i] & 0xffff);
+        int n = p->n & 0x3f;
+        tex_occlude(p->xy, n, (TexWall *)&p->xy[2 * n]);
+    }
+    tex_cover_done();
+}
+#endif
+
 void r_flush_bg(void)
 {
+#ifdef MERGE
+    occlude();
+    tex_bg = 1;
+#endif
     for (int i = 0; i < nbg; i++)
         raster(PPTR(bglist[i]));
+#ifdef MERGE
+    tex_bg = 0;
+#endif
 }
 
-HOT void r_flush_fg(void)
+HOT6B void r_flush_fg(void)
 {
     for (int b = NBUCKET - 1; b >= 0; b--)
         for (int i = bucket[b]; i; i = PPTR(i)->next)

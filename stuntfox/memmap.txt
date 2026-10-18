@@ -1,0 +1,38 @@
+# Payback memory our linker script must never place anything in.
+# One range per line: start-end (end exclusive), then what it is. tools/memguard.py reads this
+# after linking and fails the build on any overlap with our sections or merge.ld regions.
+#
+# Seen by a watch of every load and store (phone missions on Freedom City in story and rampage,
+# the tank mission, story level 2, two arenas with painted phones, phones answered one after
+# another on every map's rampage, deaths, the pause menu, VIEW REPLAY, a new game and a campaign
+# hand-over to the next map): at most 10 goals (written up to 0x0201a947, phones answered in a
+# row on a rampage) and 11 queue entries written in one tick (up to 0x0201b7a7, the gang
+# mission's answer); the queue is folded into the goal list in the tick it is pushed.
+#
+# IWRAM: the words Payback keeps or runs next to the code of its it lends us (src/merge.ld says
+# where each region ends and why). 'stay' ranges may lie under hot3 and hot6b, which are copied out
+# as we take them and back as we leave; every other region is put back from Payback's ROM image
+# or stays ours between frames, and must keep clear.
+0x03005034-0x03005038  stay word the menus read (hot4 starts past it)
+0x03005c94-0x03005c98  stay word Payback's code writes, between hot9 and hot11
+0x03006150-0x03006154  code Payback runs outside our frame (hot2 ends there)
+0x030072c0-0x030072e4  stay VIEW REPLAY's nine words, kept by its code at 0x030072e8 (under hot6b; hot6 ends before them)
+0x03007388-0x0300738c  stay word a level load writes (hot6b ends there)
+#
+# Not here, as poola shares it: Payback's 200 copies of the cells it changes (CUBE_BeginModify,
+# 64 bytes each from 0x02003f24 to 0x02007124, byte 8 0xff when free). Rampage maps use one,
+# Freedom City's second story level 56; render.c keeps the pool past the ones in use.
+0x02003f24-0x02004374  cell copies 0-16, below poola
+0x02006c30-0x020075a8  mission state (current mission, mission ids, phones, red flags, goal ids, stage, the city and level copies at 0x02007554/58), cell copies 180-199 at its start
+# Payback's crime report (0x0806cb18, at each death and bust) writes its sentence from 0x020075a5:
+# with each of the man's 7 counts at 2147483647 the longest is 255 letters and its 0 (French, a
+# bust; English 224), so up to 0x020076a5, over gix[0..63]. scr2 may share it: build.py stops the
+# report before the phone, so nothing reads the sentence; Payback writes it in its game tick,
+# outside our frame; and nothing of ours in scr2 outlives a frame (tex_frame writes the rows of
+# gix/giz the floor reads that frame, gfar saying which; hot6b_save is put back in the frame it
+# was taken). Watched over deaths and busts in all five languages: none of our reads met its bytes.
+0x020075a5-0x020076a5  crime report sentence [may share: scr2]
+0x02019424-0x0201a7c8  ticker: index and its 10 lines of 500 bytes
+0x0201a7d8-0x0201b870  goal count, queue index, goal list (100 x 0x24) and the first 16 command-queue entries
+0x0201b870-0x0203c720  the rest of the command queue, which runs into heap 0 at its entry 110 (0x0201c720): per-cell occupancy, the map's column table
+0x0203c720-0x0203cfe8  VIEW REPLAY input recorder, as capped by the survival fix

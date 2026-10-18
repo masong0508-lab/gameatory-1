@@ -166,12 +166,27 @@ static const MVert hero_hi_v[4][56] = {{HERO_HI(0)}, {HERO_HI(26)}, {HERO_HI(-26
     {37, 164, 128}, {49, 164, 128}, {49, 182, 128}, {37, 182, 128},
 }};
 Model mdl_hero[4][2];
+#ifndef NORMALS_HOST
+/* RAM is short: the normals were worked out at build time (tools/mknormals.py) */
+extern const N3 gen_hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)], gen_tnbuf[];
+#define hero_n ((N3 *)gen_hero_n)
+#define tnbuf ((N3 *)gen_tnbuf)
+#define model_init(md)
+#else
 static N3 hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)] EWRAM_BSS;
+static N3 tnbuf[200] EWRAM_BSS;
+#endif
+/* The player swimming, as much of him as is over the water (at 0): the top of his back, then
+   his head and hair (two models, so each box's faces turn the right way); merge.c draws his
+   arms and the ripple round him */
+static const MVert swim_back_v[] = {BOX(-32, 32, 0, 8, -6, -6, 34)};
+static const MVert swim_head_v[] = {BOX(-15, 15, 0, 38, 36, 36, 15), BOX(-17, 17, 24, 46, 32, 32, 17)};
+static const MFace swim_back_f[] = {SIDES(M_CAR, 0), TOP(M_CAR, 0)};
+static const MFace swim_head_f[] = {SIDES(M_CREAM, 0), SIDES(M_ROAD, 8), TOP(M_ROAD, 8)};
+Model mdl_swim[2];
 
 Model mdl_saloon, mdl_limo, mdl_pickup, mdl_sport, mdl_van, mdl_bus, mdl_tank;
 Model mdl_stand, mdl_stride_a, mdl_stride_b, mdl_punch;
-
-static N3 tnbuf[200] EWRAM_BSS;
 
 static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int radius, N3 **nb)
 {
@@ -199,6 +214,8 @@ void traffic_init(void)
     setup(&mdl_stride_a, stride_a_v, N(stride_a_v), person_f, N(person_f), 140, &nb);
     setup(&mdl_stride_b, stride_b_v, N(stride_b_v), person_f, N(person_f), 140, &nb);
     setup(&mdl_punch, punch_v, N(punch_v), person_f, N(person_f), 150, &nb);
+    setup(&mdl_swim[0], swim_back_v, N(swim_back_v), swim_back_f, N(swim_back_f), 60, &nb);
+    setup(&mdl_swim[1], swim_head_v, N(swim_head_v), swim_head_f, N(swim_head_f), 70, &nb);
     /* the walking poses share the standing one's normals (the limbs only lean a little; it is
        set up last, so its normals are the ones kept) */
     for (int i = 3; i >= 0; i--) {

@@ -223,7 +223,14 @@ static const MFace boom_f[] = {
     F3(M_ACCENT, MF_GLOW, 1, 5, 3), F3(M_GLOW, MF_GLOW, 1, 2, 5),
 };
 
+#if defined(MERGE) && !defined(NORMALS_HOST)
+/* inside Payback, RAM is short: the normals were worked out at build time (tools/mknormals.py) */
+extern const N3 gen_nbuf[];
+#define nbuf ((N3 *)gen_nbuf)
+#define model_init(md)
+#else
 static N3 nbuf[200] EWRAM_BSS;
+#endif
 Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
 Model mdl_bay, mdl_raider, mdl_carrier, mdl_pod, mdl_medal, mdl_crate, mdl_gate, mdl_beacon, mdl_boom;
 

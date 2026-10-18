@@ -64,7 +64,7 @@ class PaybackRom:
 
     def paint(self, level, cells):
         """Replace cells of a level: cells maps (x, y) -> 60-byte column."""
-        g = self.grid(level)
+        g = list(self.painted.get(level) or self.grid(level))   # (a level may be painted more than once)
         for (x, y), col in cells.items():
             g[x * 128 + y] = self.add_column(col)
         self.set_grid(level, g)

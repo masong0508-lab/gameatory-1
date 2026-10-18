@@ -113,6 +113,39 @@ tex_vrun:
 3:  pop     {r4-r9, lr}
     bx      lr
 
+@ void tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2)
+@ tex_mrun for a tile's 16 x 16 averages, the level most used
+    .section .iwram10, "ax"
+    .global tex_mrun1
+    .type tex_mrun1, %function
+tex_mrun1:
+    push    {r4-r8, lr}
+    ldr     r4, [sp, #24]           @ mip
+    ldr     r7, [sp, #28]           @ row2
+    mov     r5, #0xf0
+    cmp     r1, #0
+    ble     3f
+1:  and     r6, r5, r2, lsr #8
+    orr     r6, r6, r2, lsr #28
+    ldrb    r6, [r4, r6]
+    add     r2, r2, r3
+    orr     r6, r6, r6, lsl #8
+    strh    r6, [r0, r7]
+    strh    r6, [r0], #2
+    subs    r1, r1, #1
+    beq     3f
+    and     r6, r5, r2, lsr #8
+    orr     r6, r6, r2, lsr #28
+    ldrb    r6, [r4, r6]
+    add     r2, r2, r3
+    orr     r6, r6, r6, lsl #8
+    strh    r6, [r0, r7]
+    strh    r6, [r0], #2
+    subs    r1, r1, #1
+    bne     1b
+3:  pop     {r4-r8, lr}
+    bx      lr
+
 @ void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut)
 @ n texels down a column two pixels wide, four rows each (close up)
     .section .iwram3, "ax"
@@ -143,3 +176,49 @@ tex_vrun4:
 2:  pop     {r4-r9, lr}
     bx      lr
 
+@ void tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2, u32 lv)
+@ tex_hrun from a tile's averages (tools/mkmip.py), found from the same texture position: lv holds
+@ the mask of the row's bits (bits 7..0), the row's shift (23..16) and the column's (31..24)
+    .section .iwram7, "ax"
+    .global tex_mrun
+    .type tex_mrun, %function
+tex_mrun:
+    push    {r4-r10, lr}
+    ldr     r4, [sp, #32]           @ mip
+    ldr     r7, [sp, #36]           @ row2
+    ldr     r10, [sp, #40]          @ lv
+    and     r5, r10, #0xff          @ the row's bits
+    mov     r9, r10, lsr #24        @ the column's shift
+    mov     r10, r10, lsr #16
+    and     r10, r10, #0xff         @ the row's shift
+    cmp     r1, #0
+    ble     3f
+    tst     r1, #1
+    beq     2f
+    and     r6, r5, r2, lsr r10     @ odd count: one first
+    orr     r6, r6, r2, lsr r9
+    ldrb    r6, [r4, r6]
+    add     r2, r2, r3
+    orr     r6, r6, r6, lsl #8
+    strh    r6, [r0, r7]
+    strh    r6, [r0], #2
+    subs    r1, r1, #1
+    beq     3f
+2:  and     r6, r5, r2, lsr r10     @ two a turn
+    orr     r6, r6, r2, lsr r9
+    ldrb    r6, [r4, r6]
+    add     r2, r2, r3
+    and     r8, r5, r2, lsr r10
+    orr     r8, r8, r2, lsr r9
+    ldrb    r8, [r4, r8]
+    add     r2, r2, r3
+    orr     r6, r6, r6, lsl #8
+    orr     r8, r8, r8, lsl #8
+    strh    r6, [r0, r7]
+    strh    r6, [r0], #2
+    strh    r8, [r0, r7]
+    strh    r8, [r0], #2
+    subs    r1, r1, #2
+    bgt     2b
+3:  pop     {r4-r10, lr}
+    bx      lr

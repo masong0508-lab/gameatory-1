@@ -6,8 +6,15 @@
 V3 station_pos;
 Rock rocks[16];
 int nrocks;
+u8 water_floats, ramp_grip, ramp_pass, ship_hull;
 
-#define STEP (192 << FX)              /* taller than this is a wall, not a kerb */
+#define STEP (192 << FX)              /* a deck's side taller than this is a wall */
+/* A point less than this under the ground is pushed up onto it, not out of a wall: Payback
+   tests its walls at a man's knee, 0x40 of its steps (512 units) up, so anything lower is
+   stepped onto, and a car's lowest points ride 38 units up (tools/mkworld.py KERB) */
+#define KERB (440 << FX)
+#define WALL_T 128                    /* half thickness of an edge wall (units) */
+#define RAMP_STEP (600 << FX)         /* off a ramp a car goes up onto a floor this much higher (car.c) */
 
 static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
 static V3 vclamp(V3 v, s32 m) { return v3(clampi(v.x, -m, m), clampi(v.y, -m, m), clampi(v.z, -m, m)); }
@@ -63,22 +70,17 @@ void body_integrate(Body *b)
     mrotate(&b->m, vshr(b->w, 4));
 }
 
-int body_collide(Body *b, V3 r, s32 bounce, s32 friction, s32 *impact)
+s32 body_contact(Body *b, V3 r, const Hit *h, s32 bounce, s32 friction)
 {
-    V3 p = vadd(b->pos, v3(r.x << FX, r.y << FX, r.z << FX));
-    Hit h;
-    if (!penetrate(p, &h))
-        return 0;
     V3 vp = body_point_vel(b, r);
-    s32 vn = vdot(vp, h.n);
-    *impact = -vn;
-    s32 push = h.dist < (40 << FX) ? h.dist : 40 << FX;
-    b->pos = vadd(b->pos, vscale(h.n, push));
+    s32 vn = vdot(vp, h->n);
+    s32 push = h->dist < (40 << FX) ? h->dist : 40 << FX;
+    b->pos = vadd(b->pos, vscale(h->n, push));
     if (vn < 0) {
-        s32 me = body_eff_mass(b, r, h.n);
+        s32 me = body_eff_mass(b, r, h->n);
         s32 j = (((-vn) * (256 + bounce)) >> 8) * me >> 8;
-        V3 J = vscale(h.n, j);
-        V3 vt = vsub(vp, vscale(h.n, vn));
+        V3 J = vscale(h->n, j);
+        V3 vt = vsub(vp, vscale(h->n, vn));
         s32 vtl = vlen(vt);
         if (vtl > 16) {
             s32 jt = (vtl * me) >> 8, lim = (j * friction) >> 8;
@@ -87,6 +89,16 @@ int body_collide(Body *b, V3 r, s32 bounce, s32 friction, s32 *impact)
         }
         body_impulse(b, r, J);
     }
+    return -vn;
+}
+
+int body_collide(Body *b, V3 r, s32 bounce, s32 friction, s32 *impact)
+{
+    V3 p = vadd(b->pos, v3(r.x << FX, r.y << FX, r.z << FX));
+    Hit h;
+    if (!penetrate(p, &h))
+        return 0;
+    *impact = body_contact(b, r, &h, bounce, h.kind == SURF_RAMP ? 0 : friction);
     return 1;
 }
 
@@ -110,24 +122,54 @@ s32 ground_fine(s32 x, s32 z)
     case 3: return (c->lo << FX) + ((d * fx) >> 10);
     case 4: return (c->lo << FX) + ((d * (0x40000 - fz)) >> 10);
     case 5: return (c->lo << FX) + ((d * (0x40000 - fx)) >> 10);
+    case SHAPE_WATER: return (water_floats ? c->hi : c->lo) << FX;     /* (things sink in it) */
     default: return c->hi << FX;
     }
 }
 
-/* a deck over the cell under p (fine): 1 with its bottom and top (fine) */
-static int deck_at(V3 p, s32 *bottom, s32 *top)
+/* deck k over the cell under p (fine): its bottom and top there (fine), as world_deck */
+static int deck_at(V3 p, int k, s32 *bottom, s32 *top)
 {
-    if (!world_deck(p.x >> FX, p.z >> FX, bottom, top))
+    int s = world_deck(p.x >> FX, p.z >> FX, k, bottom, top);
+    if (!s)
         return 0;
     *bottom <<= FX;
     *top <<= FX;
-    return 1;
+    return s;
+}
+
+/* the deck whose top is the surface under p (fine): the higher one p is over the middle of (a
+   second deck is only ever over a first); as world_deck, with which one in *k */
+static int deck_under(V3 p, int *k, s32 *top)
+{
+    s32 db, ub, ut;
+    int s = deck_at(p, 0, &db, top), s2;
+    if (!s)
+        return 0;
+    if ((s2 = deck_at(p, 1, &ub, &ut)) && p.y > ((ub + ut) >> 1)) {
+        *k = 1;
+        *top = ut;
+        return s2;
+    }
+    *k = 0;
+    return p.y > ((db + *top) >> 1) ? s : 0;
+}
+
+/* the deck p (fine) is inside: 1 with its bottom and top there (fine) */
+static int deck_in(V3 p, s32 *bottom, s32 *top)
+{
+    if (!deck_at(p, 0, bottom, top))
+        return 0;
+    if (p.y > *bottom && p.y < *top)
+        return 1;
+    return deck_at(p, 1, bottom, top) && p.y > *bottom && p.y < *top;
 }
 
 s32 surface_fine(V3 p)
 {
-    s32 db, dt;
-    if (deck_at(p, &db, &dt) && p.y > ((db + dt) >> 1))
+    s32 dt;
+    int k;
+    if (deck_under(p, &k, &dt))
         return dt;
     return ground_fine(p.x, p.z);
 }
@@ -173,20 +215,22 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
     s32 best = max + 1;
     int found = 0;
     V3 n = world_normal(p.x >> FX, p.z >> FX);
-    s32 g = ground_fine(p.x, p.z), db, dt;
-    if (deck_at(p, &db, &dt) && p.y > ((db + dt) >> 1)) {
-        g = dt;                                   /* on a bridge deck: flat */
-        n = v3(0, ONE, 0);
+    s32 g = ground_fine(p.x, p.z), dt;
+    int k, ds = deck_under(p, &k, &dt);
+    if (ds) {
+        g = dt;                                   /* on a bridge deck: flat, or its ramp */
+        n = ds > 1 ? world_deck_normal(p.x >> FX, p.z >> FX, k) : v3(0, ONE, 0);
     }
     s32 un = vdot(up, n);
     if (un > 6000) {
         s32 s = p.y - g;
-        if (s > -max && s < 2 * max) {
-            s32 t = s * n.y / un;
+        /* (over a steep slope the gap straight down is much more than the gap square to it) */
+        if (s > -max && s < 8 * max) {
+            s32 t = s < 2 * max ? s * n.y / un : ((s >> 4) * n.y / un) << 4;
             if (t < best) {
                 best = t;
                 h->n = n;
-                h->kind = SURF_GROUND;
+                h->kind = !ds && ramp_grip && n.y < 16000 ? SURF_RAMP : SURF_GROUND;
                 found = 1;
             }
         }
@@ -230,10 +274,83 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
     return 1;
 }
 
+/* the station and the asteroids (far above the city: Thumb, in ROM) */
+static COLD int space_hit(V3 p, Hit *h)
+{
+    s32 px = p.x >> FX, py = p.y >> FX, pz = p.z >> FX;
+    s32 dx = px - station_pos.x, dy = py - station_pos.y, dz = pz - station_pos.z;
+    s32 ox = HUB_HX - (dx < 0 ? -dx : dx), oy = HUB_HY - (dy < 0 ? -dy : dy), oz = HUB_HZ - (dz < 0 ? -dz : dz);
+    if (ox > 0 && oy > 0 && oz > 0) {
+        /* the docking bay is open space; its floor, ceiling and walls push back into it */
+        s32 bx = BAY_HX - (dx < 0 ? -dx : dx), b0 = dy - BAY_Y0, b1 = BAY_Y1 - dy, bz = dz - BAY_Z0;
+        if (bx > 0 && b0 > 0 && b1 > 0 && bz > 0)
+            return 0;
+        s32 best;
+        h->kind = SURF_DECK;
+        if (oy <= ox && oy <= oz) best = oy, h->n = v3(0, dy < 0 ? -ONE : ONE, 0);
+        else if (ox <= oz) best = ox, h->n = v3(dx < 0 ? -ONE : ONE, 0, 0);
+        else best = oz, h->n = v3(0, 0, dz < 0 ? -ONE : ONE);
+        if (b0 > 0 && b1 > 0 && bz > 0 && -bx < best)
+            best = -bx, h->n = v3(dx < 0 ? ONE : -ONE, 0, 0);
+        if (bx > 0 && bz > 0 && b0 <= 0 && -b0 < best)
+            best = -b0, h->n = v3(0, ONE, 0);
+        if (bx > 0 && bz > 0 && b1 <= 0 && -b1 < best)
+            best = -b1, h->n = v3(0, -ONE, 0);
+        if (bx > 0 && b0 > 0 && b1 > 0 && bz <= 0 && -bz < best)
+            best = -bz, h->n = v3(0, 0, ONE);
+        h->dist = (best + 1) << FX;
+        return 1;
+    }
+    for (int i = 0; i < nrocks; i++) {
+        V3 d = vsub(v3(px, py, pz), rocks[i].c);
+        s32 r = rocks[i].r;
+        if (d.x > r || d.x < -r || d.y > r || d.y < -r || d.z > r || d.z < -r)
+            continue;
+        s32 l = vlen(d);
+        if (l < r && l > 0) {
+            h->dist = (r - l) << FX;
+            h->n = vnorm(d);
+            h->kind = SURF_ROCK;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* a railing drawn along edge k (-z, +x, +z, -x) of the cell under p (fine), p's height in its
+   slab (as a wall's from its foot). mkworld.py lists each as a tree of the cell it stops you in,
+   either side of the edge; seen from across a one way one is its top rail alone (draw_fence).
+   (A sector lists its trees last, but for loops.) */
+static int rail_on(V3 p, int k)
+{
+    static const s8 step[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+    s32 y = p.y >> FX;
+    for (int side = 0; side < 2; side++) {
+        int cx = (p.x >> (FX + 10)) + (side ? step[k][0] : 0), cz = (p.z >> (FX + 10)) + (side ? step[k][1] : 0);
+        int kind = 2 + (k ^ side << 1);
+        if (cx < 0 || cz < 0 || cx >= CITY || cz >= CITY)
+            continue;
+        const u16 *sec = &world.sector[2 * ((cx >> 3) * 16 + (cz >> 3))], *it = &world.item[sec[0] + sec[1]];
+        for (int n = sec[1]; n--;) {
+            int what = *--it >> 13;
+            if (what == 3)
+                continue;
+            if (what != 5)
+                break;
+            const Tree *t = &world.tree[*it & 0x1fff];
+            s32 b;
+            if (t->kind == kind && t->z == cz && (t->x & 127) == cx && y < (b = RAIL_BASE(t)) + 192 &&
+                y > b + (side && t->x >> 7 ? 118 : -32))
+                return 1;
+        }
+    }
+    return 0;
+}
+
 int penetrate(V3 p, Hit *h)
 {
     s32 db, dt;
-    if (deck_at(p, &db, &dt) && p.y > db && p.y < dt) {
+    if (deck_in(p, &db, &dt)) {
         /* inside a bridge deck: out over the top or down under it, whichever is nearer ... */
         h->kind = SURF_GROUND;
         if (dt - p.y > STEP) {
@@ -248,7 +365,7 @@ int penetrate(V3 p, Hit *h)
             for (int k = 0; k < 4; k++) {
                 V3 q = v3(p.x + dir[k][0] * (gap[k] + (8 << FX)), p.y, p.z + dir[k][1] * (gap[k] + (8 << FX)));
                 s32 qb, qt;
-                if (deck_at(q, &qb, &qt) && p.y > qb && p.y < qt)
+                if (deck_in(q, &qb, &qt))
                     continue;
                 if (p.y - db <= STEP) {
                     s32 f = surface_fine(q);
@@ -276,7 +393,20 @@ int penetrate(V3 p, Hit *h)
     s32 g = ground_fine(p.x, p.z);
     if (p.y < g) {
         s32 d = g - p.y;
-        if (d <= STEP) {
+        if (ramp_grip) {
+            u8 sh = world_cell(p.x >> FX, p.z >> FX)->shape;
+            int slope = sh >= 2 && sh <= 5;
+            if (ramp_pass && (slope || (ramp_pass > 1 && d <= RAMP_STEP)))
+                return 0;
+            if (slope) {
+                /* (in from its side as well: Payback stands a car on a ramp it lets it into) */
+                h->n = v3(0, ONE, 0);
+                h->dist = d;
+                h->kind = SURF_RAMP;
+                return 1;
+            }
+        }
+        if (d <= KERB) {
             h->n = world_normal(p.x >> FX, p.z >> FX);
             h->dist = (d * h->n.y) >> 14;
             h->kind = SURF_GROUND;
@@ -284,7 +414,7 @@ int penetrate(V3 p, Hit *h)
         }
         /* inside a building: out through the nearest face that has open space beyond it */
         s32 fx = (p.x >> FX) & 1023, fz = (p.z >> FX) & 1023, best = 0x7fffffff;
-        const s32 c = CELL << FX, top = p.y + STEP;
+        const s32 c = CELL << FX, top = p.y + KERB;
         h->n = v3(0, ONE, 0);
         if (ground_fine(p.x - c, p.z) <= top && fx + 1 < best) best = fx + 1, h->n = v3(-ONE, 0, 0);
         if (ground_fine(p.x + c, p.z) <= top && 1024 - fx < best) best = 1024 - fx, h->n = v3(ONE, 0, 0);
@@ -293,6 +423,30 @@ int penetrate(V3 p, Hit *h)
         h->dist = best == 0x7fffffff ? d : best << FX;
         h->kind = SURF_GROUND;
         return 1;
+    }
+    /* Payback's walls along cell edges (railings, fences, a block's open side over a kerb): a
+       slab WALL_T deep each side of the edge, out on the side the point is in (a car moves well
+       under WALL_T a tick, so it is never carried out the far side) */
+    s32 wl, wh;
+    int wb = world_wall(p.x >> FX, p.z >> FX, &wl, &wh), rb = ship_hull ? world_rails(p.x >> FX, p.z >> FX) : 0;
+    if (rb || (wb && !ship_hull && p.y > ((wl - 32) << FX) && p.y < (wh << FX))) {
+        s32 fx = (p.x >> FX) & 1023, fz = (p.z >> FX) & 1023;
+        s32 d[4] = {fz, 1023 - fx, 1023 - fz, fx};
+        static const s8 in[4][2] = {{0, 1}, {-1, 0}, {0, -1}, {1, 0}};
+        /* (the Arwing: these are the car's walls, as tall as Payback's record across the edge and
+           one range for the whole cell. It meets what we draw there instead: the railings, on any
+           edge they are drawn along, marked by mkworld.py whether or not the car has a wall there,
+           and the buildings and decks themselves) */
+        int best = -1;
+        for (int k = 0; k < 4; k++)
+            if (d[k] < WALL_T && (best < 0 || d[k] < d[best]) && (ship_hull ? rb >> k & 1 && rail_on(p, k) : wb >> k & 1))
+                best = k;
+        if (best >= 0) {
+            h->n = v3(in[best][0] * ONE, 0, in[best][1] * ONE);
+            h->dist = (WALL_T - d[best]) << FX;
+            h->kind = SURF_GROUND;
+            return 1;
+        }
     }
     for (int i = 0; i < world.nloop; i++) {
         s32 gap;
@@ -305,44 +459,7 @@ int penetrate(V3 p, Hit *h)
             return 1;
         }
     }
-    s32 px = p.x >> FX, py = p.y >> FX, pz = p.z >> FX;
-    if (py > SPACE_LO) {
-        s32 dx = px - station_pos.x, dy = py - station_pos.y, dz = pz - station_pos.z;
-        s32 ox = HUB_HX - (dx < 0 ? -dx : dx), oy = HUB_HY - (dy < 0 ? -dy : dy), oz = HUB_HZ - (dz < 0 ? -dz : dz);
-        if (ox > 0 && oy > 0 && oz > 0) {
-            /* the docking bay is open space; its floor, ceiling and walls push back into it */
-            s32 bx = BAY_HX - (dx < 0 ? -dx : dx), b0 = dy - BAY_Y0, b1 = BAY_Y1 - dy, bz = dz - BAY_Z0;
-            if (bx > 0 && b0 > 0 && b1 > 0 && bz > 0)
-                return 0;
-            s32 best;
-            h->kind = SURF_DECK;
-            if (oy <= ox && oy <= oz) best = oy, h->n = v3(0, dy < 0 ? -ONE : ONE, 0);
-            else if (ox <= oz) best = ox, h->n = v3(dx < 0 ? -ONE : ONE, 0, 0);
-            else best = oz, h->n = v3(0, 0, dz < 0 ? -ONE : ONE);
-            if (b0 > 0 && b1 > 0 && bz > 0 && -bx < best)
-                best = -bx, h->n = v3(dx < 0 ? ONE : -ONE, 0, 0);
-            if (bx > 0 && bz > 0 && b0 <= 0 && -b0 < best)
-                best = -b0, h->n = v3(0, ONE, 0);
-            if (bx > 0 && bz > 0 && b1 <= 0 && -b1 < best)
-                best = -b1, h->n = v3(0, -ONE, 0);
-            if (bx > 0 && b0 > 0 && b1 > 0 && bz <= 0 && -bz < best)
-                best = -bz, h->n = v3(0, 0, ONE);
-            h->dist = (best + 1) << FX;
-            return 1;
-        }
-        for (int i = 0; i < nrocks; i++) {
-            V3 d = vsub(v3(px, py, pz), rocks[i].c);
-            s32 r = rocks[i].r;
-            if (d.x > r || d.x < -r || d.y > r || d.y < -r || d.z > r || d.z < -r)
-                continue;
-            s32 l = vlen(d);
-            if (l < r && l > 0) {
-                h->dist = (r - l) << FX;
-                h->n = vnorm(d);
-                h->kind = SURF_ROCK;
-                return 1;
-            }
-        }
-    }
+    if ((p.y >> FX) > SPACE_LO)
+        return space_hit(p, h);
     return 0;
 }

@@ -69,12 +69,29 @@ void d_text(int x, int y, const char *s, int color)
 void d_rect(int x, int y, int w, int h, int color)
 {
     int c = pal_of(color);
-    for (int j = y; j < y + h; j++)
-        if ((unsigned)j < 160)
-            for (int i = x; i < x + w; i++)
-                if ((unsigned)i < 240)
-                    put(r_target(), i, j, c);
+    if (x < 0) w += x, x = 0;
+    if (x + w > 240) w = 240 - x;
+    if (y < 0) h += y, y = 0;
+    if (y + h > 160) h = 160 - y;
+    if (w <= 0 || h <= 0)
+        return;
+    /* pixel pairs where it can (VRAM takes 16-bit writes), single pixels at odd ends */
+    u8 *row = r_target() + y * 240;
+    u16 cc = c | c << 8;
+    for (; h > 0; h--, row += 240) {
+        int i = x, e = x + w;
+        if (i & 1)
+            put(row, i++, 0, c);
+        for (u16 *p = (u16 *)(row + i); i + 1 < e; i += 2)
+            *p++ = cc;
+        if (i < e)
+            put(row, i, 0, c);
+    }
 }
+
+#define REG_DMA3SAD (*(volatile u32 *)0x040000d4)
+#define REG_DMA3DAD (*(volatile u32 *)0x040000d8)
+#define REG_DMA3CNT (*(volatile u32 *)0x040000dc)
 
 void d_fill(int x, int y, int w, int h, int color)
 {
@@ -88,10 +105,19 @@ void d_fill(int x, int y, int w, int h, int color)
     if (x + w > 240) w = 240 - x;
     if (y < 0) h += y, y = 0;
     if (y + h > 160) h = 160 - y;
+    if (w <= 0)
+        return;
+    /* a row at a time by DMA 3 from one word (source fixed). Payback's sound interrupt uses DMA 3
+       too, so interrupts wait meanwhile (as in merge.c's copy32) */
+    volatile u32 src = c;
     for (int j = 0; j < h; j++) {
-        u32 *p = (u32 *)(page + (y + j) * 240 + x);
-        for (int i = 0; i < w; i += 4)
-            *p++ = c;
+        u16 ime = REG_IME;
+        REG_IME = 0;
+        REG_DMA3CNT = 0;
+        REG_DMA3SAD = (u32)&src;
+        REG_DMA3DAD = (u32)(page + (y + j) * 240 + x);
+        REG_DMA3CNT = (w >> 2) | 0x85000000;
+        REG_IME = ime;
     }
 }
 
@@ -118,11 +144,9 @@ void d_hline(int x0, int x1, int y, int color)
 {
     if ((unsigned)y >= 160)
         return;
-    int c = pal_of(color);
     if (x0 < 0) x0 = 0;
     if (x1 > 239) x1 = 239;
-    for (int x = x0; x <= x1; x++)
-        put(r_target(), x, y, c);
+    d_rect(x0, y, x1 - x0 + 1, 1, color);
 }
 
 void d_vline(int x, int y0, int y1, int color)
@@ -133,8 +157,24 @@ void d_vline(int x, int y0, int y1, int color)
     if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
     if (y0 < 0) y0 = 0;
     if (y1 > 159) y1 = 159;
+    u8 *page = r_target();
     for (int y = y0; y <= y1; y++)
-        put(r_target(), x, y, c);
+        put(page, x, y, c);
+}
+
+/* n / 10 and its remainder by shifts and adds (a division would be a BIOS call) */
+static u32 div10(u32 n, u32 *rem)
+{
+    u32 q = (n >> 1) + (n >> 2);
+    q += q >> 4;
+    q += q >> 8;
+    q += q >> 16;
+    q >>= 3;
+    u32 r = n - q * 10;
+    if (r > 9)
+        q++, r -= 10;
+    *rem = r;
+    return q;
 }
 
 char *d_num(char *buf, int v)
@@ -145,10 +185,11 @@ char *d_num(char *buf, int v)
         *buf++ = '-';
         v = -v;
     }
+    u32 u = v, r;
     do {
-        t[n++] = '0' + v % 10;
-        v /= 10;
-    } while (v);
+        u = div10(u, &r);
+        t[n++] = '0' + r;
+    } while (u);
     while (n)
         *buf++ = t[--n];
     *buf = 0;

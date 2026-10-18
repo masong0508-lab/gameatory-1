@@ -9,6 +9,7 @@ Output: C source with
     pb_shade[3][256]  Payback index -> the same colour darker (light levels 0..2 of walls)
     pb_sky[16]        colours no tile of Payback's city uses (not needed any more by the game)
     pb_avg[TILE_IDS]  the average colour of each tile, for walls and roofs too far to texture
+    pb_mesh[]         a bit per tile id: a fine mesh (a chain-link fence), drawn flat on walls
 """
 import os
 import struct
@@ -20,6 +21,8 @@ from paybackmod.rom import PaybackRom   # noqa: E402
 PALETTE = 0x6367a8                  # Payback's BG palette in ROM (red and blue swapped)
 TILE_BANK = 0x0ce0bc
 TILE_IDS = 0x318
+TEX_WATER, WATER = 0x317, 0x2f8de8  # our id for Payback's water, and the texels it shows (src/tex.h)
+WATER_ID = 0x311                    # Payback's own water tile (a mesh by the measure below, never a wall)
 # src/palette.c
 BASE = [(0, 0, 0), (7, 7, 10), (19, 19, 18), (6, 17, 7), (21, 17, 12), (20, 20, 21), (8, 15, 25),
         (23, 10, 8), (5, 21, 20), (27, 25, 18), (12, 13, 17), (5, 10, 29), (31, 27, 4), (28, 28, 29),
@@ -51,6 +54,26 @@ def city_tiles(rom):
     return {i for i in ids if 0 < i < TILE_IDS}
 
 
+def mesh_tiles(rom, pal):
+    """Tiles that are a fine high-contrast mesh (Payback's chain-link fences, 0x15 and 0x1a0):
+    at our two pixels a texel they come out as a harsh checkerboard that reads as a missing
+    texture, so walls draw them flat in their average colour instead."""
+    lum = [(r * 299 + g * 587 + b * 114) / 1000 for r, g, b in pal]
+    out = set()
+    for t in range(1, TILE_IDS):
+        a = TILE_BANK + t * 0x400
+        L = [lum[p] for p in rom[a:a + 0x400]]
+        m = sum(L) / 1024
+        sd = (sum((l - m) ** 2 for l in L) / 1024) ** 0.5
+        if sd < 3:
+            continue
+        d = (sum(abs(L[y * 32 + x] - L[y * 32 + x + 1]) for y in range(32) for x in range(31)) +
+             sum(abs(L[y * 32 + x] - L[(y + 1) * 32 + x]) for y in range(31) for x in range(32))) / (2 * 32 * 31)
+        if d > 1.1 * sd:            # neighbours differ by more than the tile's own spread: a mesh
+            out.add(t)
+    return out
+
+
 def tables(rom):
     pal = palette(rom)
     used = set()
@@ -79,18 +102,21 @@ def tables(rom):
         shade.append([i if i in free else near(*(c * s for c in pal[i])) for i in range(256)])
     avg = []
     for t in range(TILE_IDS):
-        a = TILE_BANK + t * 0x400
+        a = WATER if t == TEX_WATER else TILE_BANK + t * 0x400
         px = [p for p in rom[a:a + 0x400] if p]
         if not px:
             avg.append(0)
             continue
         avg.append(near(*(sum(pal[p][k] for p in px) / len(px) for k in range(3))))
-    return pmap, shade, pmap[:16], avg, free
+    mesh = [0] * ((TILE_IDS + 31) // 32)
+    for t in mesh_tiles(rom, pal) - {WATER_ID}:
+        mesh[t >> 5] |= 1 << (t & 31)
+    return pmap, shade, pmap[:16], avg, free, mesh
 
 
 def main(rom_path, out):
     rom = open(rom_path, 'rb').read() if isinstance(rom_path, str) else rom_path
-    pmap, shade, sky, avg, free = tables(rom)
+    pmap, shade, sky, avg, free, mesh = tables(rom)
 
     def arr(v):
         return ',\n    '.join(', '.join('%d' % x for x in v[i:i + 16]) for i in range(0, len(v), 16))
@@ -104,6 +130,7 @@ def main(rom_path, out):
         f.write('};\n')
         f.write('const u8 pb_sky[16] = {%s};\n' % arr(sky))
         f.write('const u8 pb_avg[%d] = {\n    %s};\n' % (len(avg), arr(avg)))
+        f.write('const u32 pb_mesh[%d] = {%s};\n' % (len(mesh), ', '.join('0x%08x' % v for v in mesh)))
     return free
 
 

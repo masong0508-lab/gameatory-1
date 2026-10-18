@@ -25,12 +25,18 @@ void tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2);
 void tex_hrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2);
 void tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, int row2);
 void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut);
+void tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2, u32 lv);
+void tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2);
 
 /* per pair of screen rows: the ground under the left pixel (units * 256), its step per pixel,
    2^30 / the step per texel (two pixels), and how far the rows reach (units, 0: no ground) */
-static u32 gix[80] SCRATCH, giz[80] SCRATCH;
+static u32 gix[80] SCRATCH2, giz[80] SCRATCH2;
 static s32 gfar[80] EWRAM_BSS;
 static s32 camx8, camz8, camy;
+/* the camera's height over the plane the rows below are found on: the street's, or with the
+   camera under the street (swimming in a canal, in a sunken yard) a plane 1024 under it, so
+   the floors down there still get their tiles (the street over it is not seen from below) */
+static s32 camh;
 #define SEGS 6                               /* pieces of a row when rolled, 40 pixels each */
 #define NOGROUND (-32768)
 /* when rolled: the ground at each piece's ends, units from the camera (NOGROUND: none) */
@@ -46,11 +52,32 @@ static union {
 #define sgx gt.rolled.x
 #define sgz gt.rolled.z
 static int rolled, steep;
+static const u16 *tex_tab;         /* the floor being drawn: its cells' tile ids (its TexFloor's) */
 int tex_on;
+/* what nearer walls hide (see tex_occlude) */
+static u32 cov[110] SCRATCH;
+#define cov_top ((u8 *)cov)
+#define cov_bot ((u8 *)cov + 120)
+#define cov_l ((u8 *)cov + 240)
+#define cov_r ((u8 *)cov + 320)
+u8 tex_bg;
 
 /* a texture position and a step (texels, 16.16) as packed words (see texrun.s) */
 #define PACK(s, t) ((((u32)(s) << 11) & 0xffff0000u) | (((u32)(t) >> 5) & 0xffff))
 #define PSTEP(ds, dt) ((((u32)(ds) << 11) & 0xffff0000u) + (u32)((s32)(dt) >> 5))
+
+/* far off or high up a pair of pixels steps over more than a texel, and a texel picked for each
+   pair speckles and shimmers: a pair stepping MIP_STEP or more (units * 256: one and a half
+   texels; from higher up, where everything slides by faster, less) takes the tile's averages
+   over 2 x 2 texels, twice that over 4 x 4, four times over 8 x 8 (pb_mip, by tools/mkmip.py:
+   rows of 16, 8 and 4). Rows stepping more than MIP_FLAT are drawn flat, as if past TEX_FAR
+   (Payback's average colours). Above 6000 that limit falls with height, to 1.6 texels at
+   TEX_TOP where the tiles stop: less than any roof steps there (the tallest are 8192 high), so
+   the tiles have faded out row by row, coarsest first, before then. */
+#define MIP_STEP 12288
+#define MIP_FLAT (4 * MIP_STEP)
+extern const u8 pb_mip[][336];
+extern const u16 pb_mipof[TEX_IDS];
 
 /* Payback's tile id -> its texels (where Payback keeps it), or 0 */
 #define TILE(id) ({ unsigned id_ = (id); const u8 *p_ = id_ < TEX_IDS ? PB_TEXTAB[id_] : 0; \
@@ -88,7 +115,7 @@ HOT2 static s32 divq(s32 a, s32 w, int sh)
     return k >= 0 ? SHR64(p, k) : (s32)p << -k;
 }
 
-static u32 inv30(s32 v)                     /* 2^30 / |v|, |v| at least 16 */
+HOT8 static u32 inv30(s32 v)                /* 2^30 / |v|, |v| at least 16 */
 {
     if (v < 0) v = -v;
     if (v < 16) v = 16;
@@ -102,50 +129,81 @@ const u8 *tex_tile(int id)
     return TILE(id);
 }
 
-void tex_frame(void)
+HOT4 void tex_frame(void)
 {
     camx8 = cam.pos.x << 8;
     camz8 = cam.pos.z << 8;
     camy = cam.pos.y;
+    camh = camy >= 16 ? camy : 1024;
     V3 r = cam.m.r, u = cam.m.u, f = cam.m.f;
-    int on = tex_on && camy >= 16 && camy <= 12000;
+    int on = tex_on && camy <= TEX_TOP;
     rolled = r.y > 600 || r.y < -600;      /* (two degrees: below that a row barely changes depth) */
     /* walls in pieces only when looked at steeply or rolled: from a level camera the depth
        down a column barely changes, and the pieces cost about a frame a second */
     steep = rolled || f.y > 4000 || f.y < -4000;
-    for (int j = 0; j < 80; j++) {
+#pragma clang loop unroll(disable)
+    for (int j = 0; j < 80; j++)
         gfar[j] = 0;
-        if (!on)
-            continue;
-        /* rays through the row pair's pixels, doubled, >> 9 (32-bit sums only: this is
-           Thumb code, where 64-bit products are slow calls) */
-        s32 k = 158 - 4 * j;
-        V3 base = v3(k * u.x + 2 * FOCAL * f.x, k * u.y + 2 * FOCAL * f.y, k * u.z + 2 * FOCAL * f.z);
-        int np = rolled ? SEGS + 1 : 2;
-        s32 xo[SEGS + 1], zo[SEGS + 1], fa[SEGS + 1], near = 0x7fffffff;
-        for (int end = 0; end < np; end++) {
-            s32 c = rolled ? 80 * end - 239 : end ? 239 : -239;
-            s32 dx = (base.x + c * r.x) >> 9, ndy = -((base.y + c * r.y) >> 9), dz = (base.z + c * r.z) >> 9;
-            s32 ax = dx < 0 ? -dx : dx, az = dz < 0 ? -dz : dz, m = ax > az ? ax : az;
+    if (!on)
+        return;
+    /* a row's step a pair -> as far as TEX_FAR at the limit: * kf / 65536 */
+    s32 kf = divq(TEX_FAR, camy <= 6000 ? MIP_FLAT : MIP_FLAT - (camy - 6000) * ((MIP_FLAT - 13107) / (TEX_TOP - 6000)), 16);
+    /* rays through the row pair's pixels, doubled (>> 9 below): the ray through the top row's
+       left end, stepped by adds along the row (from end to end) and down the rows */
+    int np = rolled ? SEGS + 1 : 2;
+    s32 cs = rolled ? 80 : 478;
+    s32 bx = 158 * u.x + 2 * FOCAL * f.x - 239 * r.x, by = 158 * u.y + 2 * FOCAL * f.y - 239 * r.y,
+        bz = 158 * u.z + 2 * FOCAL * f.z - 239 * r.z;
+    s32 ex = cs * r.x, ey = cs * r.y, ez = cs * r.z;
+    /* with the camera upright the rays rise up the screen: from the bottom row up, once a whole
+       row is above the horizon so are all the rows above it */
+    int up = u.y > 0, j = up ? 79 : 0, dj = up ? -1 : 1;
+    bx -= j * 4 * u.x, by -= j * 4 * u.y, bz -= j * 4 * u.z;
+    s32 sx = dj * 4 * u.x, sy = dj * 4 * u.y, sz = dj * 4 * u.z;
+    for (; (unsigned)j < 80; j += dj, bx -= sx, by -= sy, bz -= sz) {
+        s32 xo[SEGS + 1], zo[SEGS + 1], fa[SEGS + 1], near = 0x7fffffff, sky = 1;
+        s32 ax = bx, ay = by, az = bz, lndy = 0;
+        u32 inv = 0;
+        int e = 0;
+        for (int end = 0; end < np; end++, ax += ex, ay += ey, az += ez) {
+            s32 dx = ax >> 9, ndy = -(ay >> 9), dz = az >> 9;
+            s32 adx = dx < 0 ? -dx : dx, adz = dz < 0 ? -dz : dz, m = adx > adz ? adx : adz;
             fa[end] = 0;
             xo[end] = zo[end] = 0;
-            if (ndy <= 0 || camy * m >= ndy * 16000)
+            if (ndy <= 0)
+                continue;
+            sky = 0;
+            if (camh * m >= ndy * 16000)
                 continue;                   /* past the horizon or out of reach */
-            int e;
-            u32 inv = recip(ndy, &e);       /* 1 / ndy = inv / 2^(31 + e), inv < 2^21 */
-            s32 t = (s32)(camy * (inv >> 5)), sh = 10 + e;   /* t >> sh: camy * 65536 / ndy */
+            if (ndy != lndy)
+                inv = recip(ndy, &e), lndy = ndy;   /* 1 / ndy = inv / 2^(31 + e), inv < 2^21 */
+            s32 t = (s32)(camh * (inv >> 5)), sh = 10 + e;   /* t >> sh: camh * 65536 / ndy */
             t = sh >= 0 ? t >> sh : t << -sh;
             xo[end] = (dx * t) >> 8;        /* (|dx * t| < 2^30: rays reach at most 16000 units) */
             zo[end] = (dz * t) >> 8;
             fa[end] = ((m * t) >> 16) + 1;
             if (fa[end] < near) near = fa[end];
         }
+        if (sky && up)
+            break;
+        /* a row stepping past the limit a pair is as far as one reaching TEX_FAR (rolled: if all
+           its pieces do; each piece is checked again for TEX_FAR, not for this) */
         if (rolled) {
+            s32 st = 0x7fffffff;
             for (int i = 0; i < np; i++) {
                 sgx[j][i] = fa[i] ? xo[i] >> 8 : NOGROUND;
                 sgz[j][i] = zo[i] >> 8;
+                if (i && fa[i] && fa[i - 1]) {
+                    s32 a = xo[i] - xo[i - 1], b = zo[i] - zo[i - 1];
+                    a = a < 0 ? -a : a, b = b < 0 ? -b : b;
+                    if (b > a) a = b;
+                    if (a < st) st = a;
+                }
             }
             gfar[j] = near == 0x7fffffff ? 0 : near;   /* (each piece is checked again) */
+            st = st == 0x7fffffff ? 0 : (s32)(((s64)st * kf * 3277) >> 32);   /* (a pair: 1 / 20 of a piece) */
+            if (gfar[j] && st > gfar[j])
+                gfar[j] = st;
             continue;
         }
         if (!fa[0] || !fa[1])
@@ -157,12 +215,17 @@ void tex_frame(void)
         gix[j] = inv30(2 * gdx[j]);
         giz[j] = inv30(2 * gdz[j]);
         gfar[j] = fa[0] > fa[1] ? fa[0] : fa[1];
+        s32 a = gdx[j] < 0 ? -gdx[j] : gdx[j], b = gdz[j] < 0 ? -gdz[j] : gdz[j];
+        a = (s32)(((s64)(a > b ? a : b) * 2 * kf) >> 16);
+        if (a > gfar[j])
+            gfar[j] = a;
     }
 }
 
 void tex_floor(TexFloor *fl, s32 h)
 {
-    s32 k = camy <= h + 16 ? 1024 : divq(camy - h, camy, 16);   /* (not drawn from below) */
+    fl->tab = world.ctex;
+    s32 k = camy <= h + 16 ? 1024 : divq(camy - h, camh, 16);   /* (not drawn from below) */
     if (k < 1024)
         k = 1024;
     fl->k = k;
@@ -171,7 +234,7 @@ void tex_floor(TexFloor *fl, s32 h)
 
 
 /* n pairs of pixels of one colour, on this row and row2 bytes further */
-static void flat_pairs(u8 *d, int n, int color, int row2)
+static inline __attribute__((target("arm"))) void flat_pairs(u8 *d, int n, int color, int row2)
 {
     u16 c = color | color << 8;
     for (; n > 0; n--, d += 2) {
@@ -187,6 +250,15 @@ HOT __attribute__((noinline)) static void tex_walk(u8 *d, int n, s32 X, s32 Z, s
     u32 duv = PSTEP(dX << 3, dZ << 3);        /* units * 256 -> texels 16.16: * 8 */
     /* close up, a texel covers many pixels: one sample for every four */
     int quad = dX < 0x1000 && dX > -0x1000 && dZ < 0x1000 && dZ > -0x1000;
+    /* far off, the level of the tile's averages (see MIP_STEP; from 9000 up, at half the step) */
+    int lv = 0;
+    s32 ms = MIP_STEP - (camy < 3000 ? 0 : camy > 9000 ? 6000 : camy - 3000);
+    for (s32 a = dX < 0 ? -dX : dX, b = dZ < 0 ? -dZ : dZ, c = a > b ? a : b; c >= ms && lv < 3; c >>= 1)
+        lv++;
+    /* a texel of them from the same texture position: its column at bit 27 + lv, its row (32 >> lv
+       texels long) at bit 11 + lv */
+    u32 mlv = ((32u >> lv) - 1) << (5 - lv) | (6 + 2 * lv) << 16 | (u32)(27 + lv) << 24;
+    int moff = lv == 1 ? 0 : lv == 2 ? 256 : 320;
     while (n > 0) {
         int cx = X >> 18, cz = Z >> 18;
         if ((unsigned)cx >= CITY || (unsigned)cz >= CITY) {
@@ -205,8 +277,15 @@ HOT __attribute__((noinline)) static void tex_walk(u8 *d, int n, s32 X, s32 Z, s
             if (t < m) m = t;
         }
         int i = cx * CITY + cz;
-        const u8 *tile = TILE(world.ctex[i]);
-        if (tile && quad && m >= 3) {
+        unsigned id = tex_tab[i];
+        const u8 *tile = TILE(id);
+        if (tile && lv && pb_mipof[id]) {
+            const u8 *mt = pb_mip[pb_mipof[id] - 1] + moff;
+            if (lv == 1)
+                tex_mrun1(d, m, PACK(X << 3, Z << 3), duv, mt, row2);
+            else
+                tex_mrun(d, m, PACK(X << 3, Z << 3), duv, mt, row2, mlv);
+        } else if (tile && quad && m >= 3) {
             u32 uv = PACK(X << 3, Z << 3);
             u8 *e = d;
             int k = m;
@@ -230,10 +309,10 @@ HOT __attribute__((noinline)) static void tex_walk(u8 *d, int n, s32 X, s32 Z, s
 
 
 /* tex_hspan with the camera rolled: piece by piece, 20 pairs each */
-static void tex_hspan_rolled(u8 *row, int j, int p0, int n, const TexFloor *fl, int row2, int color)
+HOT6 static void tex_hspan_rolled(u8 *row, int j, int p0, int n, const TexFloor *fl, int row2, int color)
 {
     while (n > 0) {
-        int sg = p0 / 20, m = 20 * (sg + 1) - p0;
+        int sg = (p0 * 3277) >> 16, m = 20 * (sg + 1) - p0;   /* p0 / 20 (exact to 8191): Thumb calls the BIOS for / */
         if (m > n) m = n;
         s32 xa = sgx[j][sg], xb = sgx[j][sg + 1], za = sgz[j][sg], zb = sgz[j][sg + 1];
         s32 far = 0;
@@ -247,7 +326,9 @@ static void tex_hspan_rolled(u8 *row, int j, int p0, int n, const TexFloor *fl, 
         if (!far || ((far * fl->k) >> 16) >= TEX_FAR) {
             flat_pairs(row + 2 * p0, m, color, row2);
         } else {
-            s32 dX = ((xb - xa) << 8) / 20, dZ = ((zb - za) << 8) / 20;   /* a pair */
+            /* a pair: 256 / 20 of the piece's ends' difference (as 26215 / 2^11: no division,
+               which costs a BIOS call; |xb - xa| < 2^16) */
+            s32 dX = ((xb - xa) * 26215) >> 11, dZ = ((zb - za) * 26215) >> 11;
             int q = p0 - 20 * sg;
             s32 X = camx8 + (xa << 8) + q * dX + (dX >> 2), Z = camz8 + (za << 8) + q * dZ + (dZ >> 2);
             if (fl->k != 65536) {
@@ -264,12 +345,22 @@ static void tex_hspan_rolled(u8 *row, int j, int p0, int n, const TexFloor *fl, 
 }
 
 /* one textured span of a floor on row pair j's row (and the row below when row2 is 240), x0..x1
-   (Thumb: only the setup, tex_walk does the pixels) */
-void tex_hspan(u8 *row, int j, int x0, int x1, const TexFloor *fl, int row2, int color)
+   (only the setup: tex_walk does the pixels) */
+HOT6 void tex_hspan(u8 *row, int j, int x0, int x1, const TexFloor *fl, int row2, int color)
 {
     int p0 = x0 >> 1, n = ((x1 + 1) >> 1) - p0;
+    if (tex_bg) {
+        /* the ground: not where walls will cover it (from an even pair, as tex_walk pairs up
+           the pixels by their address, so the rest comes out the same) */
+        int l = cov_l[j] & ~1, r = cov_r[j];
+        if (p0 < l)
+            n -= l - p0, p0 = l;
+        if (p0 + n > r)
+            n = r - p0;
+    }
     if (n <= 0)
         return;
+    tex_tab = fl->tab;
     if (rolled) {
         tex_hspan_rolled(row, j, p0, n, fl, row2, color);
         return;
@@ -341,23 +432,22 @@ void tex_wall_setup(TexWall *t, V3 o, V3 s, V3 d)
     s64 no = (s64)n.x * o.x + (s64)n.y * o.y + (s64)n.z * o.z;
     if (no < 0) no = -no;
     t->wlim = (s32)((no * (FOCAL * 65536 / TEX_WALL_FAR)) >> 16);
+    t->skip[0] = t->skip[1] = t->skip[2] = t->skip[3] = 0;
 }
 
 /* 2^25 * a / w with 1 / w as r / 2^(31 + e) from recip() */
 #define DIVR(a, r, e) ({ s64 p_ = (s64)(a) * (s32)(r); int k_ = 6 + (e); \
     k_ >= 0 ? SHR64(p_, k_) : (s32)p_ << -k_; })
 
-/* a wall polygon (screen 28.4) in columns two pixels wide */
-HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
+/* a wall polygon's slanted edges (screen 28.4); returns how many, and the columns it spans */
+HOT static int wall_edges(const s16 *xy, int n, s32 *ex0, s32 *ey0, s32 *ex1, s32 *esl, s32 *xmin, s32 *xmax)
 {
-    s32 ex0[MAXV], ey0[MAXV], ex1[MAXV], esl[MAXV];
-    s32 xmin = 1 << 30, xmax = -(1 << 30);
     int ne = 0;
     for (int i = 0; i < n; i++) {
         int j = i + 1 == n ? 0 : i + 1;
         s32 xa = xy[2 * i], ya = xy[2 * i + 1], xb = xy[2 * j], yb = xy[2 * j + 1];
-        if (xa < xmin) xmin = xa;
-        if (xa > xmax) xmax = xa;
+        if (xa < *xmin) *xmin = xa;
+        if (xa > *xmax) *xmax = xa;
         if (xa > xb) {
             s32 s = xa; xa = xb; xb = s;
             s = ya; ya = yb; yb = s;
@@ -369,23 +459,116 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
         esl[ne] = divq(dy, dx, 16);
         ne++;
     }
+    return ne;
+}
+
+/* the rows of the wall's column x (even): r0 .. the returned row - 1 */
+static inline __attribute__((target("arm"), always_inline)) int wall_rows(int x, int ne, const s32 *ex0, const s32 *ey0, const s32 *ex1, const s32 *esl,
+                            s32 xmin, s32 xmax, int *r0)
+{
+    s32 X = (x << 4) + 16, ylo = 1 << 30, yhi = -(1 << 30);
+    if (X < xmin) X = xmin;
+    if (X > xmax) X = xmax;
+    for (int e = 0; e < ne; e++) {
+        if (X < ex0[e] || X > ex1[e])
+            continue;
+        s32 yy = ey0[e] + (s32)(((s64)(X - ex0[e]) * esl[e]) >> 16);
+        if (yy < ylo) ylo = yy;
+        if (yy > yhi) yhi = yy;
+    }
+    int a = (ylo + 7) >> 4, b = (yhi + 7) >> 4;
+    *r0 = a < 0 ? 0 : a;
+    return b > 160 ? 160 : b;
+}
+
+/* ---- walls hidden behind nearer walls ----
+   A wall is drawn in columns two pixels wide, each filled from its top row to its bottom row,
+   and walls are drawn far to near. Going through them nearest first, cov_top/cov_bot hold for
+   each column a run of rows that the walls drawn after this one will paint over: a column of
+   this wall inside that run is left out. The ground is drawn before all of them: the rows of a
+   pair covered from the screen's left edge to column cov_l, and from cov_r to its right edge,
+   are left out of it. */
+
+HOT11 __attribute__((minsize)) void tex_cover_clear(void)
+{
+#pragma clang loop unroll(disable)
+    for (int i = 0; i < 60; i++)
+        cov[i] = 0;
+}
+
+HOT5 void tex_occlude(const s16 *xy, int n, TexWall *t)
+{
+    s32 ex0[MAXV], ey0[MAXV], ex1[MAXV], esl[MAXV], xmin = 1 << 30, xmax = -(1 << 30);
+    int ne = wall_edges(xy, n, ex0, ey0, ex1, esl, &xmin, &xmax);
+    int x = ((xmin + 7) >> 4) & ~1, xe = ((xmax + 7) >> 4) + 1;
+    if (x < 0) x = 0;
+    if (xe > 240) xe = 240;
+    s32 ylo = xy[1], yhi = xy[1];               /* (no column of it reaches past these rows) */
+    for (int i = 1; i < n; i++) {
+        if (xy[2 * i + 1] < ylo) ylo = xy[2 * i + 1];
+        if (xy[2 * i + 1] > yhi) yhi = xy[2 * i + 1];
+    }
+    ylo = (ylo + 7) >> 4, yhi = (yhi + 7) >> 4;
+    for (; x < xe; x += 2) {
+        int c = x >> 1, top = cov_top[c], bot = cov_bot[c];
+        if (ylo >= top && yhi <= bot) {
+            t->skip[c >> 5] |= 1u << (c & 31);
+            continue;
+        }
+        int r0, r1 = wall_rows(x, ne, ex0, ey0, ex1, esl, xmin, xmax, &r0);
+        if (r1 <= r0)
+            continue;
+        if (r0 >= top && r1 <= bot) {
+            t->skip[c >> 5] |= 1u << (c & 31);
+            continue;
+        }
+        if (r0 <= bot && r1 >= top) {       /* overlapping or touching: one run */
+            if (r0 < top) top = r0;
+            if (r1 > bot) bot = r1;
+        } else if (r1 - r0 > bot - top) {   /* apart: keep the longer */
+            top = r0, bot = r1;
+        } else
+            continue;
+        cov_top[c] = top, cov_bot[c] = bot;
+    }
+}
+
+/* each row pair's run of columns covered from the left edge (to cov_l), and from the right
+   edge (from cov_r). Going along the columns from an edge, the row pairs that all of them so far
+   cover are one run (lo..hi - 1) that only shrinks: a pair leaving it at a column is covered up
+   to that column. */
+HOT9 __attribute__((minsize)) static void cover_from(u8 *out, int c, int dc, int all)
+{
+    int lo = 0, hi = 80;
+    for (; (unsigned)c < 120 && lo < hi; c += dc) {
+        int a = (cov_top[c] + 1) >> 1, b = cov_bot[c] >> 1, v = dc > 0 ? c : c + 1;
+        while (lo < hi && lo < a)
+            out[lo++] = v;
+        while (hi > lo && hi > b)
+            out[--hi] = v;
+    }
+    while (lo < hi)
+        out[lo++] = all;
+}
+
+HOT11 __attribute__((minsize)) void tex_cover_done(void)
+{
+    cover_from(cov_l, 0, 1, 120);
+    cover_from(cov_r, 119, -1, 0);
+}
+
+/* a wall polygon (screen 28.4) in columns two pixels wide */
+HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
+{
+    s32 ex0[MAXV], ey0[MAXV], ex1[MAXV], esl[MAXV], xmin = 1 << 30, xmax = -(1 << 30);
+    int ne = wall_edges(xy, n, ex0, ey0, ex1, esl, &xmin, &xmax);
     int x = ((xmin + 7) >> 4) & ~1, xe = ((xmax + 7) >> 4) + 1;
     if (x < 0) x = 0;
     if (xe > 240) xe = 240;
     for (; x < xe; x += 2) {
-        s32 X = (x << 4) + 16, ylo = 1 << 30, yhi = -(1 << 30);
-        if (X < xmin) X = xmin;
-        if (X > xmax) X = xmax;
-        for (int e = 0; e < ne; e++) {
-            if (X < ex0[e] || X > ex1[e])
-                continue;
-            s32 yy = ey0[e] + (s32)(((s64)(X - ex0[e]) * esl[e]) >> 16);
-            if (yy < ylo) ylo = yy;
-            if (yy > yhi) yhi = yy;
-        }
-        int r0 = (ylo + 7) >> 4, r1 = (yhi + 7) >> 4;
-        if (r0 < 0) r0 = 0;
-        if (r1 > 160) r1 = 160;
+        if (t->skip[x >> 6] & 1u << ((x >> 1) & 31))
+            continue;                       /* (a nearer wall paints over it) */
+        int r0, r1 = wall_rows(x, ne, ex0, ey0, ex1, esl, xmin, xmax, &r0);
         int rows = r1 - r0;
         if (rows <= 0)
             continue;

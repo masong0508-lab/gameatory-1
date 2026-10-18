@@ -28,6 +28,14 @@ s32 fdiv(s32 a, s32 b)
     return b ? a / b : 0;
 }
 
+static s32 ndiv(s32 c, u32 r, s32 l)
+{
+    u32 a = c < 0 ? -c : c, q = (a * r) >> 16;
+    if ((q + 1) * l <= a << 14)
+        q++;
+    return c < 0 ? -(s32)q : (s32)q;
+}
+
 V3 vnorm(V3 v)
 {
     int s = 0;
@@ -37,7 +45,10 @@ V3 vnorm(V3 v)
     while (m < 4096) m <<= 1, s--;
     v = s >= 0 ? vshr(v, s) : v3(v.x << -s, v.y << -s, v.z << -s);
     s32 l = (s32)isqrt((u32)(v.x * v.x + v.y * v.y + v.z * v.z));
-    return v3(v.x * ONE / l, v.y * ONE / l, v.z * ONE / l);
+    /* c * ONE / l with one division (a BIOS call) for all three: (|c| * r) >> 16 with
+       r = 2^30 / l is at most one short (|c| <= l < 2^15) */
+    u32 r = (1u << 30) / (u32)l;
+    return v3(ndiv(v.x, r, l), ndiv(v.y, r, l), ndiv(v.z, r, l));
 }
 
 void morth(M3 *m)

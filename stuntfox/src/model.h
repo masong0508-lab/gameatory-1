@@ -26,6 +26,7 @@ typedef struct {
     V3 nx, ny, nz;                              /* the same, unscaled (for normals) */
     const M3 *m;
     int fog;
+    s32 s;                                      /* scale (256 = 1), after the shift */
 } Place;
 
 void model_init(Model *md);

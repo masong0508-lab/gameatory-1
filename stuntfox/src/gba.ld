@@ -7,7 +7,7 @@ MEMORY {
 }
 SECTIONS {
     .crt0 : { KEEP(*(.crt0)) } > rom
-    .text : { *(EXCLUDE_FILE(*.iw.o) .text EXCLUDE_FILE(*.iw.o) .text.*) } > rom
+    .text : { *(EXCLUDE_FILE(*.iw.o) .text EXCLUDE_FILE(*.iw.o) .text.*) *(.coldtext) } > rom
     .rodata : { *(.rodata .rodata.*) . = ALIGN(4); } > rom
     .iwram : {
         __iwram_start = .;

@@ -54,50 +54,69 @@ int model_place(Place *pl, V3 pos, const M3 *m, s32 scale, int shift, s32 radius
     pl->ay = vscale(pl->ny, s << 6);
     pl->az = vscale(pl->nz, s << 6);
     pl->fog = fog_of(t.z << shift);
+    pl->s = s;
     return 1;
 }
 
-static inline V3 xf(const Place *pl, const MVert *v)
-{
-    return v3(pl->t.x + ((pl->ax.x * v->x + pl->ay.x * v->y + pl->az.x * v->z) >> 14),
-              pl->t.y + ((pl->ax.y * v->x + pl->ay.y * v->y + pl->az.y * v->z) >> 14),
-              pl->t.z + ((pl->ax.z * v->x + pl->ay.z * v->y + pl->az.z * v->z) >> 14));
-}
+/* a model point in camera space (a macro, like DOT: ARM code in IWRAM cannot inline Thumb
+   functions) */
+#define XF(o, pl, v) ((o).x = (pl)->t.x + (((pl)->ax.x * (v)->x + (pl)->ay.x * (v)->y + (pl)->az.x * (v)->z) >> 14), \
+                      (o).y = (pl)->t.y + (((pl)->ax.y * (v)->x + (pl)->ay.y * (v)->y + (pl)->az.y * (v)->z) >> 14), \
+                      (o).z = (pl)->t.z + (((pl)->ax.z * (v)->x + (pl)->ay.z * (v)->y + (pl)->az.z * (v)->z) >> 14))
+#define DOT(a, b) (((a).x * (b).x + (a).y * (b).y + (a).z * (b).z) >> 14)
 
-void model_draw(const Model *md, const Place *pl)
+HOT6 void model_draw(const Model *md, const Place *pl)
 {
-    V3 cv[64];                                  /* (so a model has at most 64 points) */
-    for (int i = 0; i < md->nv; i++)
-        cv[i] = xf(pl, &md->v[i]);
-    for (int i = 0; i < md->nf; i++) {
-        const MFace *f = &md->f[i];
-        V3 n = v3(md->normal[i].x, md->normal[i].y, md->normal[i].z);
+    /* (a model has at most 56 points, as the player's body: this frame is on the deepest call
+       chain, under r_poly and clip, and the stack ends just above IWRAM that Payback needs) */
+    V3 cv[56];
+    if (md->nv > 56)
+        return;
+    u32 got[2] = {0, 0};                        /* which points are in cv: only those of faces in view */
+    /* the camera and the sun in the model's own frame: a face is turned away when its normal
+       points away from the camera, and lit by its normal . the sun, both without turning it.
+       (the camera is d units from the model along -t: in model units, shrunk by 2^k to keep the
+       products in 32 bits) */
+    const V3 t = pl->t;
+    s32 cx = -(((pl->nx.x * t.x) >> 14) + ((pl->nx.y * t.y) >> 14) + ((pl->nx.z * t.z) >> 14));
+    s32 cy = -(((pl->ny.x * t.x) >> 14) + ((pl->ny.y * t.y) >> 14) + ((pl->ny.z * t.z) >> 14));
+    s32 cz = -(((pl->nz.x * t.x) >> 14) + ((pl->nz.y * t.y) >> 14) + ((pl->nz.z * t.z) >> 14));
+    if (pl->s != 256 && pl->s > 0)
+        cx = cx * 256 / pl->s, cy = cy * 256 / pl->s, cz = cz * 256 / pl->s;
+    int k = 0;
+    while (cx > 16383 || cx < -16383 || cy > 16383 || cy < -16383 || cz > 16383 || cz < -16383)
+        cx >>= 1, cy >>= 1, cz >>= 1, k++;
+    const M3 *m = pl->m;
+    s32 lx = DOT(m->r, sun), ly = DOT(m->u, sun), lz = DOT(m->f, sun);
+    const MFace *f = md->f;
+    const N3 *nn = md->normal;
+    for (int i = 0; i < md->nf; i++, f++, nn++) {
+        s32 nx = nn->x, ny = nn->y, nz = nn->z;
         int two = f->flags & MF_TWO;
         if (!two) {
-            /* camera-space normal (unscaled direction is enough for the sign) */
-            V3 nc = v3((pl->nx.x * n.x + pl->ny.x * n.y + pl->nz.x * n.z) >> 14,
-                       (pl->nx.y * n.x + pl->ny.y * n.y + pl->nz.y * n.z) >> 14,
-                       (pl->nx.z * n.x + pl->ny.z * n.y + pl->nz.z * n.z) >> 14);
-            V3 p = cv[f->idx[0]];
-            while (nc.x > 4096 || nc.x < -4096 || nc.y > 4096 || nc.y < -4096 || nc.z > 4096 || nc.z < -4096)
-                nc = vshr(nc, 1);
-            while (p.x > 60000 || p.x < -60000 || p.y > 60000 || p.y < -60000 || p.z > 60000 || p.z < -60000)
-                p = vshr(p, 1);
-            if (nc.x * p.x + nc.y * p.y + nc.z * p.z >= 0)
+            const MVert *a = &md->v[f->idx[0]];
+            if (nx * ((a->x >> k) - cx) + ny * ((a->y >> k) - cy) + nz * ((a->z >> k) - cz) >= 0)
                 continue;
         }
         int color, mat = f->mat == M_CAR ? model_body : f->mat == M_SKY ? model_legs : f->mat == M_SHIP ? model_hull : f->mat;
         if (f->flags & MF_GLOW)
             color = COLOR(mat, 3, 0);
         else {
-            s32 l = vdot(mlocal(pl->m, n), sun);
+            s32 l = (nx * lx + ny * ly + nz * lz) >> 14;
             if (two && l < 0) l = -l;
             int lv = (l + 16384) >> 13;
             color = COLOR(mat, lv > 3 ? 3 : lv, pl->fog);
         }
         V3 q[6];
-        for (int k = 0; k < f->n; k++)
-            q[k] = cv[f->idx[k]];
+        for (int j = 0; j < f->n; j++) {
+            int v = f->idx[j];
+            u32 b = 1u << (v & 31);
+            if (!(got[v >> 5] & b)) {
+                got[v >> 5] |= b;
+                XF(cv[v], pl, &md->v[v]);
+            }
+            q[j] = cv[v];
+        }
         r_poly(q, f->n, color, f->flags & MF_BACK ? -2 : -1, 0);
     }
 }
@@ -106,6 +125,6 @@ void model_poly(const Place *pl, const MVert *v, int n, int color)
 {
     V3 q[8];
     for (int k = 0; k < n; k++)
-        q[k] = xf(pl, &v[k]);
+        XF(q[k], pl, &v[k]);
     r_poly(q, n, color, -1, 0);
 }

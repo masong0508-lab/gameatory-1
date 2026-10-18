@@ -14,7 +14,7 @@ __aeabi_idivmod:
     swi     0x060000
     bx      lr
 
-@ Unsigned division by shift and subtract.
+@ Unsigned division: the BIOS when both fit in 31 bits (a third of the cost), else shift and subtract.
     .global __aeabi_uidiv, __aeabi_uidivmod
     .type __aeabi_uidiv, %function
 __aeabi_uidiv:
@@ -23,6 +23,9 @@ __aeabi_uidivmod:
     cmp     r1, #0
     moveq   r0, #0
     bxeq    lr
+    orrs    r2, r0, r1
+    swipl   0x060000
+    bxpl    lr
     mov     r2, r0                  @ remainder
     mov     r0, #0                  @ quotient
     mov     r3, #1
