@@ -36,7 +36,7 @@ static V3 sized(const u16 *s, V3 p) { (void)s; return p; }
 #define K_LAT 10000                /* lateral tyre stiffness, /65536 of slip per tick */
 #define MU_FRONT 300               /* grip, 256 = 1 */
 #define MU_REAR 280
-#define MU_DRIFT 120
+#define MU_DRIFT 175               /* the rear grip at the full handbrake slide */
 u16 car_vmax_k = 256, car_grip_k = 256;   /* GAME SETTINGS: top speed and grip, 256 = as above */
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
@@ -175,7 +175,13 @@ void car_update(Car *c, u16 keys)
     s32 delta = (c->steer * dmax) >> 14;
     V3 ffront = vadd(vscale(m->f, fcos(delta)), vscale(m->r, fsin(delta)));
     int throttle = (keys & KEY_A) != 0, brake = (keys & KEY_B) != 0;
-    int drift = (keys & KEY_L) != 0;
+    /* The handbrake: B at speed with the gas, or while steering, lets the tail swing out. The rear
+       grip goes (and comes back as you let go, not all at once), the brake stays off it and the
+       turn is helped round: a tight corner or a race's hairpin without losing the speed */
+    int handbrake = brake && su > 24 && (throttle || iabs(c->steer) > ONE / 8);
+    c->slide = handbrake ? (c->slide + 3 > SLIDE_MAX ? SLIDE_MAX : c->slide + 3) : c->slide > 0 ? c->slide - 1 : 0;
+    if (c->slide && su > 12 && c->wheels)
+        b->alpha.y += ((c->steer >> 6) * c->slide) >> 5;
 
     b->acc.y -= (G_ACC * (ONE - air)) >> 14;
 
@@ -226,11 +232,11 @@ void car_update(Car *c, u16 keys)
                 flon += e >> 2;
         } else if (brake) {
             if (vf > (2 << FX))
-                flon -= BRAKE >> 2;
+                flon -= handbrake ? BRAKE >> 4 : (BRAKE * 3) >> 3;   /* (the footbrake bites harder; the handbrake barely) */
             else if (vf > -(30 << FX))
                 flon -= ENGINE >> 3;                    /* reverse */
         }
-        s32 mu = (i < 2 ? MU_FRONT : drift ? MU_DRIFT : MU_REAR) * car_grip_k >> 8;
+        s32 mu = (i < 2 ? MU_FRONT : MU_REAR - (MU_REAR - MU_DRIFT) * c->slide / SLIDE_MAX) * car_grip_k >> 8;
         s32 lim = (N * mu) >> 8, mag = iabs(flat) + iabs(flon);
         if (mag > lim) {
             flat = flat * lim / mag;

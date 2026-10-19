@@ -18,12 +18,14 @@ typedef struct {
     s32 speed;                 /* forward speed, fine/tick (signed) */
     int in_water;              /* under the surface of Payback's water: sinking */
     int on_ramp;               /* kept to a ramp (ramp_grip, car.c) */
+    s32 slide;                 /* the handbrake slide: 0 .. SLIDE_MAX, builds while it is on, the rear grip comes back as it fades */
 } Car;
 
 extern const V3 car_wheel[4];  /* wheel mounts, local units */
 #ifdef MERGE
 void car_scale(u16 s[3]);      /* the Payback vehicle we drive (merge.c): half width, ahead, behind, 256 = the saloon */
 #endif
+#define SLIDE_MAX 16
 #define CAR_SUSP 72            /* suspension length, units */
 #define CAR_WHEEL_R 36
 

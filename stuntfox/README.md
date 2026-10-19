@@ -60,6 +60,7 @@ In a car
 | Button | Does |
 | --- | --- |
 | A / B | Gas / brake, then reverse |
+| A + B, or B while steering (at speed) | Handbrake slide: the tail swings out and the nose turns about twice as fast, the speed mostly stays; let go and the grip comes back over a moment |
 | Left / Right | Steer (in the air: spin) |
 | Up / Down | In the air: pitch for flips |
 | R | Boost (refills when you let go) |

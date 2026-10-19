@@ -350,7 +350,7 @@ static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; 
 enum { H_FOOT, H_CAR, H_ARWING, H_CLIMB, H_SPACE, H_CAMERA, H_N };
 static const char *const hint_text[H_N] = {
     "Hold SELECT to call your Arwing.",
-    "Stunt car: A gas, B brake, R boost.",
+    "Stunt car: A gas, B brake, A+B slides, R boost.",
     "Arwing: A thrust, R laser, L missile.",
     "Climb high for space and Fox Station.",
     "Hold SELECT near Fox Station to dock.",
