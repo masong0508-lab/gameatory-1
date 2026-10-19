@@ -42,6 +42,7 @@ extern const u8 *r_pmap;          /* our colours -> the palette on screen (0: th
 /* screen-space polygon in 28.4 fixed point (already inside the screen) */
 void r_poly2d(const s32 *xy, int n, int color, int key, int bg);
 void r_sky(const u16 *colors, const s32 *bounds, int nbands, int ndraw);
+void r_back(void);                /* (MERGE) the target page only, for a menu's 2D drawing */
 void r_flush_bg(void);            /* draw the background list into the back buffer */
 void r_flush_fg(void);            /* then everything else, far to near */
 #ifdef MERGE

@@ -62,7 +62,7 @@ MEMORY {
     scr2  (rw)  : ORIGIN = 0x020075a8, LENGTH = 0x3e4
 }
 SECTIONS {
-    .text : { KEEP(*(.text.sf_frame)) KEEP(*(.text.sf_keyhook)) KEEP(*(.text.sf_menu)) KEEP(*(.text.sf_fade)) KEEP(*(.text.sf_fade_add)) KEEP(*(.text.sf_fade_zoom)) KEEP(*(.text.sf_fade_mul)) KEEP(*(.text.sf_fade_mul2)) KEEP(*(.text.sf_phys)) KEEP(*(.text.sf_pick_rand)) KEEP(*(.text.sf_studio_film)) KEEP(*(.text.sf_intro_film)) KEEP(*(.text.sf_mus)) KEEP(*(.text.sf_seq)) KEEP(*(.text.sf_play)) KEEP(*(.text.sf_eep)) KEEP(*(.rodata.sf_menu_logo)) *(.text .text.*) *(.coldtext) *(.rodata .rodata.*) . = ALIGN(4); } > rom
+    .text : { KEEP(*(.text.sf_frame)) KEEP(*(.text.sf_keyhook)) KEEP(*(.text.sf_menu)) KEEP(*(.text.sf_title_opts)) KEEP(*(.text.sf_fade)) KEEP(*(.text.sf_fade_add)) KEEP(*(.text.sf_fade_zoom)) KEEP(*(.text.sf_fade_mul)) KEEP(*(.text.sf_fade_mul2)) KEEP(*(.text.sf_phys)) KEEP(*(.text.sf_pick_rand)) KEEP(*(.text.sf_studio_film)) KEEP(*(.text.sf_intro_film)) KEEP(*(.text.sf_mus)) KEEP(*(.text.sf_seq)) KEEP(*(.text.sf_play)) KEEP(*(.text.sf_eep)) KEEP(*(.rodata.sf_menu_logo)) *(.text .text.*) *(.coldtext) *(.rodata .rodata.*) . = ALIGN(4); } > rom
     .hot : { __hot_start = .; *(.iwram .iwram.*) . = ALIGN(4); __hot_end = .; } > hot AT > rom
     __hot_lma = LOADADDR(.hot);
     .hot2 : { __hot2_start = .; *(.iwram2 .iwram2.*) . = ALIGN(4); __hot2_end = .; } > hot2 AT > rom

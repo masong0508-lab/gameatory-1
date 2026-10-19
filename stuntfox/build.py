@@ -96,6 +96,7 @@ MERGE_MENU = (0x080249be, 0x08037fe4)         # after a level: Payback asks its 
 MERGE_FADES = ((0x080777ec, 'sf_fade_add', 3),   # its other fades: + a level (toward white) ...
                (0x080779bc, 'sf_fade_mul', 6),   # ... and * a level (toward black), twice
                (0x08077f44, 'sf_fade_mul2', None))
+MERGE_TITLE = (0x0803874e, 0x080294c4)        # the title menu's 'Set language' line: our settings page
 MERGE_ZOOM = 0x0803c75a                       # the + fade that whitens the zoom into a new level: sf_fade_zoom
 MERGE_BASE = 0x081b0000                       # see src/merge.ld
 # Payback's crime report (0x0806cb18, from 13 places: every death, a bust, mission ends...) is
@@ -362,6 +363,9 @@ def build_merge(payback, out, bps_out=None, remixes=True):
         redirect(site, MERGE_RENDERER, sym['sf_frame'])
     redirect(MERGE_KEYS, MERGE_READER, sym['sf_keyhook'])
     redirect(MERGE_MENU[0], MERGE_MENU[1], sym['sf_menu'])
+    redirect(MERGE_TITLE[0], MERGE_TITLE[1], sym['sf_title_opts'])
+    assert bytes(rom.d[0x326fd6:0x326fe2]) == b'Set language', 'expected the language line'
+    rom.d[0x326fd6:0x326fe2] = b'Game options'       # (the same length)
     fades = [a for a in range(0x08000000, 0x08100000, 2) if bl_target(rom.d, a) == MERGE_FADE]
     assert len(fades) == 23, 'expected 23 calls to the palette fade, found %d' % len(fades)
     for site in fades:

@@ -149,7 +149,9 @@ Hold SELECT + START to see the frame rate.
 
 ## Game settings
 
-Hangar (Fox Station) > OPTIONS > GAME SETTINGS. Left and right change a line, A puts it back to its
+Title menu > Game options (it takes the place of "Set language"; build.py renames the line and
+sends it to `sf_title_opts`, which runs the page in a small loop of its own), or Hangar (Fox Station) >
+OPTIONS > GAME SETTINGS. Left and right change a line, A puts it back to its
 default, B leaves. The list scrolls.
 
 - Rampage and rules: target, time, difficulty, wanted stars, lives, damage taken, score multiplier.

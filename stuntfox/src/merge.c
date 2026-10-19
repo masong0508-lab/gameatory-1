@@ -3539,6 +3539,45 @@ int sf_menu(int arg)
     return PB_GAME_MENU(arg);
 }
 
+/* Payback's title menu: its "Set language" line (the build renames it "Game options") comes
+   here instead of its language page. The settings page is ours: it runs its own small loop on
+   the page Payback is not showing. The progress is the copy at the top of EWRAM (the game is not
+   running yet, so nothing else holds it), and the settings go back into it, for start() to find. */
+int sf_title_opts(u8 *keys, int a)
+{
+    u32 w[4];
+    u16 prev = ~REG_KEYINPUT & 0x3ff, held;
+    (void)keys; (void)a;
+    for (int i = 0; i < 4; i++)
+        w[i] = MIRROR[i];
+    if (mirror_sum(w) != MIRROR[4])
+        w[0] = w[1] = w[2] = w[3] = 0;                 /* (nothing kept: all as new) */
+    sg_load(w);
+    opt_open();
+    do {
+        r_back();
+        opt_draw();
+        while (REG_VCOUNT >= 160)
+            ;
+        while (REG_VCOUNT < 160)
+            ;
+        REG_DISPCNT ^= 0x10;
+        held = ~REG_KEYINPUT & 0x3ff;
+        u16 hit = held & ~prev;
+        prev = held;
+        if (opt_input(hit, held))
+            break;
+    } while (1);
+    opt_hud(1);                                        /* (Payback's sprites back) */
+    sg_sane();
+    sg_save(w);
+    for (int i = 0; i < 4; i++)
+        MIRROR[i] = w[i];
+    MIRROR[4] = mirror_sum(w);
+    opt_x_keep();
+    return 0;
+}
+
 /* Payback picks a mission's place (where a phone job's car waits, where it is to go) at random
    among a map's floor cells (0x0803cf54: a random x and y, 1..126 each, from its rand at 0x0807801c,
    then the nearest node of its roads, a search of some 80 ms). Our phones on The Killing Zone run

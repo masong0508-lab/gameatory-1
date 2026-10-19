@@ -110,6 +110,14 @@ void r_begin(void)
 #endif
 }
 
+#ifdef MERGE
+/* only the target page (the 2D drawing of a menu, before any frame has begun) */
+void r_back(void)
+{
+    back = (REG_DISPCNT & 0x10) ? (u8 *)0x06000000 : (u8 *)0x0600a000;
+}
+#endif
+
 V3 r_cam(V3 p)
 {
     V3 d = vsub(p, cam.pos);
