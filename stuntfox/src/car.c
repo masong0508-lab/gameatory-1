@@ -126,6 +126,14 @@ static void ramp_follow(Car *c)
     s32 g = ground_fine(b->pos.x, b->pos.z) + ((RIDE << (FX + 14)) / n.y);
     c->on_ramp = under && b->pos.y <= g + (48 << FX);
     if (!c->on_ramp) {
+        if (was && b->vel.y > (5 << FX)) {
+            /* off the top of a ramp going up: fly. The ramp's rise is the take-off (at most a 45-degree
+               climb, as the hop below), the body keeps its nose and the sprung wheels land it */
+            s32 h = (iabs(b->vel.x) + iabs(b->vel.z)) >> 1;
+            if (b->vel.y > h)
+                b->vel.y = h;
+            return;
+        }
         if (was && b->pos.y < g + (320 << FX) && b->pos.y > g - (600 << FX)) {
             if (b->pos.y < g)
                 b->pos.y = g;                  /* (up a step onto it: Payback's knee) */
