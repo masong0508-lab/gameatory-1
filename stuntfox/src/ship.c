@@ -21,6 +21,7 @@ static const V3 hull[] = {
 #define SLOW (40 << FX)
 #define CLIMB 4500                 /* the nose's rise (f.y, 1.14) in the climb out: about 16 degrees */
 
+u16 ship_speed_k = 256;            /* GAME SETTINGS: the speeds flown, 256 = as above */
 u8 ship_engine;                    /* 0..2: the shipyard's engine upgrades */
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
@@ -198,6 +199,7 @@ void ship_update(Ship *s, u16 keys)
         thrust = keys & KEY_A && (!most || vf < most) ? 260 : 0;
     else {
         s32 target = keys & KEY_A ? FAST + ship_engine * (35 << FX) : keys & KEY_B ? SLOW : CRUISE + ship_engine * (12 << FX);
+        target = target * ship_speed_k >> 8;
         if (most && target > most)
             target = jets ? 10 << FX : most;
         thrust = clampi((target - vf) >> 6, -140, 220);

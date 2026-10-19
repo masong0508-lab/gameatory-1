@@ -83,7 +83,7 @@ def build(payback, out):
 
 # --merge: Stunt Fox inside Payback
 MERGE_ONLY = {'merge.c', 'keyhook.s', 'guard.s', 'rechash.s', 'traffic.c', 'tex.c', 'texrun.s', 'draw2d.c',
-              'spacegame.c', 'title.c', 'props.c', 'ragdoll.c', 'radio.c', 'radiodec.s', 'cart32.s'}
+              'spacegame.c', 'settings.c', 'title.c', 'props.c', 'ragdoll.c', 'radio.c', 'radiodec.s', 'cart32.s'}
 MERGE_SKIP = {'main.c', 'hud.c', 'crt0.s', 'assets.s'}   # (the worlds go above 8 MiB instead)
 NWORLD = 11                                   # Payback's level grids (src/world.h)
 GBA = 0x08000000

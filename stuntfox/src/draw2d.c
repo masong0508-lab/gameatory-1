@@ -214,3 +214,37 @@ char *d_cat(char *buf, const char *s)
     *buf = 0;
     return buf;
 }
+
+/* Payback's letters: 8 bytes each (width, height, a byte, the offset of its pixels), 256 to a font;
+   the pixels a byte each, 0 clear (its text routine, 0x08029198, and blitter, 0x08028ac4) */
+#define PB_GLYPH ((const u8 *)0x0809a694)
+#define PB_GLYPH_PIX ((const u8 *)0x0809d694)
+static int pb_adv(int font) { return font == PBF_TITLE ? 15 : 7; }   /* (its menus step 7) */
+
+int pb_text_w(const char *s, int font)
+{
+    int n = 0;
+    while (s[n])
+        n++;
+    return n * pb_adv(font);
+}
+
+void pb_text(int x, int y, const char *s, int font)
+{
+    u8 *page = r_target();
+    for (; *s; s++, x += pb_adv(font)) {
+        const u8 *g = PB_GLYPH + ((font << 8) + (u8)*s) * 8;
+        int w = g[0] | g[1] << 8, h = g[2];
+        if (!w || x >= 240 || x + w <= 0)
+            continue;
+        const u8 *px = PB_GLYPH_PIX + (g[4] | g[5] << 8 | g[6] << 16 | g[7] << 24);
+        for (int r = 0; r < h; r++, px += w) {
+            int yy = y + r;
+            if ((unsigned)yy >= 160)
+                continue;
+            for (int k = 0; k < w; k++)
+                if (px[k] && (unsigned)(x + k) < 240)
+                    put(page, x + k, yy, px[k]);
+        }
+    }
+}

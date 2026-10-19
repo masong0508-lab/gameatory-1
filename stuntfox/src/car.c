@@ -37,6 +37,7 @@ static V3 sized(const u16 *s, V3 p) { (void)s; return p; }
 #define MU_FRONT 300               /* grip, 256 = 1 */
 #define MU_REAR 280
 #define MU_DRIFT 120
+u16 car_vmax_k = 256, car_grip_k = 256;   /* GAME SETTINGS: top speed and grip, 256 = as above */
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -219,7 +220,7 @@ void car_update(Car *c, u16 keys)
         s32 flon = -(vlon >> (throttle | brake ? 12 : 8));   /* rolling resistance; off the gas, the engine's
                                                                 braking too (it rolled 11 cells in 5 s) */
         if (throttle) {
-            s32 x = (iabs(vf) << 7) / (VMAX >> 7);      /* speed / VMAX, 1.14 */
+            s32 x = (iabs(vf) << 7) / ((VMAX * car_vmax_k >> 8) >> 7);   /* speed / top speed, 1.14 */
             s32 e = vf < 0 ? ENGINE : (ENGINE * (ONE - ((x * x) >> 14))) >> 14;
             if (e > 0)
                 flon += e >> 2;
@@ -229,7 +230,7 @@ void car_update(Car *c, u16 keys)
             else if (vf > -(30 << FX))
                 flon -= ENGINE >> 3;                    /* reverse */
         }
-        s32 mu = i < 2 ? MU_FRONT : drift ? MU_DRIFT : MU_REAR;
+        s32 mu = (i < 2 ? MU_FRONT : drift ? MU_DRIFT : MU_REAR) * car_grip_k >> 8;
         s32 lim = (N * mu) >> 8, mag = iabs(flat) + iabs(flon);
         if (mag > lim) {
             flat = flat * lim / mag;

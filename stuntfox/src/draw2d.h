@@ -17,5 +17,11 @@ void d_pixel(int x, int y, int color);
 char *d_num(char *buf, int v);
 char *d_time(char *buf, int seconds);
 char *d_cat(char *buf, const char *s);
+/* text in Payback's own menu letters, read from its ROM where they are (its glyph table and their
+   pixels, in its own palette): font 0 its big gold capitals, 1 its red (the line picked), 2 its
+   white. pb_text_w: how wide a line is */
+enum { PBF_TITLE, PBF_RED, PBF_WHITE };
+void pb_text(int x, int y, const char *s, int font);
+int pb_text_w(const char *s, int font);
 
 #endif

@@ -30,6 +30,7 @@
 #include "space.h"
 #include "ragdoll.h"
 #include "radio.h"
+#include "settings.h"
 
 /* ---- Payback (Europe), see payback-mod/docs/payback-notes.md ---- */
 
@@ -364,7 +365,7 @@ static void news_send(void)
     if (busy || !tick_quiet)
         tick_busy = frame_count;
     tick_quiet = !busy;
-    if (hint_now < 0 || frame_count - tick_busy < 120)
+    if (hint_now < 0 || frame_count - tick_busy < 120 || !opt_ticker)
         return;
     const char *s = hint_text[(int)hint_now];
     told |= 1 << hint_now;
@@ -3397,6 +3398,7 @@ static void level_enter(int map)
     cam_yaw = 0, cam_zoom = 256, cam_home = 0;
     tick_acc = 0;
     sg_level_enter();
+    opt_level_enter();
     if (chain_to) {                /* the campaign's next map: where you are in it */
         char t[] = "RAMPAGE: MAP 00 OF 11";
         int n = chain_to;
@@ -3597,6 +3599,7 @@ int sf_draw(int view)
     if (!me || me != hero)
         swimming = 0;
     goals_scan(me);
+    opt_frame(me, ticks);
     if (!paused) {
         choose_mode(me);
         step(me, ticks);
@@ -3658,6 +3661,8 @@ int sf_draw(int view)
         sg_hud(&ship);
     else
         sg_banner();
+    if (!(mode == FLY && sg_state == SG_DOCKED))
+        opt_hud(paused || done);                       /* (it gives Payback's sprites back first) */
     radio_hud(mode == DRIVE && !paused && !done, ticks, PB_BTN[B_START]);
     if (swimming && swim_far && !swim_hint && !(told & 32) && mode == FOOT) {
         told |= 32;                                    /* (once: the arrow says it from then on) */

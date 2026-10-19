@@ -9,6 +9,7 @@
 #include "traffic.h"
 #include "ragdoll.h"
 #include "radio.h"
+#include "settings.h"
 
 int sg_state;
 u8 sg_invert, sg_autoaim = 1;
@@ -68,6 +69,7 @@ static u8 regen;                   /* ticks since the last hit, up to 255 */
 
 static const u8 rack_size[3] = {4, 6, 8};
 static const s16 shield_size[3] = {100, 150, 200};
+u8 sg_shield_k = 4;                /* GAME SETTINGS: the shield as quarters of its size, 255 nothing hurts it */
 static u8 shield_lv;
 
 typedef struct { const char *name; u8 hull, tips; } Paint;
@@ -146,6 +148,7 @@ void sg_save(u32 *w)
     w[1] = medals | jobs_done << 16 | paint << 24;
     w[2] = laser_lv | engine_lv << 8 | rack_lv << 16 | shield_lv << 24;
     w[3] = missiles | sg_invert << 8 | sg_autoaim << 16 | rag_on << 24 | rag_fall << 25 | rag_wacky << 26 | rag_unlock << 27;
+    opt_save(w);                   /* (GAME SETTINGS, in the bits between) */
 }
 
 void sg_sane(void)
@@ -161,7 +164,7 @@ void sg_sane(void)
     sg_invert &= 1, sg_autoaim &= 1, rag_on &= 1, rag_fall &= 1, rag_wacky &= 1;
     rag_unlock = (rag_unlock | rag_on | rag_wacky) & 1;
     ship_engine = engine_lv;
-    shield_max = shield_size[shield_lv];
+    shield_max = shield_size[shield_lv] * (sg_shield_k > 12 ? 4 : sg_shield_k) >> 2;
     if (shield < 0 || shield > shield_max) shield = shield_max;
 }
 
@@ -169,8 +172,9 @@ void sg_load(const u32 *w)
 {
     credits = w[0];
     medals = w[1], jobs_done = w[1] >> 16, paint = w[1] >> 24;
-    laser_lv = w[2], engine_lv = w[2] >> 8, rack_lv = w[2] >> 16, shield_lv = w[2] >> 24;
-    missiles = w[3], sg_invert = w[3] >> 8, sg_autoaim = w[3] >> 16;
+    laser_lv = w[2] & 3, engine_lv = w[2] >> 8 & 3, rack_lv = w[2] >> 16 & 3, shield_lv = w[2] >> 24 & 3;
+    missiles = w[3], sg_invert = w[3] >> 8 & 1, sg_autoaim = w[3] >> 16 & 1;
+    opt_load(w);
     rag_on = w[3] >> 24, rag_fall = w[3] >> 25, rag_wacky = w[3] >> 26, rag_unlock = w[3] >> 27;   /* (a copy from
                                                                                    before these: all off) */
     sg_sane();
@@ -423,6 +427,8 @@ void sg_init(void)
     sg_state = SG_FLY;
     medals_init();
     make_offers();
+    static const u32 none[4];
+    opt_load(none);                /* GAME SETTINGS at their defaults until a kept copy says otherwise */
 }
 
 int sg_ship_visible(void) { return sg_state != SG_DEAD || st_t > 3; }     /* (the wreck, out of the fire) */
@@ -603,7 +609,7 @@ static void launching(Ship *s)
 
 /* ---- the hangar's menus ---- */
 
-enum { MN_MAIN, MN_JOBS, MN_YARD, MN_PAINT, MN_OPT };
+enum { MN_MAIN, MN_JOBS, MN_YARD, MN_PAINT, MN_OPT, MN_SET };
 static const char *const main_items[] = {"JOB BOARD", "SHIPYARD", "PAINT SHOP", "OPTIONS", "LAUNCH"};
 static int yard_price(int i)
 {
@@ -623,7 +629,7 @@ static int menu_len(void)
     case MN_JOBS: return job ? 4 : 3;
     case MN_YARD: return 5;
     case MN_PAINT: return NPAINT;
-    default: return 5;
+    default: return 6;
     }
 }
 
@@ -641,16 +647,21 @@ static void buy(int i)
     credits -= pr;
     switch (i) {
     case 0: laser_lv++; note(laser_lv == 1 ? "TWIN LASERS fitted!" : "HYPER LASERS fitted!"); break;
-    case 1: shield_lv++; shield = shield_max = shield_size[shield_lv]; note("Shield upgraded!"); break;
+    case 1: shield_lv++; sg_sane(); shield = shield_max; note("Shield upgraded!"); break;
     case 2: engine_lv++; ship_engine = engine_lv; note("Engine tuned!"); break;
     case 3: missiles = rack_size[rack_lv]; note("Missiles loaded."); break;
     default: rack_lv++; missiles = rack_size[rack_lv]; note("Bigger missile rack!"); break;
     }
 }
 
-static void menu_input(Ship *s, u16 hit)
+static void menu_input(Ship *s, u16 hit, u16 keys)
 {
     int n = menu_len();
+    if (menu == MN_SET) {
+        if (opt_input(hit, keys))
+            menu = MN_OPT, cursor = 5;
+        return;
+    }
     if (hit & (KEY_UP | KEY_DOWN | KEY_B)) {
         if (confirm && (hit & KEY_B)) {
             confirm = 0;                         /* (B: not that one, still in the shipyard) */
@@ -712,7 +723,8 @@ static void menu_input(Ship *s, u16 hit)
             else note("Locked. There is a secret code...");
         }
         else if (cursor == 3) rag_fall ^= 1;
-        else radio_set_mode((radio_mode() + 1) % 3);
+        else if (cursor == 4) radio_set_mode((radio_mode() + 1) % 3);
+        else menu = MN_SET, opt_open();
         break;
     }
     (void)s;
@@ -1036,6 +1048,8 @@ static void die(Ship *s)
 
 static void hurt(Ship *s, int dmg)
 {
+    if (sg_shield_k == 255)
+        dmg = 0;                   /* (GAME SETTINGS: invincible) */
     shield -= dmg;
     regen = 0;
     if (shield <= 0) {
@@ -1372,7 +1386,7 @@ void sg_tick(Ship *s, u16 keys, u16 hit)
         docking(s);
         break;
     case SG_DOCKED:
-        menu_input(s, hit);
+        menu_input(s, hit, (keys & ~(KEY_LEFT | KEY_RIGHT)) | (keys & KEY_LEFT ? KEY_RIGHT : 0) | (keys & KEY_RIGHT ? KEY_LEFT : 0));   /* (the D-pad's own sides: keys came mirrored) */
         cheat_input(hit);
         break;
     case SG_LAUNCH:
@@ -1758,7 +1772,7 @@ static void menu_draw(void)
             d_cat(b, i == 0 ? (sg_invert ? "STICK: UP CLIMBS" : "STICK: UP DIVES") : i == 1 ? (sg_autoaim ? "AIM: AUTO" : "AIM: MANUAL")
                    : i == 2 ? (!rag_unlock ? "RAGDOLLS: LOCKED" : !rag_on ? "RAGDOLLS: OFF" : rag_wacky ? "RAGDOLLS: WACKY" : "RAGDOLLS: ON")
                    : i == 3 ? (rag_fall ? "FALL DAMAGE: ON" : "FALL DAMAGE: OFF")
-                   : radio_mode_name(radio_mode()));
+                   : i == 4 ? radio_mode_name(radio_mode()) : "GAME SETTINGS >");
             break;
         }
         if (i == cursor)
@@ -1792,7 +1806,7 @@ static void menu_draw(void)
             d_text(x, y0 + 63, what[cursor], HELP);
     }
     if (menu == MN_OPT)
-        d_text(x, y0 + 54, "A CHANGES IT", HELP);
+        d_text(x, y0 + 64, "A CHANGES IT", HELP);
 }
 
 void sg_hud(const Ship *s)
@@ -1803,7 +1817,10 @@ void sg_hud(const Ship *s)
     char b[48], *p;
     banner_draw(1);
     if (sg_state == SG_DOCKED) {
-        menu_draw();
+        if (menu == MN_SET)
+            opt_draw();
+        else
+            opt_hud(1), menu_draw();               /* (opt_hud: Payback's sprites back, off the page) */
         return;
     }
     if (sg_state == SG_DOCKING || sg_state == SG_DEAD)

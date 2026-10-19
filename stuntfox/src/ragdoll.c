@@ -12,6 +12,7 @@
 #include "palette.h"
 
 Rag rags[RAG_N];
+u8 rag_grav_k = 4, rag_bounce;     /* GAME SETTINGS: gravity in quarters; restitution /16, 0 as below */
 u8 rag_on, rag_wacky, rag_fall, rag_unlock;      /* (off until the cheat: see README) */
 const Body *rag_car;
 
@@ -379,7 +380,7 @@ static void step(Rag *r, int dt)
     s16 vin[RAG_P];                                /* how fast it came into what it touched */
     u8 touch[RAG_P];                               /* what: 0 nothing, 1 floor, 2 ramp, 3 wall x, 4 wall z, 5 ceiling, 6 water */
     const s32 ox = r->o[0], oy = r->o[1], oz = r->o[2];
-    const s32 grav = rag_wacky ? 3 : 4;            /* (units << SH a tick each tick: G_ACC, 0.5 units) */
+    const s32 grav = ((rag_wacky ? 3 : 4) * rag_grav_k + 3) >> 2;            /* (units << SH a tick each tick: G_ACC, 0.5 units) */
     const s32 lo = (2 * CELL - ox) << SH, hi = ((CITY - 2) * CELL - ox) << SH;
     const s32 loz = (2 * CELL - oz) << SH, hiz = ((CITY - 2) * CELL - oz) << SH;
     s32 fall = 0;                                  /* the body's own speed up (x 12), coming in */
@@ -440,7 +441,7 @@ static void step(Rag *r, int dt)
             break;
     }
     /* how fast each point went, and what bounced */
-    s32 e = rag_wacky ? 12 : 9, rub = rag_wacky ? 2 : 6;   /* restitution and friction, / 16 */
+    s32 e = rag_bounce ? rag_bounce : rag_wacky ? 12 : 9, rub = rag_wacky ? 2 : 6;   /* restitution and friction, / 16 */
     const s32 upmost = rag_wacky ? 26 << SH : 14 << SH;    /* no bounce faster up than this (units a tick): off a
                                                               roof a body hops 200 units, not 800 */
     s32 most = 0, rise = 0;
