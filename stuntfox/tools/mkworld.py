@@ -1018,6 +1018,40 @@ def street_level(rom, grid):
     return c.most_common(1)[0][0] if c else 0x100
 
 
+LOOP_R, LOOP_W = 2560, 1536     # a loop's radius and track width (units): the stadium's, citydraw.c
+LOOP_ALONG, LOOP_ACROSS = 14, 5  # the open ground a loop wants, in cells: its run-in, the circle and the run-out; its width with the sideways drift
+
+
+def pick_loop(cells, decks, decks2, walls, objs, level):
+    """A loop-the-loop for a map with no stadium: on open flat ground (grass, plazas), never in a
+    road, away from walls, railings, lamps, trees and bridges, near the middle of the map. Returns
+    [(x, z, dir, r, w)] (units; dir 0 +z, 1 +x) or []."""
+    bad = {i for (i, e, _) in walls} | set(decks) | set(decks2)
+    for t in objs:
+        if not 2 <= t[3] < 6:
+            bad.add((t[0] * 4 // CELL) * N + t[1] * 4 // CELL)
+    ok = [c[0] in ('ground', 'kerb') and c[3] == 1 and c[4] != M_ROAD and i not in bad for i, c in enumerate(cells)]
+    best = None
+    for d in (0, 1):                # 0: the run is along x (the loop's dir 1), 1: along z (dir 0)
+        a, b = (LOOP_ALONG, LOOP_ACROSS) if d == 0 else (LOOP_ACROSS, LOOP_ALONG)
+        for x in range(N - a):
+            for z in range(N - b):
+                if not all(ok[xx * N + zz] and cells[xx * N + zz][2] == 0
+                           for xx in range(x, x + a) for zz in range(z, z + b)):
+                    continue
+                cx, cz = x + a / 2, z + b / 2
+                score = (cx - N / 2) ** 2 + (cz - N / 2) ** 2
+                if best is None or score < best[0]:
+                    best = (score, x, z, d)
+    if best is None:
+        return []
+    _, x, z, d = best
+    if d == 0:                      # along +x: the entry 6.5 cells in, the sideways drift toward -z
+        return [(int((x + 6.5) * CELL), int((z + LOOP_ACROSS / 2) * CELL) + LOOP_W // 2, 1, LOOP_R, LOOP_W)]
+    return [(int((x + LOOP_ACROSS / 2) * CELL) - LOOP_W // 2, int((z + 6.5) * CELL), 0, LOOP_R, LOOP_W)]
+
+
+
 def build(rom_bytes, merge=False, level=0, rom=None, limits=True):
     """merge: for Stunt Fox inside Payback, where Payback's own collision decides where people
     walk, so the city is drawn exactly as Payback has it (its stadium, not the stunt arena).
@@ -1053,7 +1087,8 @@ def build(rom_bytes, merge=False, level=0, rom=None, limits=True):
                         if i in dd and dd[i][5] != 1 else None, 8)
     # loops: (x, z) of the entry point in units, direction (0 +z, 1 +x, 2 -z, 3 -x), radius, width
     # (Freedom City's, in its stadium)
-    loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)] if level == 0 else []
+    loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)] if level == 0 else \
+        pick_loop(cells, decks, decks2, walls, objs, level) if merge else []
     lines = centre_lines(rom, cells, grid)
     if merge:
         # Payback's walls and railings along cell edges (merged()) at the height of the floor

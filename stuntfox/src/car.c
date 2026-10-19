@@ -288,7 +288,22 @@ void car_update(Car *c, u16 keys)
         c->boost += 8;
     }
 
+    if (c->on_loop)
+        c->loop_t = 120;
+    else if (c->loop_t)
+        c->loop_t--;
+
     if (c->wheels == 0) {
+        /* off a loop (it fell from the top, or flew off): the car comes down on its wheels,
+           not on its roof; the pitch and roll the player asks for still come on top */
+        if (c->loop_t) {
+            V3 t = vcross(m->u, v3(0, ONE, 0));
+            if (m->u.y < -12000)                           /* (upside down: tip over sideways) */
+                t = vscale(m->f, ONE);
+            b->alpha = vadd(b->alpha, v3((vdot(t, m->r) * 180) >> 14, (vdot(t, m->u) * 180) >> 14,
+                                         (vdot(t, m->f) * 180) >> 14));
+            b->w = vsub(b->w, vshr(b->w, 5));
+        }
         /* air control: a little pitch, spin and roll from the controls, like Stunt Race FX */
         V3 a = v3(0, 0, 0);
         if (keys & KEY_UP) a.x += 260;
