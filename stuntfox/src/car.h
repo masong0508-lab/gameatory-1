@@ -12,7 +12,6 @@ typedef struct {
     int on_loop;               /* wheels touching a loop */
     u16 loop_ang;              /* last angle around the loop under a wheel */
     u8 loop_idx;
-    u8 loop_t;                 /* ticks since a wheel last touched a loop (counts down from 120) */
     s32 boost;                 /* boost fuel, 0 .. 4096 */
     int boosting;
     s32 impact;                /* hardest body impact this tick (fine/tick) */
