@@ -195,12 +195,14 @@ static void draw_box(const Box *b)
 #endif
         r_poly(top, 4, COLOR(m, 3, f), -1, 0);
     }
-    int deck = y0 != 0;
+    s32 mx = x0 + (w >> 1), mz = z0 + (d >> 1);
+    /* (a deck is a box with open air under it: over a road sunk in a trench its base can be the
+       street's own level, 0, and was drawn from below as nothing, the sky through the bridge) */
+    int deck = y0 != 0 || (cy < 0 && world_ground(mx, mz) < -64);
     if (deck && cy < y0) {                      /* under a deck: its underside, in shadow */
         V3 c101 = cadd(p, w, 0, d);
         quad(c000, c100, c101, c001, COLOR(m, 0, f), 0);
     }
-    s32 mx = x0 + (w >> 1), mz = z0 + (d >> 1);
     int nx = b->x1 - b->x0, nz = b->z1 - b->z0;
     if (cx > x0 + w && !(deck && buried(x0 + w + 8, mz, yt)) && !walled_in(b->x1, b->z0, 0, 1, nz, yt))
         wall(c100, az, d, h, m, 2, f, bt + 4);
