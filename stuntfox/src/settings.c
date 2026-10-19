@@ -7,6 +7,8 @@ extern u16 car_vmax_k, car_grip_k;     /* car.c, 256 = as built */
 extern u16 ship_speed_k;               /* ship.c */
 extern u8 sg_shield_k;                 /* spacegame.c: quarters, 255 nothing hurts it */
 extern u8 rag_grav_k, rag_bounce;      /* ragdoll.c */
+extern u16 draw_k;                     /* citydraw.c: the city's reach, 256 = as built */
+u8 traffic_add = 8;                    /* keyhook.s: Payback's cap on the people and cars it adds, + this - 8 */
 
 /* Payback's own */
 #define PB_RAMPAGE (*(volatile u8 *)0x02001d39)      /* 1 in Rampage */
@@ -25,7 +27,7 @@ extern u8 rag_grav_k, rag_bounce;      /* ragdoll.c */
 #define SFX_PICK() PB_SFX(0x21, 0x3400)
 
 enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_CARSPD, O_GRIP, O_SHIPSPD, O_SHIELD,
-       O_GRAV, O_BOUNCE, O_TICKER, O_N };
+       O_GRAV, O_BOUNCE, O_TICKER, O_DRAW, O_TRAFFIC, O_N };
 typedef struct {
     const char *name;
     const char *const *label;
@@ -54,6 +56,10 @@ static const u8 v_grav[] = {1, 2, 4, 6, 8};                            /* quarte
 static const char *const l_bounce[] = {"Dead", "Normal", "Bouncy", "Superball"};
 static const u8 v_bounce[] = {4, 0, 12, 15};                           /* sixteenths, 0 as it was */
 static const char *const l_onoff[] = {"On", "Off"};
+static const char *const l_draw[] = {"Near", "Normal", "Far", "Max"};
+static const u16 v_draw[] = {180, 256, 332, 410};
+static const char *const l_traffic[] = {"None", "Low", "Normal", "High", "Very high"};
+static const u8 v_traffic[] = {0, 4, 8, 14, 20};                      /* 8 as it was: at most 20 + 12 of 63 */
 
 /* where each sits in sg_save's words: bits nothing else there uses */
 static const Opt opts[O_N] = {
@@ -70,6 +76,8 @@ static const Opt opts[O_N] = {
     {"Ragdoll gravity", l_grav, 5, 2, 2, 21, 3},
     {"Ragdoll bounce", l_bounce, 4, 1, 2, 6, 2},
     {"Ticker hints", l_onoff, 2, 0, 3, 15, 1},
+    {"Draw distance", l_draw, 4, 1, 2, 14, 2},
+    {"Traffic", l_traffic, 5, 2, 2, 29, 3},
 };
 #define ROWS (O_N + 2)             /* then RESET ALL and BACK */
 
@@ -88,6 +96,8 @@ static void apply(void)
     rag_grav_k = v_grav[pos[O_GRAV]];
     rag_bounce = v_bounce[pos[O_BOUNCE]];
     opt_ticker = !pos[O_TICKER];
+    draw_k = v_draw[pos[O_DRAW]];
+    traffic_add = v_traffic[pos[O_TRAFFIC]];
 }
 
 void opt_save(u32 *w)

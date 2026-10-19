@@ -153,6 +153,10 @@ MERGE_REPLAY_CAP = ((0x0807243c, 0x389c, 0x8c0),   # the limit
 # so the man under the Arwing and our car are not hurt (or arrested) by what they cannot see, the
 # man on foot is not ended from full health by one blast or shot we do not draw (sf_guard in
 # src/merge.c), and our car feels the knocks Payback gives its record (sf_knock).
+# Payback's cap on the people and traffic it adds: ldr r1,=0x02001dfc; ldr r3,[r1]; adds r3,#8;
+# cmp r3,#20; ble; movs r3,#20 (then cmp r2,r3), at its spawner's door and twice inside. sf_hook_traffic (keyhook.s)
+# returns it moved by GAME SETTINGS' traffic.
+MERGE_TRAFFIC_CAP = (0x080039fc, 0x08003b20, 0x08003b98)
 MERGE_GUARDS = ((0x08000b96, (0x9f17, 0x8010), 'sf_hook_blast'),   # an explosion's harm
                 (0x080140da, (0x1a42, 0x8022), 'sf_hook_knock'),   # a knock's harm, to one
                 (0x08014178, (0x1b72, 0x8022), 'sf_hook_knock2'),  # ... and to the other
@@ -401,6 +405,12 @@ def build_merge(payback, out, bps_out=None, remixes=True):
         assert bl_target(rom.d, site) == MERGE_BANNER, 'expected a call to the banner at %x' % site
         mark(site, 4, 'pop-up')
         struct.pack_into('<HH', rom.d, site - 0x08000000, 0x46c0, 0x46c0)
+    for site in MERGE_TRAFFIC_CAP:
+        a = site - 0x08000000
+        assert rom.d[a + 1] == 0x49 and bytes(rom.d[a + 2:a + 14]) == bytes.fromhex('0b680833142b00dd14239a42'), 'expected the traffic cap at %x' % site
+        put_bl(site, sym['sf_hook_traffic'])
+        mark(site + 4, 8, 'traffic cap')
+        struct.pack_into('<HHHH', rom.d, site + 4 - 0x08000000, 0x46c0, 0x46c0, 0x46c0, 0x46c0)
     redirect(MERGE_WALL[0], MERGE_WALL[1], sym['sf_hook_wall'])
     redirect(MERGE_SELECT[0], MERGE_SELECT[1], sym['sf_hook_select'])
     vehicle_sizes(rom.d, mark)

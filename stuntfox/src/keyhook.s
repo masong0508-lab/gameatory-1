@@ -41,3 +41,27 @@ sf_frame:
     bx ip
 2:  pop {r0-r4, pc}
     .pool
+
+@ In place of Payback's cap on the people and traffic it adds (at 0x080039fc, 0x08003b20, 0x08003b98:
+@ the list's last index under min(0x02001dfc + 8, 20)): that cap, moved by GAME SETTINGS'
+@ traffic (traffic_add, 8 = as it was; anything past 20, as in memory not ours yet, counts as 8).
+@ Keeps r0 (the tries) and r2 (the count), returns the cap in r3, as the code it stands in for.
+    .section .text.sf_hook_traffic, "ax"
+    .global sf_hook_traffic
+    .thumb_func
+sf_hook_traffic:
+    ldr r1, =0x02001dfc
+    ldr r3, [r1]
+    adds r3, #8
+    cmp r3, #20
+    ble 1f
+    movs r3, #20
+1:  ldr r1, =traffic_add
+    ldrb r1, [r1]
+    cmp r1, #20
+    bls 2f
+    movs r1, #8
+2:  adds r3, r1
+    subs r3, #8
+    bx lr
+    .pool

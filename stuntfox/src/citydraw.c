@@ -40,6 +40,7 @@ static inline int first_visit(int i)
 #define VIEW_CELLS 18
 #endif
 #define FAR_CELLS 72
+u16 draw_k = 256;                  /* GAME SETTINGS: the reach, 256 = as above */
 
 /* camera-space images of the world axes, scaled by 1/16384 per unit */
 static V3 ax, ay, az;
@@ -711,6 +712,7 @@ void world_draw(void)
     if (sv < view)
         view = sv;
 #endif
+    view = view * draw_k >> 8;                          /* (GAME SETTINGS' draw distance) */
     if (view - vg_view > 384 || vg_view - view > 384)
         vg_view = view;                                 /* (a sector's worth of hair: no flicker) */
     view = vg_view;
