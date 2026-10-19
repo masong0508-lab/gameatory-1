@@ -28,6 +28,7 @@ On foot it is Payback, with these added:
 | Hold SELECT | Calls the Arwing: it flies in, sets down beside you and you climb in (in a car you get out first) |
 | Tap SELECT | Payback's phone, as before; it also swings the camera back behind you |
 | SELECT + D-pad | Left / Right turn the camera round you, Up / Down zoom in and out |
+| SELECT + Up, held | Zoom in past the closest chase view and it becomes first person, on foot or in a car (your own body and car are not drawn; SELECT + Left / Right look round; SELECT + Down steps back) |
 | Hold Up / Down | Walk on / back up (a quick tap still picks the next or previous weapon) |
 | L | Payback's get in / get out of a car |
 | START | Payback's pause menu |

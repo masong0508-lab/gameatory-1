@@ -295,7 +295,10 @@ static u8 sel_seen;                /* SELECT seen down while we drew (see sel_lo
 /* the player's camera: hold SELECT and the D-pad swings it round (LEFT, RIGHT) or pulls it in
    and out (UP, DOWN) instead of moving you; a quick tap of SELECT brings it back behind you */
 #define PAD_ALL (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT)
-#define ZOOM_IN 170                /* 256 = the usual distance */
+#define ZOOM_NEAR 170              /* (the closest the chase views come: 256 = the usual distance) */
+#define ZOOM_IN 90                 /* zoomed in past ZOOM_FP on foot or in a car it is first person */
+#define ZOOM_FP 140
+static u8 fp_view;                 /* first person this frame: the camera is the man's or the driver's eyes */
 #define ZOOM_OUT 440                /* (further out shows more city and costs fps) */
 static s32 cam_yaw, cam_zoom;      /* orbit (65536 per turn, from behind) and distance */
 static u16 cam_pad;                /* the D-pad, while it is the camera's */
@@ -1112,8 +1115,9 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
         /* the player's orbit and zoom (see cam_yaw): swing the whole rig round the up axis */
         if (cam_yaw)
             fwd = vnorm(vadd(vscale(fwd, fcos(cam_yaw)), vscale(vcross(up, fwd), fsin(cam_yaw))));
-        dist = dist * cam_zoom >> 8;
-        height = height * cam_zoom * cam_zoom >> 16;   /* further out is higher up, nearer is lower */
+        s32 z = cam_zoom < ZOOM_NEAR ? ZOOM_NEAR : cam_zoom;   /* (first person is not a closer chase) */
+        dist = dist * z >> 8;
+        height = height * z * z >> 16;   /* further out is higher up, nearer is lower */
     }
     V3 want = vadd(vscale(fwd, -dist), vscale(up, height));
     s32 w;
@@ -1175,6 +1179,26 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
     cam.m.r = v3(-cam.m.r.x, -cam.m.r.y, -cam.m.r.z);
 }
 
+/* First person: the camera at the eyes, looking where he (or the car) looks, swung round by the
+   player's SELECT + LEFT/RIGHT like the chase view. Our own body and car are not drawn then. */
+static void camera_eyes(V3 pos, V3 fwd, V3 up, s32 eye_up, s32 eye_fwd, s32 look_down)
+{
+    if (cam_yaw)
+        fwd = vnorm(vadd(vscale(fwd, fcos(cam_yaw)), vscale(vcross(up, fwd), fsin(cam_yaw))));
+    cam.pos = vadd(pos, vadd(vscale(up, eye_up), vscale(fwd, eye_fwd)));
+    s32 w;
+    if (world_water(pos.x, pos.z, &w) && cam.pos.y < w + 30)
+        cam.pos.y = w + 30;
+    cam_off = vsub(cam.pos, pos);
+    cam_focus = pos;
+    cam_up = cam_cut ? up : vnorm(vadd(cam_up, vshr(vsub(up, cam_up), 2)));
+    cam_cut = 0;
+    cam.m.f = vadd(vscale(fwd, 1000), vscale(up, -look_down));
+    cam.m.u = cam_up;
+    morth(&cam.m);
+    cam.m.r = v3(-cam.m.r.x, -cam.m.r.y, -cam.m.r.z);   /* (the mirror image: see camera_look) */
+}
+
 /* SELECT + D-pad: the screen is mirrored, so LEFT swings the view the way it looks */
 static void camera_move(int ticks)
 {
@@ -1195,10 +1219,11 @@ static void camera_move(int ticks)
     } else if (cam_home) {
         for (int t = 0; t < ticks; t++) {
             cam_yaw -= cam_yaw / 12;                   /* back behind you in about half a second */
-            cam_zoom -= (cam_zoom - 256) / 12;
+            if (!fp_view)
+                cam_zoom -= (cam_zoom - 256) / 12;     /* (first person stays: SELECT+DOWN steps back) */
         }
-        if (iabs(cam_yaw) < 300 && iabs(cam_zoom - 256) < 12)
-            cam_yaw = 0, cam_zoom = 256, cam_home = 0;
+        if (iabs(cam_yaw) < 300 && (fp_view || iabs(cam_zoom - 256) < 12))
+            cam_yaw = 0, cam_zoom = fp_view ? cam_zoom : 256, cam_home = 0;
     }
 }
 
@@ -1209,7 +1234,26 @@ static void camera_update(const u8 *me)
     if (bail_camera())
         return;
     cam_keep = mode == FOOT && me && !is_vehicle(me);
-    if (mode == DRIVE) {
+    int can_fp = mode == DRIVE || (mode == FOOT && me && !swimming);
+    int was_fp = fp_view;
+    fp_view = can_fp && (cam_zoom < ZOOM_FP || (fp_view && cam_zoom < ZOOM_FP + 30));
+    if (fp_view != was_fp) {
+        cam_cut = 1;                                   /* (a cut in, not a swoop through the car) */
+        static u8 told;
+        if (fp_view && !told)
+            told = 1, sg_note("First person. SELECT+DOWN steps back.");   /* (once: the ticker stays quiet) */
+    }
+    if (fp_view && mode == DRIVE) {
+        V3 fwd = car.b.m.f, up = car.b.m.u;
+        if (!car.wheels)
+            up = level;
+        int tall = car_tall();
+        camera_eyes(vshr(car.b.pos, FX), fwd, up, tall ? 150 : 70, 40, 20);
+    } else if (fp_view) {
+        M3 m;
+        myaw(&m, entity_heading(me));
+        camera_eyes(entity_pos(me), m.f, level, 230, 30, 30);
+    } else if (mode == DRIVE) {
         V3 fwd = car.b.m.f, up = car.b.m.u;
         if (!car.wheels) {
             if (vlen(car.b.vel) > 4000)
@@ -2113,6 +2157,8 @@ static APART void draw_swimmer(void)
 {
     M3 m;
     Place pl;
+    if (fp_view)
+        return;
     myaw(&m, swim_head);
     model_body = M_GLOW;
     model_legs = M_GLASS;
@@ -2289,7 +2335,9 @@ static void draw_entities(const u8 *me)
         if (!valid(e))
             continue;
         if (((mode == DRIVE || ghost == GH_CAR) && e == car_ent) || (mode == FLY && e == me) || (bail && e == hero))
-            continue;                                  /* we draw that one ourselves */
+            continue;
+        if (fp_view && mode == FOOT && e == hero)
+            continue;                                  /* (his own eyes) */                                  /* we draw that one ourselves */
         s32 cx = iabs((*(const s32 *)(e + E_X) << 5) - vx), cy = iabs((*(const s32 *)(e + E_Y) << 5) - vy);
         s32 room = (end - (cx > cy ? cx : cy)) >> 8;   /* 256 a cell to go */
         if (room < 0)
@@ -2953,7 +3001,8 @@ static void draw_car(void)
         model_body = M_CAR;
         return;
     }
-    model_draw(lk->md, &pl);
+    if (!fp_view)
+        model_draw(lk->md, &pl);
     model_body = M_CAR;
     if ((dead || (car_ent && car_ent[E_STATE] == 5 && mode == DRIVE)) && car_boom < 24) {
         /* on fire (get out!), then the blast (once: it grows and dies away, nothing blinks) */
