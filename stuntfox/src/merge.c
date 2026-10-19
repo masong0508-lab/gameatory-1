@@ -3544,9 +3544,8 @@ extern u8 view_floored;
 static u8 ring_high;
 int sf_draw(int view)
 {
-    /* EWRAM at 1 wait state instead of 2: about 3% faster everywhere (Payback's data, our pools).
-       Emulators and the original GBA/SP take it; a GBA Micro or DS would not. */
-    *(volatile u32 *)0x04000800 = 0x0E000020;
+    /* (no EWRAM wait-state write here: it gained about 3% in mGBA but left Pizza Boy A on a black
+       screen from the first frame of every level, v12 to v12.2) */
     int ours = STATE[0] == MAGIC && __keep_canary[0] == CANARY;
     int map = view != 0 ? -1 : which_map(ours ? map_now : -1);
     if (map < 0) {
