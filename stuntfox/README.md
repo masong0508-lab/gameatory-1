@@ -146,3 +146,17 @@ Hold SELECT + START to see the frame rate.
   too slow. Nothing is scripted.
 - `src/space.c`, `src/models.c`: sky by altitude, stars, the station and asteroids.
 - `tools/sim/`: runs the physics on a PC for testing (`tools/sim/run.sh loop 200`).
+
+## Game settings
+
+Hangar (Fox Station) > OPTIONS > GAME SETTINGS. Left and right change a line, A puts it back to its
+default, B leaves. The list scrolls.
+
+- Rampage and rules: target, time, difficulty, wanted stars, lives, damage taken, score multiplier.
+- Car: top speed, acceleration, grip, handbrake slide, steering, gravity, boost power, endless boost.
+- Arwing: speed, shield, endless missiles.
+- Ragdolls: gravity, bounce. Chase camera: close to farthest.
+- Performance: draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter.
+
+They are kept in spare bits of the progress words (settings.c); the extra ones live in a word of
+their own at 0x0203ff90 (just under the progress copy), checked and put back the same way.

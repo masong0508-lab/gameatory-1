@@ -38,6 +38,9 @@ static V3 sized(const u16 *s, V3 p) { (void)s; return p; }
 #define MU_REAR 280
 #define MU_DRIFT 175               /* the rear grip at the full handbrake slide */
 u16 car_vmax_k = 256, car_grip_k = 256;   /* GAME SETTINGS: top speed and grip, 256 = as above */
+u16 car_accel_k = 256, car_steer_k = 256, car_boost_k = 256;   /* ... acceleration, steering lock, boost thrust */
+u16 car_drift_mu = MU_DRIFT;       /* ... the rear grip at the full handbrake slide */
+u8 car_grav_k = 4, car_boost_inf;  /* ... gravity in quarters; the boost never runs dry */
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -179,7 +182,7 @@ void car_update(Car *c, u16 keys)
     s32 vf = vdot(b->vel, m->f);
     c->speed = vf;
     s32 su = iabs(vf) >> FX;
-    s32 dmax = 5000 * 28 / (28 + su);                 /* less lock at speed */
+    s32 dmax = (5000 * 28 / (28 + su)) * car_steer_k >> 8;   /* less lock at speed */
     s32 delta = (c->steer * dmax) >> 14;
     V3 ffront = vadd(vscale(m->f, fcos(delta)), vscale(m->r, fsin(delta)));
     int throttle = (keys & KEY_A) != 0, brake = (keys & KEY_B) != 0;
@@ -191,7 +194,7 @@ void car_update(Car *c, u16 keys)
     if (c->slide && su > 12 && c->wheels)
         b->alpha.y += ((c->steer >> 6) * c->slide) >> 5;
 
-    b->acc.y -= (G_ACC * (ONE - air)) >> 14;
+    b->acc.y -= (G_ACC * car_grav_k >> 2) * (ONE - air) >> 14;
 
     u16 sz[3];
     car_scale(sz);
@@ -237,14 +240,14 @@ void car_update(Car *c, u16 keys)
             s32 x = (iabs(vf) << 7) / ((VMAX * car_vmax_k >> 8) >> 7);   /* speed / top speed, 1.14 */
             s32 e = vf < 0 ? ENGINE : (ENGINE * (ONE - ((x * x) >> 14))) >> 14;
             if (e > 0)
-                flon += e >> 2;
+                flon += (e * car_accel_k >> 8) >> 2;
         } else if (brake) {
             if (vf > (2 << FX))
                 flon -= handbrake ? BRAKE >> 4 : (BRAKE * 3) >> 3;   /* (the footbrake bites harder; the handbrake barely) */
             else if (vf > -(30 << FX))
                 flon -= ENGINE >> 3;                    /* reverse */
         }
-        s32 mu = (i < 2 ? MU_FRONT : MU_REAR - (MU_REAR - MU_DRIFT) * c->slide / SLIDE_MAX) * car_grip_k >> 8;
+        s32 mu = (i < 2 ? MU_FRONT : MU_REAR - (MU_REAR - car_drift_mu) * c->slide / SLIDE_MAX) * car_grip_k >> 8;
         s32 lim = (N * mu) >> 8, mag = iabs(flat) + iabs(flon);
         if (mag > lim) {
             flat = flat * lim / mag;
@@ -275,8 +278,10 @@ void car_update(Car *c, u16 keys)
 
     /* boost jet: thrust along the nose, works on the ground and in the air */
     c->boosting = 0;
+    if (car_boost_inf)
+        c->boost = 4096;
     if ((keys & KEY_R) && c->boost > 0) {
-        b->acc = vadd(b->acc, vscale(m->f, BOOST_THRUST));
+        b->acc = vadd(b->acc, vscale(m->f, BOOST_THRUST * car_boost_k >> 8));
         c->boost -= 28;
         c->boosting = 1;
     } else if (c->boost < 4096 && !(keys & KEY_R)) {

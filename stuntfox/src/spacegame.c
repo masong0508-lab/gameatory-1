@@ -64,6 +64,7 @@ static V3 ship_at(const Ship *s) { return vshr(s->b.pos, FX); }
 static s32 credits = 300;
 static s16 shield = 100, shield_max = 100;
 static u8 laser_lv, engine_lv, rack_lv, missiles = 4, paint, jobs_done;
+u8 sg_inf_missiles;                /* GAME SETTINGS: firing costs none */
 static u16 medals;                 /* one bit per medal found */
 static u8 regen;                   /* ticks since the last hit, up to 255 */
 
@@ -1023,7 +1024,8 @@ static void fire(Ship *s, u16 keys, u16 hit)
                what the nose can see in the wide cone ahead; shots_tick steers it */
             s32 at, fwd = vdot(sv, m->f) + 120;
             int t = lock_scan(s, 9000, 20000, &at, CITY_CANDS);
-            missiles--;
+            if (!sg_inf_missiles)
+                missiles--;
             Shot *ms = shoot(vadd(p, mlocal(m, v3(0, 0, 300))), vscale(m->f, fwd > 200 ? fwd : 200), S_MISSILE, t);
             if (ms)
                 ms->pad = tag_of(t);

@@ -333,6 +333,7 @@ static void start(int map)
     last_clock = pb_clock();
     level_clock = PB_LEVEL_CLOCK;
     mirror_load();                 /* (the progress so far, if its copy is good) */
+    cam_zoom = cam_dflt;
     __keep_canary[0] = CANARY;
     STATE[0] = MAGIC;
 }
@@ -1221,10 +1222,10 @@ static void camera_move(int ticks)
         for (int t = 0; t < ticks; t++) {
             cam_yaw -= cam_yaw / 12;                   /* back behind you in about half a second */
             if (!fp_view)
-                cam_zoom -= (cam_zoom - 256) / 12;     /* (first person stays: SELECT+DOWN steps back) */
+                cam_zoom -= (cam_zoom - cam_dflt) / 12;     /* (first person stays: SELECT+DOWN steps back) */
         }
-        if (iabs(cam_yaw) < 300 && (fp_view || iabs(cam_zoom - 256) < 12))
-            cam_yaw = 0, cam_zoom = fp_view ? cam_zoom : 256, cam_home = 0;
+        if (iabs(cam_yaw) < 300 && (fp_view || iabs(cam_zoom - cam_dflt) < 12))
+            cam_yaw = 0, cam_zoom = fp_view ? cam_zoom : cam_dflt, cam_home = 0;
     }
 }
 
@@ -3452,7 +3453,7 @@ static void level_enter(int map)
     rag_clear();
     memset(rag_who, 0, sizeof rag_who);
     bail = bail_req = ghost = fall_seen = 0;
-    cam_yaw = 0, cam_zoom = 256, cam_home = 0;
+    cam_yaw = 0, cam_zoom = cam_dflt, cam_home = 0;
     tick_acc = 0;
     sg_level_enter();
     opt_level_enter();
@@ -3498,6 +3499,8 @@ static void progress_check(void)
     sg_save(w);
     if (mirror_sum(w) != MIRROR[4])
         mirror_load();
+    else if (opt_x_bad())
+        opt_load(w);
 }
 
 static void progress_keep(void)
@@ -3508,6 +3511,7 @@ static void progress_keep(void)
     for (int i = 0; i < 4; i++)
         MIRROR[i] = w[i];
     MIRROR[4] = mirror_sum(w);
+    opt_x_keep();
 }
 
 /* After every level Payback asks its game menu (0x08037fe4) what to play next, as map * 2 + sub
@@ -3671,7 +3675,7 @@ int sf_draw(int view)
 
     s32 alt = cam.pos.y;
     r_pmap = pb_pmap;
-    tex_on = 1;                    /* Payback's tiles (they fade out with height, see tex.c) */
+    tex_on = opt_tex;              /* Payback's tiles (they fade out with height, see tex.c) */
     r_nofog = alt > 16000;         /* (our fog colours are the sky's; in space there is none) */
     r_begin();
     tex_frame();

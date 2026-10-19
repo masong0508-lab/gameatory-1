@@ -9,6 +9,15 @@ extern u8 sg_shield_k;                 /* spacegame.c: quarters, 255 nothing hur
 extern u8 rag_grav_k, rag_bounce;      /* ragdoll.c */
 extern u16 draw_k;                     /* citydraw.c: the city's reach, 256 = as built */
 u8 traffic_add = 8;                    /* keyhook.s: Payback's cap on the people and cars it adds, + this - 8 */
+extern u16 car_accel_k, car_steer_k, car_boost_k;   /* car.c, 256 = as built */
+extern u16 car_drift_mu;               /* car.c: the rear grip at the full slide (175 as built) */
+extern u8 car_grav_k, car_boost_inf;   /* car.c: gravity in quarters (4 as built); the jet never runs dry */
+extern u8 sg_inf_missiles;             /* spacegame.c */
+u16 cam_dflt = 256;                    /* merge.c: the chase camera's distance it settles at */
+u16 prop_k = 256;                      /* world.h: trees, lamps and benches drawn out to this much of their reach */
+u8 opt_tex = 1;                        /* merge.c: Payback's tiles on (tex_on) */
+static u8 fps_show;
+static u8 fps_now;
 
 /* Payback's own */
 #define PB_RAMPAGE (*(volatile u8 *)0x02001d39)      /* 1 in Rampage */
@@ -26,8 +35,10 @@ u8 traffic_add = 8;                    /* keyhook.s: Payback's cap on the people
 #define SFX_MOVE() PB_SFX(0x20, 0x3bbe)
 #define SFX_PICK() PB_SFX(0x21, 0x3400)
 
-enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_CARSPD, O_GRIP, O_SHIPSPD, O_SHIELD,
-       O_GRAV, O_BOUNCE, O_TICKER, O_DRAW, O_TRAFFIC, O_N };
+enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_SCORE,
+       O_CARSPD, O_ACCEL, O_GRIP, O_DRIFT, O_STEER, O_CGRAV, O_BOOSTK, O_UNLIM,
+       O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_CAMD, O_TICKER,
+       O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_N };
 typedef struct {
     const char *name;
     const char *const *label;
@@ -61,29 +72,61 @@ static const u16 v_draw[] = {180, 256, 332, 410};
 static const char *const l_traffic[] = {"None", "Low", "Normal", "High", "Very high"};
 static const u8 v_traffic[] = {0, 4, 8, 14, 20};                      /* 8 as it was: at most 20 + 12 of 63 */
 
-/* where each sits in sg_save's words: bits nothing else there uses */
+static const char *const l_score[] = {"x1", "x2", "x3", "x5", "x10", "x25"};
+static const u8 v_score[] = {1, 2, 3, 5, 10, 25};
+static const char *const l_drift[] = {"Grippy", "Normal", "Drifty", "Ice"};
+static const u16 v_drift[] = {250, 175, 115, 70};
+static const char *const l_steer[] = {"Careful", "Normal", "Sharp", "Twitchy"};
+static const u16 v_steer[] = {192, 256, 320, 400};
+static const char *const l_cgrav[] = {"Moon", "Low", "Normal", "Heavy"};
+static const u8 v_cgrav[] = {1, 2, 4, 5};                              /* quarters */
+static const char *const l_offon[] = {"Off", "On"};
+static const char *const l_camd[] = {"Close", "Normal", "Far", "Farthest"};
+static const u16 v_camd[] = {190, 256, 330, 400};
+static const char *const l_props[] = {"None", "Fewer", "Normal"};
+static const u16 v_props[] = {0, 128, 256};
+static const char *const l_boost[] = {"x0.5", "x0.75", "Normal", "x1.5", "x2", "x4"};
+static const u16 v_boost[] = {128, 192, 256, 384, 512, 1024};
+
+/* where each sits in sg_save's words: 0..3 those, 4 the extras' word (XM, kept apart: no room left
+   in those) -- bits nothing else there uses: bits nothing else there uses */
 static const Opt opts[O_N] = {
-    {"Rampage target", l_target, 15, 0, 2, 2, 4},
-    {"Rampage time", l_time, 15, 0, 2, 10, 4},
-    {"Difficulty", l_diff, 7, 0, 2, 18, 3},
-    {"Wanted stars", l_wanted, 7, 6, 2, 26, 3},
-    {"Lives", l_lives, 7, 0, 3, 9, 3},
-    {"Damage taken", l_damage, 8, 4, 3, 12, 3},
-    {"Car top speed", l_scale, 6, 2, 3, 17, 3},
-    {"Car grip", l_scale, 6, 2, 3, 20, 3},
-    {"Arwing speed", l_scale, 6, 2, 3, 28, 3},
-    {"Arwing shield", l_shield, 6, 1, 1, 12, 3},
-    {"Ragdoll gravity", l_grav, 5, 2, 2, 21, 3},
-    {"Ragdoll bounce", l_bounce, 4, 1, 2, 6, 2},
-    {"Ticker hints", l_onoff, 2, 0, 3, 15, 1},
-    {"Draw distance", l_draw, 4, 1, 2, 14, 2},
-    {"Traffic", l_traffic, 5, 2, 2, 29, 3},
+    [O_TARGET] = {"Rampage target", l_target, 15, 0, 2, 2, 4},
+    [O_TIME] = {"Rampage time", l_time, 15, 0, 2, 10, 4},
+    [O_DIFF] = {"Difficulty", l_diff, 7, 0, 2, 18, 3},
+    [O_WANTED] = {"Wanted stars", l_wanted, 7, 6, 2, 26, 3},
+    [O_LIVES] = {"Lives", l_lives, 7, 0, 3, 9, 3},
+    [O_DAMAGE] = {"Damage taken", l_damage, 8, 4, 3, 12, 3},
+    [O_SCORE] = {"Score multiplier", l_score, 6, 0, 4, 0, 3},
+    [O_CARSPD] = {"Car top speed", l_scale, 6, 2, 3, 17, 3},
+    [O_ACCEL] = {"Car acceleration", l_scale, 6, 2, 4, 3, 3},
+    [O_GRIP] = {"Car grip", l_scale, 6, 2, 3, 20, 3},
+    [O_DRIFT] = {"Handbrake slide", l_drift, 4, 1, 4, 6, 2},
+    [O_STEER] = {"Steering", l_steer, 4, 1, 4, 8, 2},
+    [O_CGRAV] = {"Car gravity", l_cgrav, 4, 2, 4, 10, 2},
+    [O_BOOSTK] = {"Boost power", l_boost, 6, 2, 4, 12, 3},
+    [O_UNLIM] = {"Endless boost", l_offon, 2, 0, 4, 15, 1},
+    [O_SHIPSPD] = {"Arwing speed", l_scale, 6, 2, 3, 28, 3},
+    [O_SHIELD] = {"Arwing shield", l_shield, 6, 1, 1, 12, 3},
+    [O_MISSILE] = {"Endless missiles", l_offon, 2, 0, 4, 16, 1},
+    [O_GRAV] = {"Ragdoll gravity", l_grav, 5, 2, 2, 21, 3},
+    [O_BOUNCE] = {"Ragdoll bounce", l_bounce, 4, 1, 2, 6, 2},
+    [O_CAMD] = {"Chase camera", l_camd, 4, 1, 4, 17, 2},
+    [O_TICKER] = {"Ticker hints", l_onoff, 2, 0, 3, 15, 1},
+    [O_DRAW] = {"Draw distance", l_draw, 4, 1, 2, 14, 2},
+    [O_TEX] = {"Textures", l_onoff, 2, 0, 4, 20, 1},
+    [O_PROPS] = {"Trees and lamps", l_props, 3, 2, 4, 21, 2},
+    [O_TRAFFIC] = {"Traffic", l_traffic, 5, 2, 2, 29, 3},
+    [O_FPS] = {"Frame counter", l_offon, 2, 0, 4, 19, 1},
 };
 #define ROWS (O_N + 2)             /* then RESET ALL and BACK */
 
 static u8 pos[O_N];                /* each one's place along its slider */
 u8 opt_ticker = 1;
 static s32 clock_t;                /* game ticks of this level's rampage clock */
+static s32 score_last;             /* the score as we left it, for the multiplier (-1: not seen yet) */
+static u8 *score_me;               /* ... and whose */
+static u16 fps_t, fps_f;           /* game ticks and frames since the counter last looked */
 static s16 hp_last = -1;           /* the man's health as we left it */
 static u8 row, top, rep, hid;      /* hid: we took Payback's sprites (its HUD, its map) off for the page */
 
@@ -98,30 +141,74 @@ static void apply(void)
     opt_ticker = !pos[O_TICKER];
     draw_k = v_draw[pos[O_DRAW]];
     traffic_add = v_traffic[pos[O_TRAFFIC]];
+    car_accel_k = v_scale[pos[O_ACCEL]];
+    car_drift_mu = v_drift[pos[O_DRIFT]];
+    car_steer_k = v_steer[pos[O_STEER]];
+    car_grav_k = v_cgrav[pos[O_CGRAV]];
+    car_boost_k = v_boost[pos[O_BOOSTK]];
+    car_boost_inf = pos[O_UNLIM];
+    sg_inf_missiles = pos[O_MISSILE];
+    cam_dflt = v_camd[pos[O_CAMD]];
+    opt_tex = !pos[O_TEX];
+    prop_k = v_props[pos[O_PROPS]];
+    fps_show = pos[O_FPS];
+}
+
+/* The extras' word lives in XM, above the keep and below STATE, checked by its second word (the
+   keep is cleared at each start: it is the copy that brings them back, as the progress copy does
+   the rest) */
+#define XM ((volatile u32 *)0x0203ff90)
+#define XM_SUM(x) (((x) * 0x01000193u) ^ 0x53465832u)
+
+static u32 pack_x(void)
+{
+    u32 x = 0;
+    for (int i = 0; i < O_N; i++) {
+        const Opt *o = &opts[i];
+        if (o->word == 4)
+            x |= (u32)((pos[i] + o->n - o->def) % o->n) << o->shift;
+    }
+    return x;
 }
 
 void opt_save(u32 *w)
 {
     for (int i = 0; i < O_N; i++) {
         const Opt *o = &opts[i];
-        w[o->word] |= (u32)((pos[i] + o->n - o->def) % o->n) << o->shift;
+        if (o->word < 4)
+            w[o->word] |= (u32)((pos[i] + o->n - o->def) % o->n) << o->shift;
     }
 }
 
 void opt_load(const u32 *w)
 {
+    u32 x[5] = {0, 0, 0, 0, XM[1] == XM_SUM(XM[0]) ? XM[0] : 0};   /* (a copy that is not good: defaults) */
     for (int i = 0; i < O_N; i++) {
         const Opt *o = &opts[i];
-        u32 c = w[o->word] >> o->shift & ((1 << o->bits) - 1);
+        u32 c = (o->word == 4 ? x[4] : w[o->word]) >> o->shift & ((1 << o->bits) - 1);
         pos[i] = c < o->n ? (c + o->def) % o->n : o->def;
     }
     apply();
+}
+
+int opt_x_bad(void)
+{
+    return XM[1] == XM_SUM(XM[0]) && XM[0] != pack_x();
+}
+
+void opt_x_keep(void)
+{
+    u32 x = pack_x();
+    XM[0] = x;
+    XM[1] = XM_SUM(x);
 }
 
 void opt_level_enter(void)
 {
     clock_t = 0;
     hp_last = -1;
+    score_last = -1;
+    fps_t = fps_f = 0;
     if (pos[O_LIVES])
         PB_LIVES = v_lives[pos[O_LIVES]];
 }
@@ -152,6 +239,27 @@ void opt_frame(u8 *me, int ticks)
         }
         hp_last = *hp;
     }
+    /* the score multiplier: what Payback added since our last frame, times more */
+    if (!me || me != score_me)
+        score_last = -1, score_me = me;
+    if (me) {
+        s32 sc = *(s32 *)(me + E_SCORE);
+        int k = v_score[pos[O_SCORE]];
+        if (score_last >= 0 && sc > score_last && k > 1) {
+            s32 add = (sc - score_last) * (k - 1);
+            sc = add / (k - 1) != sc - score_last || sc > 99999999 - add ? 99999999 : sc + add;
+            *(s32 *)(me + E_SCORE) = sc;
+        }
+        score_last = sc;
+    }
+    if (ticks) {
+        fps_f++;
+        fps_t += ticks;
+        if (fps_t >= 60) {
+            fps_now = (fps_f * 60 + (fps_t >> 1)) / fps_t;
+            fps_t = fps_f = 0;
+        }
+    }
     if (PB_RAMPAGE != 1)
         return;
     if (pos[O_TARGET] && PB_NGOALS > 0 && PB_GOALS[1] == 0)
@@ -173,6 +281,11 @@ void opt_hud(int paused_now)
 {
     if (hid)
         REG_DISPCNT |= 0x1000, hid = 0;                /* (the page has gone: its sprites back) */
+    if (fps_show && !paused_now) {
+        char f[16], *q = d_num(f, fps_now);
+        d_cat(q, " FPS");
+        pb_text(120 - pb_text_w(f, PBF_WHITE) / 2, 14, f, PBF_WHITE);
+    }
     if (!pos[O_TIME] || PB_RAMPAGE != 1 || PB_LEVEL_END == 3 || paused_now)
         return;
     char b[24], *p = d_cat(b, "Time ");

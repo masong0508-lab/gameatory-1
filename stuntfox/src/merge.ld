@@ -24,7 +24,7 @@
    keep:  our variables, in EWRAM above everything Payback writes in play: its VIEW REPLAY
           recorder (from 0x0203c720) grows about 9 bytes a second and used to run on through
           here (and its clears with it), so build.py caps it at 0x0203cfe8. Up to STATE
-          (0x0203ffd0, src/merge.c), where the checked copy of the player's progress lives.
+          (0x0203ffd0, src/merge.c), where the checked copy of the player's progress lives; the 8 bytes at 0x0203ff90 (keep ends there) hold the extra settings' copy (settings.c).
           The first word is a canary: if anything else ever writes there, we start over.
    poola: slots 17 on of Payback's copies of the cells it changes (CUBE_BeginModify: 200 of
           64 bytes from 0x02003f24), for the polygons we rebuild every frame (Real Park from
@@ -55,7 +55,7 @@ MEMORY {
     hot9  (rwx) : ORIGIN = 0x03005bd0, LENGTH = 0xc4
     hot10 (rwx) : ORIGIN = 0x03002260, LENGTH = 0x68
     hot11 (rwx) : ORIGIN = 0x03005c98, LENGTH = 0x64
-    keep  (rw)  : ORIGIN = 0x0203d000, LENGTH = 0x2fc0
+    keep  (rw)  : ORIGIN = 0x0203d000, LENGTH = 0x2f90
     radio (rw)  : ORIGIN = 0x0203ffec, LENGTH = 0x14
     poola (rw)  : ORIGIN = 0x02004374, LENGTH = 0x28bc
     scr   (rw)  : ORIGIN = 0x02017fc4, LENGTH = 0x1440

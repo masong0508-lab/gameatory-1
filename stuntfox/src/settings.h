@@ -7,10 +7,14 @@
 #define SETTINGS_H
 #include "gba.h"
 
+extern u8 opt_tex;                 /* Payback's tiles on */
+extern u16 cam_dflt;               /* the chase camera settles at this distance (256 as built) */
 extern u8 opt_ticker;              /* 0: our hint lines stay off Payback's ticker */
 
 void opt_save(u32 *w);             /* ORs the settings into sg_save's words 1..3 */
 void opt_load(const u32 *w);       /* and back, each in its range, applied */
+int opt_x_bad(void);               /* the extras' copy (XM) is good and they are not what it holds */
+void opt_x_keep(void);             /* store them there */
 void opt_level_enter(void);        /* a level starts: its clock from 0, the lives */
 /* each frame, after Payback's tick: the target, the clock, difficulty, wanted, lives, damage.
    me: the record he controls (or 0), ticks: game ticks since the last frame (0 paused) */
