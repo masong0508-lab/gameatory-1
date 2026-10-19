@@ -272,6 +272,7 @@ static Ship ship;
 static u8 *car_ent;                /* Payback's record of the car we drive */
 static u8 *hero;                   /* Payback's man, the player (a respawn may give him a new record) */
 static int car_kind;               /* which of Payback's vehicles it is */
+#define TANK 11                    /* (its look: the tank fires on R, so R is not our boost there) */
 static u8 car_boom;                /* ticks since it blew up (see draw_car) */
 static u8 car_wet;                 /* ticks it has been in the water */
 static u8 swimming, swim_lad;      /* the player swims (see swim_in); swim_lad: up that ladder (+ 1) */
@@ -1095,7 +1096,8 @@ void sf_keys(void)
         PB_BTN[B_L] = inject_l > 0;                     /* press, then let go */
     }
     if (mode == DRIVE && car_ent && who == car_ent) {
-        PB_BTN[B_R] = 0;                               /* R is our boost and the radio chord's (a tank fires on it, unseen) */
+        if (car_kind != TANK || r_chord)
+            PB_BTN[B_R] = 0;                           /* R is our boost and the radio chord's; the tank's is its gun */
         if (PB_BTN[B_L] && !bail)
             bail_press();                              /* the car stops dead, or at speed he bails out */
     }
@@ -1990,7 +1992,6 @@ static const VehicleLook looks[] = {
     {&mdl_saloon, M_STEEL, 0, -235, 92},     /* saloon (27) */
 };
 #define POLICE_CAR 9
-#define TANK 11
 #define HELI_LOOK 17
 #define POLICE_VAN 20
 
@@ -3580,6 +3581,8 @@ int sf_draw(int view)
     keys &= ~cam_pad;                                  /* the camera's, not the car's or the Arwing's */
     if (r_chord || (mode == DRIVE && (keys & KEY_SELECT) && (keys & KEY_R) && radio_chord()))
         keys &= ~KEY_R;                                /* (the chord's R is the radio's) */
+    if (mode == DRIVE && car_kind == TANK)
+        keys &= ~KEY_R;                                /* (a tank's R is Payback's: it fires, no boost jet) */
     u32 now = pb_clock();
     tick_acc += (now - last_clock) * 60;
     last_clock = now;
