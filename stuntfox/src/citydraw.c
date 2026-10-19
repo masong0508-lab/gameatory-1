@@ -315,6 +315,12 @@ static void draw_ramp(const Ramp *r)
         tex_floor(&fl, lo);
         r_poly_tex(top, 4, tile_color(world.ctex[r->x0 * CITY + r->z0], 3, COLOR(m, 3, f)), -2, 0,
                    PT_FLOOR, &fl);
+    } else if (tex_on && hi <= 0 && lo < hi) {  /* a slope down into a sunk road: its road, as a floor at its
+                                                   foot (its flat tile colour was a bright blank wedge) */
+        TexFloor fl;
+        tex_floor(&fl, lo);
+        r_poly_tex(top, 4, tile_color(world.ctex[r->x0 * CITY + r->z0], 3, COLOR(m, 3, f)), -2, 0,
+                   PT_FLOOR, &fl);
     } else if (tex_on) {                        /* a slope: its tile's colour */
         r_poly(top, 4, tile_color(world.ctex[r->x0 * CITY + r->z0], 3, COLOR(m, 3, f)), -2, 0);
     } else
