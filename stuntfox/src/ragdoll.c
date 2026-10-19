@@ -669,8 +669,8 @@ static void draw_one(Rag *r)
     if (iabs(d.x) > 20000 || iabs(d.y) > 20000 || iabs(d.z) > 20000)
         return;
     V3 t = r_cam(o);
-    if (t.z < -200 || FOCAL * t.x - 121 * t.z > 200 * 182 || -FOCAL * t.x - 121 * t.z > 200 * 182 ||
-        FOCAL * t.y - 81 * t.z > 200 * 158 || -FOCAL * t.y - 81 * t.z > 200 * 158)
+    if (t.z < -200 || FOCAL * t.x - 121 * t.z > 200 * FRX || -FOCAL * t.x - 121 * t.z > 200 * FRX ||
+        FOCAL * t.y - 81 * t.z > 200 * FRY || -FOCAL * t.y - 81 * t.z > 200 * FRY)
         return;
     for (int i = 0; i < RAG_P; i++) {             /* (the camera's axes, like r_cam, on the offsets) */
         s32 x = r->x[i][0], y = r->x[i][1], z = r->x[i][2];

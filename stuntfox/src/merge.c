@@ -298,6 +298,7 @@ static u8 sel_seen;                /* SELECT seen down while we drew (see sel_lo
 #define ZOOM_NEAR 170              /* (the closest the chase views come: 256 = the usual distance) */
 #define ZOOM_IN 90                 /* zoomed in past ZOOM_FP on foot or in a car it is first person */
 #define ZOOM_FP 140
+#define FOCAL_FP 176               /* first person looks through a narrower lens (about 70 degrees across, not 83): less stretch at the edges */
 static u8 fp_view;                 /* first person this frame: the camera is the man's or the driver's eyes */
 #define ZOOM_OUT 440                /* (further out shows more city and costs fps) */
 static s32 cam_yaw, cam_zoom;      /* orbit (65536 per turn, from behind) and distance */
@@ -643,7 +644,7 @@ static void goals_scan(const u8 *me)
    test for a line, as the shaft's ball is as wide as it is tall and takes in most of the view */
 static int shaft_out(V3 a, V3 b, s32 w)
 {
-    s32 x = w * 182, y = w * 158;
+    s32 x = w * FRX, y = w * FRY;
     return (a.z < -w && b.z < -w) || (FOCAL * a.x - 121 * a.z > x && FOCAL * b.x - 121 * b.z > x) ||
            (-FOCAL * a.x - 121 * a.z > x && -FOCAL * b.x - 121 * b.z > x) ||
            (FOCAL * a.y - 81 * a.z > y && FOCAL * b.y - 81 * b.z > y) ||
@@ -1231,12 +1232,18 @@ static int car_tall(void);
 static void camera_update(const u8 *me)
 {
     V3 level = v3(0, ONE, 0);
-    if (bail_camera())
+    if (bail_camera()) {
+        fp_view = 0;
+        if (focal != FOCAL_NORMAL)
+            r_set_focal(FOCAL_NORMAL);
         return;
+    }
     cam_keep = mode == FOOT && me && !is_vehicle(me);
     int can_fp = mode == DRIVE || (mode == FOOT && me && !swimming);
     int was_fp = fp_view;
     fp_view = can_fp && (cam_zoom < ZOOM_FP || (fp_view && cam_zoom < ZOOM_FP + 30));
+    if (focal != (fp_view ? FOCAL_FP : FOCAL_NORMAL))
+        r_set_focal(fp_view ? FOCAL_FP : FOCAL_NORMAL);
     if (fp_view != was_fp) {
         cam_cut = 1;                                   /* (a cut in, not a swoop through the car) */
         static u8 told;
@@ -1248,11 +1255,11 @@ static void camera_update(const u8 *me)
         if (!car.wheels)
             up = level;
         int tall = car_tall();
-        camera_eyes(vshr(car.b.pos, FX), fwd, up, tall ? 150 : 70, 40, 20);
+        camera_eyes(vshr(car.b.pos, FX), fwd, up, tall ? 150 : 70, 40, 70);
     } else if (fp_view) {
         M3 m;
         myaw(&m, entity_heading(me));
-        camera_eyes(entity_pos(me), m.f, level, 230, 30, 30);
+        camera_eyes(entity_pos(me), m.f, level, 230, 30, 110);   /* (looking down a little: the ticker's band hides the bottom of the picture, so the middle you see is higher) */
     } else if (mode == DRIVE) {
         V3 fwd = car.b.m.f, up = car.b.m.u;
         if (!car.wheels) {

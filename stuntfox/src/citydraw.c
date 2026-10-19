@@ -55,8 +55,8 @@ static inline V3 cadd(V3 p, s32 dx, s32 dy, s32 dz)
 /* is a sphere (camera space centre c, radius r) at least partly in view? */
 static inline int in_view(V3 c, s32 r)
 {
-    return !(c.z < -r || FOCAL * c.x - 121 * c.z > r * 182 || -FOCAL * c.x - 121 * c.z > r * 182 ||
-             FOCAL * c.y - 81 * c.z > r * 158 || -FOCAL * c.y - 81 * c.z > r * 158);
+    return !(c.z < -r || FOCAL * c.x - 121 * c.z > r * FRX || -FOCAL * c.x - 121 * c.z > r * FRX ||
+             FOCAL * c.y - 81 * c.z > r * FRY || -FOCAL * c.y - 81 * c.z > r * FRY);
 }
 
 static void quad(V3 a, V3 b, V3 c, V3 d, int color, int bg)
@@ -745,8 +745,8 @@ void world_draw(void)
                     continue;
                 s32 cx = c.x >> 14, cy = c.y >> 14, cz = c.z >> 14;
                 const s32 rad = 750;                    /* sector half diagonal / 8 */
-                if (cz < -rad || FOCAL * cx - 121 * cz > rad * 182 || -FOCAL * cx - 121 * cz > rad * 182 ||
-                    FOCAL * cy - 81 * cz > rad * 158 || -FOCAL * cy - 81 * cz > rad * 158)
+                if (cz < -rad || FOCAL * cx - 121 * cz > rad * FRX || -FOCAL * cx - 121 * cz > rad * FRX ||
+                    FOCAL * cy - 81 * cz > rad * FRY || -FOCAL * cy - 81 * cz > rad * FRY)
                     continue;
                 draw_far(m, v3(p.x >> 14, p.y >> 14, p.z >> 14));
             }
@@ -764,8 +764,8 @@ void world_draw(void)
                 continue;
             V3 c = r_cam(v3(sx * 8192 + 4096, 1500, sz * 8192 + 4096));
             const s32 rad = 7000;
-            if (c.z < -rad || FOCAL * c.x - 121 * c.z > rad * 182 || -FOCAL * c.x - 121 * c.z > rad * 182 ||
-                FOCAL * c.y - 81 * c.z > rad * 158 || -FOCAL * c.y - 81 * c.z > rad * 158)
+            if (c.z < -rad || FOCAL * c.x - 121 * c.z > rad * FRX || -FOCAL * c.x - 121 * c.z > rad * FRX ||
+                FOCAL * c.y - 81 * c.z > rad * FRY || -FOCAL * c.y - 81 * c.z > rad * FRY)
                 continue;
             int s = sx * 16 + sz;
             const u16 *it = &world.item[world.sector[2 * s]];

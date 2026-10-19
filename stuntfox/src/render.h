@@ -3,7 +3,13 @@
 #define RENDER_H
 #include "fx.h"
 
-#define FOCAL 136                 /* projection scale: screen x = 120 + FOCAL * x / z */
+#define FOCAL_NORMAL 136
+#define FOCAL_MAX 176             /* (first person) */
+#define FRX 214                   /* cull margins: sqrt(FOCAL_MAX^2 + 121^2) and sqrt(FOCAL_MAX^2 + 81^2), good for every lens (a little wide for the normal one) */
+#define FRY 194
+extern s32 focal;                         /* the projection scale now: FOCAL_NORMAL, or narrower in first person */
+void r_set_focal(s32 f);
+#define FOCAL focal               /* projection scale: screen x = 120 + FOCAL * x / z */
 #define NEAR 24                   /* near clip plane, units */
 #define MAXV 16
 

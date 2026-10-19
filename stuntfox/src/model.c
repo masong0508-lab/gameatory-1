@@ -2,6 +2,9 @@
 #include "model.h"
 #include "render.h"
 #include "palette.h"
+#ifdef NORMALS_HOST
+s32 focal = FOCAL_NORMAL;   /* (the host's copy of render.c's lens) */
+#endif
 
 static const V3 sun = {6553, 13107, 7372};     /* roughly (0.4, 0.8, 0.45) */
 u8 model_body = M_CAR;                          /* material drawn for M_CAR faces (paint job) */
@@ -41,8 +44,8 @@ int model_place(Place *pl, V3 pos, const M3 *m, s32 scale, int shift, s32 radius
 {
     V3 t = shift ? r_cam_far(pos, shift) : r_cam(pos);
     s32 rad = (radius * scale >> 8) >> shift;
-    if (t.z < -rad || FOCAL * t.x - 121 * t.z > rad * 182 || -FOCAL * t.x - 121 * t.z > rad * 182 ||
-        FOCAL * t.y - 81 * t.z > rad * 158 || -FOCAL * t.y - 81 * t.z > rad * 158)
+    if (t.z < -rad || FOCAL * t.x - 121 * t.z > rad * FRX || -FOCAL * t.x - 121 * t.z > rad * FRX ||
+        FOCAL * t.y - 81 * t.z > rad * FRY || -FOCAL * t.y - 81 * t.z > rad * FRY)
         return 0;
     s32 s = scale >> shift;
     pl->t = t;

@@ -23,6 +23,11 @@ typedef struct {
 #define PPTR(i) ((Poly *)(0x02000000 + ((u32)(i) << 2)))
 
 Camera cam;
+s32 focal = FOCAL_NORMAL;
+void r_set_focal(s32 f)
+{
+    focal = f;
+}
 int r_polys;
 #ifdef MERGE
 const u8 *r_pmap;
@@ -149,13 +154,14 @@ HOT8 static u32 cut12(u32 n, u32 d)
 #define CUT(na, nb) (s32)cut12((na) < 0 ? -(na) : (na), (na) < (nb) ? (nb) - (na) : (na) - (nb))
 
 /* signed distance of v from clip plane k: 0 near, 1 right, 2 left, 3 top, 4 bottom */
-#define PLANE(v, k) ((k) == 0 ? (v)->z - NEAR : (k) == 1 ? (v)->z * 121 - (v)->x * FOCAL : \
-                     (k) == 2 ? (v)->z * 121 + (v)->x * FOCAL : (k) == 3 ? (v)->z * 81 - (v)->y * FOCAL : \
-                     (v)->z * 81 + (v)->y * FOCAL)
+#define PLANE(v, k) ((k) == 0 ? (v)->z - NEAR : (k) == 1 ? (v)->z * 121 - (v)->x * fl : \
+                     (k) == 2 ? (v)->z * 121 + (v)->x * fl : (k) == 3 ? (v)->z * 81 - (v)->y * fl : \
+                     (v)->z * 81 + (v)->y * fl)
 
-HOT static int clip(V3 *in, int n, V3 *out, int k)
+HOT __attribute__((minsize)) static int clip(V3 *in, int n, V3 *out, int k)
 {
     int m = 0;
+    const s32 fl = focal;
     for (int i = 0; i < n; i++) {
         V3 *a = &in[i], *b = &in[i + 1 == n ? 0 : i + 1];
         s32 da = PLANE(a, k), db = PLANE(b, k);
@@ -203,9 +209,10 @@ HOT static void poly(const V3 *v, int n, int color, int key, int bg, int type, c
 {
     V3 a[MAXV], b[MAXV];
     int outcode_all = 0x1f, outcode_any = 0;
+    const s32 fl = focal;
     for (int i = 0; i < n; i++) {
         const V3 *p = &v[i];
-        s32 zx = p->z * 121, zy = p->z * 81, x = p->x * FOCAL, y = p->y * FOCAL;
+        s32 zx = p->z * 121, zy = p->z * 81, x = p->x * fl, y = p->y * fl;
         int oc = (p->z < NEAR) | ((zx < x) << 1) | ((zx < -x) << 2) | ((zy < y) << 3) | ((zy < -y) << 4);
         outcode_all &= oc;
         outcode_any |= oc;
