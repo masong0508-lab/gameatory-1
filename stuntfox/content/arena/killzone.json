@@ -1,0 +1,1008 @@
+{
+ "_": "The Killing Zone (Payback grid 3) grown to 128 x 128 cells. Rectangles are inclusive cell ranges [x0, y0, x1, y1]; heights are world units (1024 a cell, 8 per Payback height step over its street at 0x100). tools/content/mkarena.py builds the grid from this and Payback's own columns, and checks it (AV1-AV9). Gate roads run out to the street they join; the Pit's T blocks sit on its inner roads.",
+ "level": 3,
+ "seed": 20261011,
+ "pit": [
+  53,
+  58,
+  86,
+  91
+ ],
+ "border": {
+  "width": 2,
+  "top": 4096
+ },
+ "tiles": {
+  "plaza": 2,
+  "grass": 12,
+  "sand": 9,
+  "asphalt": 43,
+  "dark": 13,
+  "centre": 208,
+  "wall": 52,
+  "kicker": 74,
+  "ramp": 115,
+  "deck": 41,
+  "crate": 47,
+  "windows_old": [
+   26,
+   27,
+   56
+  ],
+  "windows_sky": [
+   20,
+   22,
+   69,
+   77
+  ],
+  "windows_dock": [
+   26,
+   27
+  ],
+  "roofs": [
+   41,
+   50,
+   13,
+   28,
+   49,
+   51,
+   36
+  ],
+  "hangar": [
+   26,
+   27
+  ]
+ },
+ "water": {
+  "depth": 128
+ },
+ "roads": {
+  "R1": [
+   2,
+   2,
+   5,
+   115
+  ],
+  "R2a": [
+   24,
+   2,
+   27,
+   55
+  ],
+  "R3": [
+   48,
+   2,
+   51,
+   95
+  ],
+  "R4": [
+   87,
+   2,
+   90,
+   95
+  ],
+  "R5": [
+   104,
+   52,
+   107,
+   115
+  ],
+  "R6": [
+   122,
+   24,
+   125,
+   115
+  ],
+  "S1": [
+   2,
+   2,
+   90,
+   5
+  ],
+  "S2": [
+   2,
+   24,
+   125,
+   27
+  ],
+  "S3": [
+   2,
+   52,
+   125,
+   55
+  ],
+  "S4": [
+   2,
+   92,
+   125,
+   95
+  ],
+  "S5": [
+   2,
+   112,
+   125,
+   115
+  ],
+  "SPW_top": [
+   7,
+   97,
+   102,
+   100
+  ],
+  "SPW_bot": [
+   7,
+   107,
+   102,
+   110
+  ],
+  "SPW_left": [
+   7,
+   97,
+   10,
+   110
+  ],
+  "SPW_right": [
+   99,
+   97,
+   102,
+   110
+  ],
+  "SPW_cross": [
+   57,
+   97,
+   60,
+   110
+  ]
+ },
+ "gates": [
+  {
+   "name": "GN1",
+   "road": [
+    64,
+    52,
+    67,
+    58
+   ],
+   "block": [
+    64,
+    59
+   ],
+   "arms": "NSW"
+  },
+  {
+   "name": "GN2",
+   "road": [
+    72,
+    52,
+    75,
+    58
+   ],
+   "block": [
+    72,
+    59
+   ],
+   "arms": "NES"
+  },
+  {
+   "name": "GS1",
+   "road": [
+    64,
+    91,
+    67,
+    95
+   ],
+   "block": [
+    64,
+    87
+   ],
+   "arms": "NSW"
+  },
+  {
+   "name": "GS2",
+   "road": [
+    72,
+    91,
+    75,
+    95
+   ],
+   "block": [
+    72,
+    87
+   ],
+   "arms": "NES"
+  },
+  {
+   "name": "GW1",
+   "road": [
+    48,
+    69,
+    53,
+    72
+   ],
+   "block": [
+    54,
+    69
+   ],
+   "arms": "NEW"
+  },
+  {
+   "name": "GW2",
+   "road": [
+    48,
+    77,
+    53,
+    80
+   ],
+   "block": [
+    54,
+    77
+   ],
+   "arms": "ESW"
+  },
+  {
+   "name": "GE1",
+   "road": [
+    86,
+    69,
+    90,
+    72
+   ],
+   "block": [
+    82,
+    69
+   ],
+   "arms": "NEW"
+  },
+  {
+   "name": "GE2",
+   "road": [
+    86,
+    77,
+    90,
+    80
+   ],
+   "block": [
+    82,
+    77
+   ],
+   "arms": "ESW"
+  }
+ ],
+ "districts": {
+  "OLD_TOWN_N": {
+   "kit": "lots",
+   "rect": [
+    6,
+    6,
+    23,
+    23
+   ],
+   "heights": [
+    2048,
+    2560,
+    3072,
+    3584
+   ],
+   "windows": "windows_old",
+   "lot": [
+    3,
+    5
+   ],
+   "alley": 1
+  },
+  "OLD_TOWN_S": {
+   "kit": "lots",
+   "rect": [
+    6,
+    28,
+    23,
+    51
+   ],
+   "heights": [
+    2048,
+    2560,
+    3072,
+    3584
+   ],
+   "windows": "windows_old",
+   "lot": [
+    3,
+    5
+   ],
+   "alley": 1
+  },
+  "SKYLINE_A": {
+   "kit": "towers",
+   "rect": [
+    28,
+    6,
+    47,
+    23
+   ],
+   "base": 4096,
+   "tops": [
+    6144,
+    7168,
+    8192
+   ],
+   "tower": 6,
+   "alley": 2
+  },
+  "SKYLINE_B": {
+   "kit": "towers",
+   "rect": [
+    28,
+    28,
+    47,
+    51
+   ],
+   "base": 4096,
+   "tops": [
+    5120,
+    6144,
+    7168
+   ],
+   "tower": 6,
+   "alley": 2
+  },
+  "SKYLINE_C": {
+   "kit": "towers",
+   "rect": [
+    52,
+    6,
+    86,
+    23
+   ],
+   "base": 4096,
+   "tops": [
+    6144,
+    7168,
+    8192
+   ],
+   "tower": 6,
+   "alley": 2,
+   "special": [
+    {
+     "name": "FOX_TOWER",
+     "rect": [
+      66,
+      12,
+      71,
+      17
+     ],
+     "top": 10240
+    }
+   ]
+  },
+  "SKYLINE_D": {
+   "kit": "towers",
+   "rect": [
+    52,
+    28,
+    86,
+    51
+   ],
+   "base": 4096,
+   "tops": [
+    5120,
+    6144,
+    7168,
+    8192
+   ],
+   "tower": 6,
+   "alley": 2
+  },
+  "FOX_FIELD": {
+   "kit": "field",
+   "rect": [
+    91,
+    2,
+    125,
+    23
+   ],
+   "runway": [
+    93,
+    12,
+    124,
+    15
+   ],
+   "hangars": [
+    [
+     94,
+     6,
+     99,
+     9
+    ],
+    [
+     102,
+     6,
+     107,
+     9
+    ],
+    [
+     110,
+     6,
+     115,
+     9
+    ]
+   ],
+   "hangar_top": 3072,
+   "tower": [
+    118,
+    6,
+    120,
+    8
+   ],
+   "tower_top": 7168
+  },
+  "FIELD_APRON": {
+   "kit": "apron",
+   "rect": [
+    91,
+    28,
+    121,
+    51
+   ],
+   "drift": [
+    93,
+    30,
+    119,
+    49
+   ]
+  },
+  "STUNT_PARK": {
+   "kit": "park",
+   "rect": [
+    6,
+    56,
+    47,
+    91
+   ]
+  },
+  "CANYON_W": {
+   "kit": "canyon",
+   "rect": [
+    91,
+    56,
+    103,
+    91
+   ],
+   "tops": [
+    8192,
+    6144,
+    7168,
+    4096
+   ],
+   "slots": [
+    66,
+    79
+   ]
+  },
+  "CANYON_E": {
+   "kit": "canyon",
+   "rect": [
+    108,
+    56,
+    121,
+    91
+   ],
+   "tops": [
+    7168,
+    8192,
+    6144,
+    4096
+   ],
+   "slots": [
+    66,
+    79
+   ]
+  },
+  "SPEEDWAY": {
+   "kit": "speedway",
+   "rect": [
+    6,
+    96,
+    103,
+    111
+   ],
+   "infield": [
+    11,
+    101,
+    98,
+    106
+   ]
+  },
+  "DOCKS": {
+   "kit": "docks",
+   "rect": [
+    108,
+    96,
+    121,
+    111
+   ],
+   "cranes": [
+    110,
+    98,
+    119,
+    99
+   ],
+   "crane_top": 6144
+  },
+  "BEACH": {
+   "kit": "beach",
+   "rect": [
+    2,
+    116,
+    125,
+    117
+   ]
+  },
+  "HARBOUR": {
+   "kit": "harbour",
+   "rect": [
+    2,
+    118,
+    125,
+    125
+   ]
+  }
+ },
+ "features": {
+  "SKYBRIDGE_AC": {
+   "kit": "skybridge",
+   "rect": [
+    47,
+    14,
+    52,
+    15
+   ],
+   "axis": "x",
+   "top": 4096,
+   "thick": 512
+  },
+  "SKYBRIDGE_CD": {
+   "kit": "skybridge",
+   "rect": [
+    56,
+    23,
+    57,
+    28
+   ],
+   "axis": "y",
+   "top": 4096,
+   "thick": 512
+  },
+  "SKYBRIDGE_W": {
+   "kit": "skybridge",
+   "rect": [
+    103,
+    63,
+    108,
+    64
+   ],
+   "axis": "x",
+   "top": 4096,
+   "thick": 512
+  },
+  "SKYBRIDGE_E": {
+   "kit": "skybridge",
+   "rect": [
+    103,
+    81,
+    108,
+    82
+   ],
+   "axis": "x",
+   "top": 4096,
+   "thick": 512
+  },
+  "TRIPLE_LOOPS": {
+   "kit": "loops",
+   "entry_y": 60.25,
+   "xs": [
+    14,
+    26,
+    38
+   ],
+   "radius": 2560,
+   "width": 1536,
+   "rect": [
+    8,
+    57,
+    45,
+    61
+   ]
+  },
+  "KICKER_ROW": {
+   "kit": "kickers",
+   "rect": [
+    8,
+    64,
+    38,
+    68
+   ],
+   "tops": [
+    768,
+    896,
+    1024,
+    1152,
+    1280
+   ],
+   "length": 4,
+   "step": 6,
+   "x0": 9
+  },
+  "HALF_PIPE": {
+   "kit": "halfpipe",
+   "rect": [
+    8,
+    72,
+    22,
+    78
+   ],
+   "top": 1536
+  },
+  "TABLE_SPINE": {
+   "kit": "table",
+   "rect": [
+    27,
+    72,
+    37,
+    78
+   ],
+   "top": 1024,
+   "ramp": 4
+  },
+  "ROOF_HOP": {
+   "kit": "roofhop",
+   "rect": [
+    8,
+    81,
+    38,
+    90
+   ],
+   "tops": [
+    1024,
+    1280,
+    1536,
+    1792,
+    2048,
+    2304
+   ],
+   "len": 3,
+   "gap": 2
+  },
+  "MEGA_RAMP": {
+   "kit": "megaramp",
+   "rect": [
+    41,
+    56,
+    45,
+    90
+   ],
+   "lip_y": 70,
+   "lip": 3584,
+   "canal": [
+    71,
+    75
+   ],
+   "landing_top": 2560,
+   "climb_y": 62
+  },
+  "NEEDLE": {
+   "kit": "needle",
+   "rect": [
+    112,
+    70,
+    120,
+    73
+   ],
+   "top": 8192
+  },
+  "OVERPASS": {
+   "kit": "overpass",
+   "rect": [
+    44,
+    102,
+    73,
+    105
+   ],
+   "under": 2048,
+   "slab": 512,
+   "ramp": 6
+  },
+  "PIER_JUMP": {
+   "kit": "pierjump",
+   "rect": [
+    14,
+    117,
+    27,
+    119
+   ],
+   "top": 1536
+  },
+  "BARGE": {
+   "kit": "deck",
+   "rect": [
+    31,
+    117,
+    38,
+    121
+   ],
+   "top": 512
+  },
+  "PIER_B": {
+   "kit": "pier",
+   "rect": [
+    96,
+    116,
+    99,
+    124
+   ],
+   "top": 256
+  },
+  "LIGHTHOUSE": {
+   "kit": "tower",
+   "rect": [
+    109,
+    119,
+    112,
+    122
+   ],
+   "top": 7168
+  }
+ },
+ "phones": [
+  {
+   "name": "OLD_TOWN_N",
+   "cells": [
+    [
+     10,
+     6
+    ],
+    [
+     13,
+     6
+    ],
+    [
+     16,
+     6
+    ],
+    [
+     19,
+     6
+    ]
+   ]
+  },
+  {
+   "name": "SKYLINE_D",
+   "cells": [
+    [
+     60,
+     28
+    ],
+    [
+     63,
+     28
+    ],
+    [
+     66,
+     28
+    ],
+    [
+     69,
+     28
+    ]
+   ]
+  },
+  {
+   "name": "FOX_FIELD_APRON",
+   "cells": [
+    [
+     95,
+     28
+    ],
+    [
+     98,
+     28
+    ],
+    [
+     101,
+     28
+    ],
+    [
+     104,
+     28
+    ]
+   ]
+  },
+  {
+   "name": "SPEEDWAY_PITS",
+   "cells": [
+    [
+     30,
+     96
+    ],
+    [
+     33,
+     96
+    ],
+    [
+     36,
+     96
+    ],
+    [
+     39,
+     96
+    ]
+   ]
+  },
+  {
+   "name": "DOCKS",
+   "cells": [
+    [
+     110,
+     96
+    ],
+    [
+     113,
+     96
+    ],
+    [
+     116,
+     96
+    ],
+    [
+     119,
+     96
+    ]
+   ]
+  },
+  {
+   "name": "CANYON",
+   "cells": [
+    [
+     91,
+     60
+    ],
+    [
+     91,
+     63
+    ]
+   ]
+  }
+ ],
+ "spawns": {
+  "pit_keep": 8,
+  "extra": [
+   [
+    8,
+    6
+   ],
+   [
+    20,
+    28
+   ],
+   [
+    31,
+    6
+   ],
+   [
+    44,
+    28
+   ],
+   [
+    58,
+    6
+   ],
+   [
+    80,
+    28
+   ],
+   [
+    95,
+    28
+   ],
+   [
+    118,
+    30
+   ],
+   [
+    100,
+    3
+   ],
+   [
+    121,
+    20
+   ],
+   [
+    8,
+    56
+   ],
+   [
+    30,
+    56
+   ],
+   [
+    92,
+    60
+   ],
+   [
+    118,
+    60
+   ],
+   [
+    92,
+    88
+   ],
+   [
+    118,
+    88
+   ],
+   [
+    10,
+    96
+   ],
+   [
+    50,
+    96
+   ],
+   [
+    98,
+    96
+   ],
+   [
+    112,
+    96
+   ],
+   [
+    30,
+    112
+   ],
+   [
+    70,
+    112
+   ],
+   [
+    112,
+    112
+   ],
+   [
+    8,
+    112
+   ],
+   [
+    3,
+    20
+   ],
+   [
+    3,
+    90
+   ],
+   [
+    124,
+    40
+   ],
+   [
+    124,
+    100
+   ],
+   [
+    3,
+    60
+   ],
+   [
+    90,
+    40
+   ],
+   [
+    52,
+    80
+   ],
+   [
+    87,
+    80
+   ]
+  ]
+ }
+}

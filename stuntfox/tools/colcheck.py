@@ -63,12 +63,15 @@ def h_units(z):
 
 
 def payback_rom(rom_bytes, painted=True):
-    """Payback as build.py --merge ships it: its grids with mksolo's phones."""
+    """Payback as build.py --merge ships it: its grids with mksolo's phones and the grown Killing Zone."""
     rom = PaybackRom(rom_bytes)
     if painted:
         import mksolo
         mksolo.offer_every_map(rom.d)
         mksolo.add_phones(rom)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'content'))
+        import mkarena
+        rom.arena_loops = mkarena.build(rom, rom_bytes)       # (the loops the arena ships, for world_for)
     return rom
 
 
@@ -461,7 +464,7 @@ class Ours:
 def world_for(rom_bytes, g, rom):
     """Grid g's merged world, built by mkworld as build.py builds it."""
     import mkworld
-    return mkworld.build(rom_bytes, merge=True, level=g, rom=rom, limits=False)
+    return mkworld.build(rom_bytes, merge=True, level=g, rom=rom, limits=False, loops=getattr(rom, 'arena_loops', None))
 
 
 def _around(i):

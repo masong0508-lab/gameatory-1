@@ -88,7 +88,7 @@ def _walk(rom, level, seeds):
     drop (Payback's man steps off ledges), never across an edge the street floor blocks (only
     the ground floor's corner flags stop him: measured on Isla Nublar, where he walks off the
     start platform over cells whose upper floor has all four corners set)."""
-    g = rom.grid(level)
+    g = rom.painted.get(level) or rom.grid(level)
     surf = {}
     def at(x, y):
         if (x, y) not in surf:
@@ -152,7 +152,7 @@ def add_phones(rom):
         if rom.d[PHONE_COUNT + level]:
             continue
         cells = choose_phones(rom, level)
-        g = rom.grid(level)
+        g = rom.painted.get(level) or rom.grid(level)
         paint = {}
         for i, (x, y, k) in enumerate(cells):
             col = bytearray(rom.column(g[x * 128 + y]))

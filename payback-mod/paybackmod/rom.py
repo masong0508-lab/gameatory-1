@@ -1,4 +1,5 @@
 """Edits to a Payback (Europe) ROM: map columns, level grids and physics tweaks."""
+import collections
 import hashlib
 import struct
 
@@ -13,6 +14,58 @@ BASE_LITERALS = (0x3c674, 0x3cf50)   # the only two references to the column tab
 MAX_COLUMNS = 1 << 15                # grid literals are 15 bits
 STRING_BASE = 0x31ce20               # string table entries are offsets from here
 ENGLISH_TABLES = ((0x30b2e4, 0x30c7f8), (0x312560, 0x3149dc))
+
+
+class ColumnIndex:
+    """Every column the 11 shipped grids use, indexed by its layer signature, so a map built
+    from Payback's own vocabulary (tools/content/mkarena.py) picks columns that already exist,
+    the most used first, and adds a new one only when none matches.
+
+    A layer is (b0, b1, b2, b3, h0, h1, shape, flags, tile, attr, sides): the bytes of one 20-byte
+    record, as blocks.py names them; a column's signature is its three layers. uses[idx] counts the
+    cells that hold it over all maps, maps[idx] says which maps."""
+
+    def __init__(self, rom):
+        self.rom = rom
+        self.uses = collections.Counter()
+        self.maps = collections.defaultdict(set)
+        for lv in range(11):
+            g = rom.orig_grid(lv)
+            self.uses.update(g)
+            for c in set(g):
+                self.maps[c].add(lv)
+        self._sig = {}
+        self.by_sig = collections.defaultdict(list)
+        for c in sorted(self.uses):
+            self.by_sig[self.signature(rom.column(c))].append(c)
+
+    @staticmethod
+    def layer(rec):
+        return (rec[0], rec[1], rec[2], rec[3]) + struct.unpack_from('<HHBBBB4H', rec, 4)
+
+    @classmethod
+    def signature(cls, col60):
+        return tuple(cls.layer(col60[20 * k:20 * k + 20]) for k in range(3))
+
+    def sig(self, idx):
+        if idx not in self._sig:
+            self._sig[idx] = self.signature(self.rom.column(idx))
+        return self._sig[idx]
+
+    def find(self, pred, maps=None):
+        """Column numbers whose signature satisfies pred, most used first (ties: lowest number)."""
+        out = [c for c in self.uses if (maps is None or self.maps[c] & set(maps)) and pred(self.sig(c))]
+        return sorted(out, key=lambda c: (-self.uses[c], c))
+
+    def common(self, pred, maps=None):
+        """The most used column satisfying pred, or None."""
+        f = self.find(pred, maps)
+        return f[0] if f else None
+
+    def lookup(self, col60):
+        """The shipped column with exactly this signature (most used), or None."""
+        hit = self.by_sig.get(self.signature(col60))
+        return max(hit, key=lambda c: (self.uses[c], -c)) if hit else None
 
 
 class PaybackRom:
@@ -33,6 +86,19 @@ class PaybackRom:
         self.free = NEW_BASE + 60 * MAX_COLUMNS   # grid streams go after the addressable columns
         self.new_columns = {}
         self.painted = {}
+        self._orig_grids = {}
+        self._index = None
+
+    def orig_grid(self, level):
+        """The level's grid as Payback shipped it (decoded once; grid() decodes every time)."""
+        if level not in self._orig_grids:
+            self._orig_grids[level] = self.grid(level)
+        return self._orig_grids[level]
+
+    def column_index(self):
+        if self._index is None:
+            self._index = ColumnIndex(self)
+        return self._index
 
     def column(self, idx):
         o = NEW_BASE + 60 * idx

@@ -574,12 +574,11 @@ static void draw_tree(const Tree *t)
     r_poly(trunk, 4, COLOR(M_BRICK, 0, f), p.z, 0);
 }
 
-/* A loop: a helix of LOOP_SEG quads, red and white like a Stunt Race FX track, shaded by
-   which way each piece faces. Its points are worked out once, for the loops in view (inside
-   Payback once a frame anyway, so as they are drawn: no RAM for them). */
-/* the inside faces the axis: up at the bottom, down at the top (cos of each piece's middle
-   against +-8000) */
-static const u8 loop_light[LOOP_SEG] = {3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3};
+/* A loop: a helix of LOOP_SEG quads, sand with every other piece a light level darker. (Red and white
+   made bands that flashed across the screen inside it, and a red tone tips in and out of the red-flash
+   test as fog and shading change; this one is never red and its two levels differ by under 0.1 of
+   luminance, so running through the bands cannot flash.) Its points are worked out once, for the loops
+   in view (inside Payback once a frame anyway, so as they are drawn: no RAM for them). */
 #ifdef MERGE
 static void loop_pair(int k, int i, V3 *a, V3 *b)
 {
@@ -617,7 +616,7 @@ static void draw_loop(int k)
         s32 z = (a0.z + b1.z) >> 1;
         if (z > -4000) {
             V3 q[4] = {a0, a1, b1, b0};
-            r_poly(q, 4, COLOR(i & 1 ? M_SHIP : M_STUNT, loop_light[i], fog_of(z)), -2, 0);
+            r_poly(q, 4, COLOR(M_PLAZA, 2 - (i & 1), fog_of(z)), -2, 0);
         }
         a0 = b0;
         a1 = b1;
