@@ -13,6 +13,7 @@ void d_fill(int x, int y, int w, int h, int color);  /* a solid box, fast */
 void d_hline(int x0, int x1, int y, int color);
 void d_vline(int x, int y0, int y1, int color);
 void d_pixel(int x, int y, int color);
+int d_pal(int color);                              /* the page's palette index of a colour */
 /* decimal (and m:ss) into buf; return the end */
 char *d_num(char *buf, int v);
 char *d_time(char *buf, int seconds);

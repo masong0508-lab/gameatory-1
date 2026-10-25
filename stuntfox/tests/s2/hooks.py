@@ -23,7 +23,8 @@ h1, f1 = hooks(), s2f()
 d = {k: (h1[k] - h0[k]) & 0xffff for k in HK}
 ck(d['TICK'] > 10 and all(abs(d[k] - d['TICK']) <= 1 for k in ('DRAW3D', 'HUD', 'KEYS')),
    'tick, draw3d, hud and keys hooks fire together, once a frame of ours', str(d))
-ck(abs(f1['ticks'] - f0['ticks'] - 122) <= 3 and f1['clock'] > f0['clock'], 's2f.ticks runs at 60 a second, s2f.clock follows Payback',
+# (ticks is read once a frame of ours, 3 vblanks apart at 20 a second, so a 120 frame window reads 118 to 123: the bound is two of our frames)
+ck(abs(f1['ticks'] - f0['ticks'] - 122) <= 6 and f1['clock'] > f0['clock'], 's2f.ticks runs at 60 a second, s2f.clock follows Payback',
    '%d ticks in 122 frames, clock %d -> %d' % (f1['ticks'] - f0['ticks'], f0['clock'], f1['clock']))
 pl = epos(PL)
 ck(f1['mode'] == 0 and f1['map'] == grid(), 's2f: mode FOOT, map is the grid loaded',
@@ -98,6 +99,7 @@ for _ in range(60):
     run(10)
     if r16(pba('PBA_RESPAWN')) > 0:
         break
+run(10)                                                  # (our tick, once a frame of ours, sees the countdown a frame later)
 ev, rs = events(), r16(pba('PBA_RESPAWN'))
 ck(ev['DEATH'] == 1 and rs > 0, 'EV_DEATH: raised once as the respawn countdown starts (health 0)', 'EV_DEATH %d, countdown %d' % (ev['DEATH'], rs))
 for _ in range(60):

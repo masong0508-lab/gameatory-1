@@ -7,6 +7,7 @@
 extern const u32 font_tiles[];         /* tables.c: ASCII 32..95, 4 bits a pixel, 1 = ink, 2 = shadow */
 
 static int pal_of(int c) { return c >= 0x100 ? c & 0xff : pb_pmap[c]; }
+int d_pal(int c) { return pal_of(c); }
 
 static inline void put(u8 *page, int x, int y, int c)
 {

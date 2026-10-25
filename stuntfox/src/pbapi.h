@@ -134,6 +134,9 @@ static inline void pb_banner_idx(int i) { ((void (*)(int))PBA_BANNER_IDX)(i); }
 #define PB_NENTITY       (*(volatile s16 *)PBA_NENTITY)
 #define PB_CONTROLLED    (*(volatile s16 *)PBA_CONTROLLED)
 #define PB_GRID          (*(const u32 *volatile *)PBA_GRID)
+/* the column of cell (cx, cz), 0..127: a pointer, into the ROM while nothing has changed the cell, else into a copy in EWRAM */
+static inline u32 pb_col(int cx, int cz) { const u32 *g = PB_GRID; return g ? g[(cx << 7) + cz] : 0; }
+#define PB_IN_ROM(p) ((u32)(p) >= 0x08000000u)
 #define PBE_X 4
 #define PBE_Y 8
 #define PBE_Z 0xc
@@ -141,8 +144,10 @@ static inline void pb_banner_idx(int i) { ((void (*)(int))PBA_BANNER_IDX)(i); }
 #define PBE_DESC 0x1c
 #define PBE_HEALTH 0x68
 #define PBE_SCORE 0x90
+#define PBE_WANTED 0x5a               /* s8: the wanted stars, in the controlled record (the HUD's stars follow it) [measured: P10] */
 #define PBE_STATE 0x10f
 #define PBE_TAG 0x14c                 /* s32: the tag pb_spawn_tagged gave it (-1 after pb_kill) */
+static inline int pb_wanted(const u8 *me) { return me ? *(const s8 *)(me + PBE_WANTED) : 0; }
 #define PB_DESC_SIZE 0x3c
 #define PB_DESC_K(d) (((u32)(d) - PBA_DESC0) / PB_DESC_SIZE)   /* a record's descriptor as Payback's own number */
 

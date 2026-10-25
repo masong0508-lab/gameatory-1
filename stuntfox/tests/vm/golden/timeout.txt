@@ -1,0 +1,5 @@
+started        t=5    state=2 mis=1  obj=6  count=0  goals=1 ours=0 ban=1 score=0 done=0 fail=0 line=STUNT 300
+100 pts        t=6    state=2 mis=1  obj=6  count=0  goals=1 ours=0 ban=1 score=0 done=0 fail=0 line=STUNT 300
+at 60 s        t=1800 state=0 mis=-1 obj=-1 count=0  goals=1 ours=0 ban=2 score=0 done=0 fail=1 line=CHALLENGE FAILED
++3 ticks       t=1803 state=0 mis=-1 obj=-1 count=0  goals=1 ours=0 ban=2 score=0 done=0 fail=1 line=CHALLENGE FAILED
+after          t=1805 state=0 mis=-1 obj=-1 count=0  goals=1 ours=0 ban=2 score=0 done=0 fail=1 line=CHALLENGE FAILED

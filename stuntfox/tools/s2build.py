@@ -65,7 +65,7 @@ def pre_world(rom, orig):
 def pre_link(rom, orig, gen):
     flags = []
     for sym, builders in BLOBS:
-        found = present(builders)
+        found = present(b for b in builders if not b.startswith('tests/') or os.environ.get('S2_DEMO'))     # (the demo chapters only on request)
         data = load(found[0]).build(rom, orig, gen) if found else bytes(8)     # (8 zero bytes: no content)
         assert isinstance(data, (bytes, bytearray)) and len(data) >= 8, '%s: a builder gave no blob' % sym
         at = GBA + rom.alloc(bytes(data))

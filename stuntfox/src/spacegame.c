@@ -10,6 +10,7 @@
 #include "ragdoll.h"
 #include "radio.h"
 #include "settings.h"
+#include "stage2.h"
 
 int sg_state;
 u8 sg_invert, sg_autoaim = 1;
@@ -1925,7 +1926,7 @@ void sg_hud(const Ship *s)
         }
         break;
     }
-    if (b[0]) {
+    if (b[0] && !s2_hud_owned()) {                  /* (a mission's line owns y117) */
         int n = 0;
         while (b[n]) n++;
         d_fill(0, 115, n * TEXT_W + 8, 11, PANEL);

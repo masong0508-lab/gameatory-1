@@ -1,0 +1,12 @@
+level          t=0    state=0 mis=-1 obj=-1 count=0  goals=1 ours=0 ban=0 score=0 done=0 fail=0 line=-
+dwell 10       t=10   state=1 mis=0  obj=-1 count=0  goals=1 ours=0 ban=0 score=0 done=0 fail=0 line=-
+started        t=35   state=2 mis=0  obj=1  count=0  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=37   state=2 mis=0  obj=1  count=1  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=39   state=2 mis=0  obj=1  count=2  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=41   state=2 mis=0  obj=2  count=0  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=43   state=2 mis=0  obj=2  count=1  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=45   state=2 mis=0  obj=2  count=2  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=47   state=2 mis=0  obj=3  count=0  goals=2 ours=1 ban=1 score=0 done=0 fail=0 line=FIRST STEPS
+progress       t=49   state=1 mis=0  obj=-1 count=0  goals=1 ours=0 ban=2 score=1000 done=1 fail=0 line=ACT COMPLETE
+end            t=52   state=1 mis=0  obj=-1 count=0  goals=1 ours=0 ban=2 score=1000 done=1 fail=0 line=ACT COMPLETE
+armed again    t=54   state=1 mis=0  obj=-1 count=0  goals=1 ours=0 ban=2 score=1000 done=1 fail=0 line=ACT COMPLETE
