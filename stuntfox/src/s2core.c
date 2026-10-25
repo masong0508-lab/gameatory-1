@@ -32,6 +32,12 @@ WEAK int cp_menu(int arg) { (void)arg; return -1; }
 WEAK u32 cp_keys(void) { return 0; }
 WEAK int cp_dbg(int cmd, int arg) { (void)cmd; (void)arg; return -1; }
 WEAK int cp_act_running(void) { return 0; }
+WEAK void cp_hud(void) {}
+WEAK int cp_dock_keys(u16 hit, u16 keys, int main_ok) { (void)hit; (void)keys; (void)main_ok; return 0; }
+WEAK u32 cp_sig(void) { return 0; }
+WEAK void pl_drop_begin(int map, int hx2, int hy2) { (void)map; (void)hx2; (void)hy2; }
+WEAK void pl_drop_end(void) {}
+WEAK int pl_drop_active(void) { return 0; }
 WEAK int st_view(void) { return 0; }
 WEAK void st_draw(void) {}
 WEAK void st_hud(void) {}
@@ -127,6 +133,7 @@ void s2_hud(void)
         st_hud();
     else
         hl_draw();
+    cp_hud();
 }
 
 void s2_level_enter(int map)

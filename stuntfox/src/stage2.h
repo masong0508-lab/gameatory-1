@@ -75,6 +75,8 @@ void s2_room_draw(void);
    under 12 cells (Payback refuses 13 or more). mode must be the mode now. 1 if it moved */
 int s2_put_player(V3 p, int heading, int mode);
 int s2_ready(void);                /* merge.c: our memory is set up (the veneer may run before the first frame) */
+void s2_dock_start(void);          /* merge.c: this level starts with the Arwing docked at the station (a chapter's orbital drop) */
+void s2_progress_keep(void);       /* merge.c: the progress now is the one to keep (a save was loaded: not a stray write to undo) */
 
 /* ---- the packages' entry points, all weak in s2core.c (empty, or the value that means "none") ---- */
 /* E: the mission engine, hudline */
@@ -93,6 +95,13 @@ int cp_menu(int arg);              /* -1: the usual */
 u32 cp_keys(void);                 /* buttons to hold down for Payback this tick, bit i = PB_BTN[i]; bits from B_N up are ignored */
 int cp_dbg(int cmd, int arg);
 int cp_act_running(void);
+void cp_hud(void);                 /* the quick menu, over the picture (s2_hud) */
+int cp_dock_keys(u16 hit, u16 keys, int main_ok);   /* the hangar's keys: 1 when the quick menu has them (main_ok: the main menu is up, L opens it) */
+u32 cp_sig(void);                  /* changes whenever the quick menu would look different (sg_menu_sig folds it in) */
+/* the orbital drop that opens a chapter (the planet package supplies pl_*; weak, so nothing happens without it) */
+void pl_drop_begin(int map, int hx2, int hy2);   /* docked at the station over the map: the planet below is drawn from here */
+void pl_drop_end(void);                          /* below the edge of space, or act 1 done, or the level left: the city is the world */
+int pl_drop_active(void);
 /* S: the station */
 int st_view(void);
 void st_draw(void);

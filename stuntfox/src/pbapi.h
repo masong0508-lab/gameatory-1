@@ -188,6 +188,12 @@ enum { B_UP = 0, B_DOWN = 1, B_SELECT = 2, B_LEFT = 4, B_RIGHT = 5, B_A = 6, B_B
 #define PBA_EEP_IDENT    0x0807c3ad   /*fn*/   /* (size in Kbit) identify the chip */
 #define PBA_EEP_IDENT_SITE 0x08027c76 /*site*/ /* the bl in the boot load, after movs r0, #4 at 0x08027c74 */
 #define PB_EEP_CFG       (*(volatile u32 *)PBA_EEP_CFG)
+#define PBA_EEP_CFG_4K   0x087d92d8   /*rom*/   /* what the config pointer holds for each size (its identify sets one) */
+#define PBA_EEP_CFG_64K  0x087d92e4   /*rom*/
+/* block b (8 bytes, as four halfwords) of the EEPROM at the addressing the config pointer says; 0 when it worked */
+static inline int pb_eep_read(int blk, u16 *b4) { return ((int (*)(int, u16 *))PBA_EEP_READ)(blk, b4) & 0xffff; }
+static inline int pb_eep_prog(int blk, const u16 *b4) { return ((int (*)(int, const u16 *))PBA_EEP_PROG)(blk, b4) & 0xffff; }
+static inline int pb_eep_ident(int kbit) { return ((int (*)(int))PBA_EEP_IDENT)(kbit) & 0xffff; }
 
 /* ---- the minimap: 64 x 64, 4 bits a pixel, 2 cells a pixel; 0x800 bytes a level ---- */
 #define PBA_MINIMAP      0x0834c230   /*rom*/

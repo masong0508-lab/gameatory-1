@@ -2,7 +2,8 @@
 started by a second in its beacon or by the mailbox, completed, failed and flown by the autopilot (cmds 1-5, 7-9), Payback's goal
 list the same after every one, a phone mission in the middle (the act waits), a death, and no line on the ticker.
 
-    ROM=out.gba ELF=build/merge/stuntfox-merge.elf python3 tests/s2/mission.py      (from stuntfox/)
+    S2_DEMO=1 python3 build.py ... --merge -o out.gba        (the demo chapters are in the blob only on request: the real campaign's
+    ROM=out.gba ELF=build/merge/stuntfox-merge.elf python3 tests/s2/mission.py      301 missions are tests/s2/acts.py's)
 """
 import h
 from h import *
@@ -10,6 +11,9 @@ from h import *
 ck = Check()
 merged_state(e)
 run(30)
+if mb(8, 0) != 6:                     # (not a demo build: the missions are the campaign's own, which acts.py runs)
+    print('SKIP  this ROM has %d missions, not the demo blob\'s 6: build with S2_DEMO=1 for this suite' % mb(8, 0))
+    sys.exit(0)
 
 BAN = 0x020026e4                      # Payback's banner slot 0 (the literal in pb_banner_raw, 0x08039bc8)
 D_MIS, D_ACT = 0, 1                   # (demo: mission 0 is the on-foot act at (14.5, 58.5))

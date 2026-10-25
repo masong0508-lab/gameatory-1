@@ -204,3 +204,32 @@ default, B leaves. The list scrolls.
 
 They are kept in spare bits of the progress words (settings.c); the extra ones live in a word of
 their own at 0x0203ff90 (just under the progress copy), checked and put back the same way.
+
+## Saving on Pizza Boy A
+
+The Fox campaign (Hangar > L: FOX CAMPAIGN) keeps its progress in 260 bytes: the chapters open, the
+acts, challenges and medals done, the credits and what the Arwing has bought, the best times. Payback's
+own save is not touched: it lives in blocks 0 to 63 of the EEPROM, ours in blocks 64 and up (two slots of
+40 blocks, written a block a frame in the hangar, the slot's header last, so a cut in the middle leaves the
+last whole save; the slot with the higher count and a good checksum is the one read).
+
+That needs a 64 Kbit EEPROM. Payback asks for a 4 Kbit one, and the game does not say how big the chip
+is. On every start the game only **reads** one block (block 64, to see whether a proof was made on this chip
+before), so a game that never starts the campaign leaves the player's save exactly as it found it. The proof
+is made when a save is first wanted (START CAMPAIGN, SAVE NOW, or a code entered): the game writes one block
+past Payback's own and checks that the chip kept it and that Payback's blocks did not move (if they did, it
+puts them back and stays at 4 Kbit); only then does it use blocks 64 and up, and the save file may grow from
+512 bytes to 8 KiB. This was verified on the test emulator only: **it has not been tried on Pizza Boy A.** An
+emulator that makes the save from what the game does will give a 64 Kbit one; with a save type to pick, pick
+**EEPROM 64K** (or Auto). If the chip is 4 Kbit (a real one, or an emulator told so), nothing is
+left beyond Payback's own (a proof that fails puts back what it touched) and the campaign has no save: Hangar > L > SHOW CODE gives a **16-letter code**
+to write down after each chapter, and ENTER CODE brings the campaign back from it (the same code moves a
+game between devices). A code carries the chapter, the acts, the chapters done, the Arwing's upgrades and
+paint, the credits and the medal count; challenges, best times and which medals were found are not kept (the
+stick, aim, missiles and jobs you have stay as they are). ENTER CODE asks A again before it replaces a
+campaign that is running. STOP CAMPAIGN (in the same menu) switches the campaign off without erasing it and
+saves that, so the next start does not switch it on; START CAMPAIGN then goes on where it was.
+
+`tests/save/` builds the codec and the slot logic on the PC (checksums, a power cut at every block,
+a chip that wraps long requests); `tests/s2/save.py` runs the same on the emulator, power cycle by power
+cycle.

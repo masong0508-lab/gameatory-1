@@ -1524,6 +1524,8 @@ void sg_tick(Ship *s, u16 keys, u16 hit)
         break;
     case SG_DOCKED: {
         u16 own = (keys & ~(KEY_LEFT | KEY_RIGHT)) | (keys & KEY_LEFT ? KEY_RIGHT : 0) | (keys & KEY_RIGHT ? KEY_LEFT : 0);   /* (the D-pad's own sides: keys came mirrored) */
+        if (cp_dock_keys(hit, own, menu == MN_MAIN))   /* (the campaign's quick menu has them) */
+            break;
         if (st_tick && st_tick(hit, own))       /* (the station's walker has them: it is outside the hangar) */
             break;
         menu_input(s, hit, own);
@@ -2208,7 +2210,7 @@ void sg_unlock_paint(int i)
 u32 sg_menu_sig(void)
 {
     u32 h = menu | cursor << 4 | dock_stage << 9 | confirm << 11 | paint << 15 | sg_state << 20 | (frame_count < banner_end) << 24;
-    h = (h * 0x01000193) ^ banner_end ^ credits ^ missiles << 24 ^ 0;
+    h = (h * 0x01000193) ^ banner_end ^ credits ^ missiles << 24 ^ cp_sig();
     return menu == MN_SET ? h ^ frame_count : h;      /* (the settings page has its own cursor and values: always redrawn) */
 }
 

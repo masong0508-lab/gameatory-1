@@ -3479,6 +3479,18 @@ static void step(u8 *me, int ticks)
     crash_lost = 0;
 }
 
+/* A chapter's orbital drop: the level begins with the Arwing docked at Fox Station over this map (mode FLY, in the hangar) */
+void s2_dock_start(void)
+{
+    ship_reset(&ship, v3(0, 0, 0), 0);
+    sg_dock_now(&ship);
+    mode = FLY;
+    parked = 0;
+    was_flying = 0;
+    air_run = 0;
+    cam_cut = 1;
+}
+
 /* Payback has loaded a level (or started a replay), on this map or another, while our memory
    lived on: the map's world, and whatever belonged to the last level goes (the car's record, the
    Arwing parked there, the space game's pirates, shots and job under way). The player's
@@ -3565,6 +3577,8 @@ static void progress_keep(void)
     opt_x_keep();
 }
 
+void s2_progress_keep(void) { progress_keep(); }
+
 /* After every level Payback asks its game menu (0x08037fe4) what to play next, as map * 2 + sub
    (the bl at 0x080249be, which build.py points here). When a rampage ends with its target
    reached, we answer instead: a rampage on the next map, at once. So one rampage runs through
@@ -3575,8 +3589,10 @@ static void progress_keep(void)
 int sf_menu(int arg)
 {
     int r = s2_menu(arg);                              /* (stage 2: a level of its own choosing, or -1) */
-    if (r >= 0)
+    if (r >= 0) {
+        fill32((void *)0x06000000, 0, 0x14000);        /* (as below: the old map must not show while the next loads) */
         return r;
+    }
     int m = PB_MAP;
     if (PB_WAS_RAMPAGE && PB_LEVEL_END == 3 && m >= 0 && m < MAPS - 1) {
         PB_MAP = ++m;
