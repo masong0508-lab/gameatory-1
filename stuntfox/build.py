@@ -126,6 +126,11 @@ MERGE_PICK = ((0x0803cf6a, 0x0803cf74), 0x0807801c)   # the mission place choose
 # it, then leaves that wait out of the game time it counts (dt): the wait was lost time. It now
 # waits only for its 2-vblank minimum (dt is clamped to 4..19 ticks of 1/120 s either way).
 MERGE_PACE = (0x0802472c, 0x6826, 0x2604)     # ldr r6, [r4] (the last dt) -> movs r6, #4
+# Payback's effect records (sparks, debris, the puff of a pick-up: 0x02015bc4, slot n of the four kinds at 0x90 * n + 0x24 * kind)
+# are written by one emitter (0x08073bb0, from 15 places) up to slot 99, but our `scr` lies over slots 64..99 (src/merge.ld): a
+# burst that finds 64 of a kind alive (an explosion chain, a medal's pop-up) overwrote our polygon lists, and the frame never ended.
+# Our renderer draws none of them: the emitter now stops at slot 63 (cmp r3, #99 -> cmp r3, #63; a full kind drops the burst).
+MERGE_FX_CAP = (0x08073c06, 0x2b63, 0x2b3f)
 # The car radio (src/radio.c): Payback's sound interrupt calls its sequencer and its music pass
 # through sf_seq and sf_mus; its radio's two picks draw 1 + random(6) and play through sf_play.
 MERGE_RADIO_CALLS = ((0x08075d4a, 0x08075dd0, 'sf_seq'), (0x08075da8, 0x0807c800, 'sf_mus'),
@@ -391,7 +396,7 @@ def build_merge(payback, out, bps_out=None, remixes=True):
         assert rom.d[site - GBA + 1] & 7 == r
         off = (sym['sf_eep_r%d' % r] & ~1) - (site + 4)
         struct.pack_into('<HH', rom.d, site - GBA, 0xf000 | ((off >> 12) & 0x7ff), 0xf800 | ((off >> 1) & 0x7ff))
-    for (site, old, new), what in ((MERGE_NO_REPORT, 'crime report'), (MERGE_PACE, 'frame limiter')):
+    for (site, old, new), what in ((MERGE_NO_REPORT, 'crime report'), (MERGE_PACE, 'frame limiter'), (MERGE_FX_CAP, 'effect cap')):
         assert struct.unpack_from('<H', rom.d, site - 0x08000000)[0] == old, '%s not at %x' % (what, site)
         mark(site, 2, what)
         struct.pack_into('<H', rom.d, site - 0x08000000, new)
@@ -399,6 +404,8 @@ def build_merge(payback, out, bps_out=None, remixes=True):
     assert struct.unpack_from('<3H', rom.d, site - 0x08000000) == ops, 'expected the water exit at %x' % site
     mark(site, 6, 'water exit')
     struct.pack_into('<3H', rom.d, site - 0x08000000, 0x46c0, 0x46c0, 0x46c0)
+    fx0, fx_slot = 0x02015bc4, 0x90               # (the emitter's last slot is the immediate it compares against: scr must lie past it)
+    assert sym['__scr'] >= fx0 + fx_slot * ((MERGE_FX_CAP[2] & 0xff) + 1), 'scr lies over the effect records the emitter can reach'
     for lit, old, new in MERGE_REPLAY_CAP:
         assert struct.unpack_from('<I', rom.d, lit - 0x08000000)[0] == old, 'expected the replay length at %x' % lit
         mark(lit, 4, 'replay cap')

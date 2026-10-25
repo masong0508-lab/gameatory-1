@@ -31,7 +31,10 @@
           the ones it covered back after drawing (render.c pool_floor, r_end)
    scr, scr2: what else we rebuild every frame, in EWRAM that nothing touches (watched, read
           and write, on all 11 maps in rampage with the mission phone answered, in the pause
-          menu and across a level's end, load and start): scr behind Payback's effect records,
+          menu and across a level's end, load and start): scr over the last 36 of the 100 slots
+          of Payback's effect records (0x02015bc4, 0x90 a slot), which its emitter (0x08073bb0)
+          wrote up to slot 99 whenever a burst found 64 of a kind alive, a car shot to pieces
+          for one: build.py now stops it at slot 63 (MERGE_FX_CAP) and checks that scr lies past,
           scr2 between bits of its mission data (its first 253 bytes under the sentence of
           Payback's crime report, which a death or a bust writes in its tick and nothing reads:
           see memmap.txt; nothing in scr2 outlives our frame). Not past its goal list
@@ -96,6 +99,7 @@ SECTIONS {
     .scratch (NOLOAD) : { *(.scratch .scratch.*) . = ALIGN(4); } > scr
     .scratch2 (NOLOAD) : { *(.scratch2 .scratch2.*) . = ALIGN(4);
                            __hot6b_save = .; . += SIZEOF(.hot6b); } > scr2
+    __scr = ORIGIN(scr);                         /* (build.py checks it lies past the effect records Payback's emitter may write) */
     __pool_a = ORIGIN(poola);
     __pool_a_end = ORIGIN(poola) + LENGTH(poola);
     .assets : { . = ALIGN(4); *(.assets) } > rom

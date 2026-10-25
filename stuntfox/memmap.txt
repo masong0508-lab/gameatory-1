@@ -23,9 +23,13 @@
 #
 # The renderer's bucket heads and their bitmap (scr, 0x02017fc4, render.c) now carry state from one frame to
 # the next (r_begin used to clear them every frame): nothing of Payback's may be written there. A write
-# watch over a boot, a game, the pause menu and an Arwing boarding found none; r_begin also clears them
-# whole on the first frame, on a new level (r_reset) and every 256th frame, so a stray write lives for
-# 256 frames at most.
+# watch over a boot, a game, the pause menu and an Arwing boarding found none, but one cause was missed:
+# scr lies over slots 64..99 of Payback's effect records (0x02015bc4 + 0x90 * slot + 0x24 * kind, the
+# kinds' counts s16 at 0x0200c41e), which its emitter at 0x08073bb0 fills up to slot 99 (a car shot to
+# pieces, a medal's pop-up: any burst that finds 64 of a kind alive), and whose updater at 0x08073dc8
+# then moves in place. build.py stops the emitter at slot 63 (MERGE_FX_CAP, one compare) and fails
+# the build if scr is below the end of slot 63 (0x02017fc4). r_begin also clears them whole on the first
+# frame, on a new level (r_reset) and every 256th frame, so a stray write lives for 256 frames at most.
 #
 # Not here, as poola shares it: Payback's 200 copies of the cells it changes (CUBE_BeginModify,
 # 64 bytes each from 0x02003f24 to 0x02007124, byte 8 0xff when free). Rampage maps use one,
@@ -51,7 +55,7 @@
 RESERVE 0x0201b870-0x0201c720  stage 3: big-map streaming and its .bigram (command queue entries 16..109)
 #
 # Per-frame data only (a frame's scratch is rebuilt in the frame: nothing in these lives from one frame to the
-# next). scr is the tail of Payback's third pool, behind its effect records; scr2 lies between bits of its
+# next). scr is the last 36 slots of Payback's effect records (its emitter stops at slot 63, see above); scr2 lies between bits of its
 # mission data, its first 253 bytes under the crime report's sentence (see the line for it above).
 SCRATCH 0x02017fc4-0x02019404  scr: the frame's polygons, projected vertices, rows of the floor
 SCRATCH 0x020075a8-0x0200798c  scr2: what else a frame rebuilds, and hot6b's copy while we run
