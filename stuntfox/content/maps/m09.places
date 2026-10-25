@@ -1,0 +1,65 @@
+map 9
+# Real Park (map 9), chapter 10. Big park block, a ring road at x36/92 y38/94, statue towers along y10-19.
+# act 1 PARK DROP: down to the little deck at x103-105 y104-107
+place a1.pad x=104.5 y=106.5 h=2944 r=2 pad roof
+# ^ a1.pad top 2944, 12 cells
+place a1.s x=99 y=92 h=30000 r=2.5 ring_h air
+# a1: drop rings from (99,92,30000) to (104.5,106.5,6244)
+place a1.1 x=100.38 y=95.62 h=21061 r=2 ring air
+place a1.2 x=101.75 y=99.25 h=16122 r=2 ring air
+place a1.3 x=103.12 y=102.88 h=11183 r=2 ring air
+place a1.4 x=104.5 y=106.5 h=6244 r=2 ring air
+# act 2 RELIC HUNT: eight relics on the west lawns round the pad, a walk of 73 cells
+# a2: 8 relics in a walk of 73 cells round the pad (gen_misc.collect's cluster, seed a2s4266)
+place a2.1 x=34.5 y=76.5 h=ground r=1.5 pick
+place a2.2 x=26.5 y=72.5 h=ground r=1.5 pick
+place a2.3 x=25.5 y=77.5 h=ground r=1.5 pick
+place a2.4 x=26.5 y=82.5 h=ground r=1.5 pick
+place a2.5 x=17.5 y=83.5 h=ground r=1.5 pick
+place a2.6 x=22.5 y=64.5 h=ground r=1.5 pick
+place a2.7 x=18.5 y=61.5 h=ground r=1.5 pick
+place a2.8 x=21.5 y=50.5 h=ground r=1.5 pick
+place a2.beacon x=37.5 y=68.5 h=ground r=1.5 pad foot
+# act 3 PARK LAP: the ring road, once round
+# a3: lane runs through (40.5,38.5) (92.5,38.5) (92.5,94.5) (36.5,94.5) (36.5,42.5)
+place a3.1 x=40.5 y=38.5 h=0 r=2.5 car
+place a3.2 x=57.5 y=38.5 h=0 r=2.5 car
+place a3.3 x=75.5 y=38.5 h=0 r=2.5 car
+place a3.4 x=92.5 y=38.5 h=0 r=2.5 car
+place a3.5 x=92.5 y=52.5 h=0 r=2.5 car
+place a3.6 x=92.5 y=66.5 h=0 r=2.5 car
+place a3.7 x=92.5 y=80.5 h=0 r=2.5 car
+place a3.8 x=92.5 y=94.5 h=0 r=2.5 car
+place a3.9 x=78.5 y=94.5 h=0 r=2.5 car
+place a3.10 x=64.5 y=94.5 h=0 r=2.5 car
+place a3.11 x=50.5 y=94.5 h=0 r=2.5 car
+place a3.12 x=36.5 y=94.5 h=0 r=2.5 car
+place a3.13 x=36.5 y=77.5 h=0 r=2.5 car
+place a3.14 x=36.5 y=59.5 h=0 r=2.5 car
+place a3.15 x=36.5 y=42.5 h=0 r=2.5 car
+place a3.gate x=38.5 y=38.5 h=ground+400 r=1.6 ring_x car
+# act 4 STATUE TOPS: six of the statue towers, west to east
+place a4.gate x=29.5 y=13.5 h=10500 r=1.6 ring_x air
+place a4.t1 x=35.5 y=10.5 h=8192 r=1.8 pad roof
+# ^ a4.t1 top 8192, 9 cells
+place a4.t2 x=47.5 y=10.5 h=8192 r=1.8 pad roof
+# ^ a4.t2 top 8192, 9 cells
+place a4.t3 x=59.5 y=10.5 h=8192 r=1.8 pad roof
+# ^ a4.t3 top 8192, 9 cells
+place a4.t4 x=69.5 y=12.5 h=8192 r=1.8 pad roof
+# ^ a4.t4 top 8192, 12 cells
+place a4.t5 x=69.5 y=18.5 h=8192 r=1.8 pad roof
+# ^ a4.t5 top 8192, 12 cells
+place a4.t6 x=93.5 y=9.5 h=8192 r=1.8 pad roof
+# ^ a4.t6 top 8192, 12 cells
+# act 5 PICNIC PANIC: six pirate cars at six old start points
+place a5.c1 x=41.5 y=46.5 h=2688 r=3 spawn car
+place a5.c2 x=62.5 y=46.5 h=4096 r=3 spawn car
+place a5.c3 x=78.5 y=46.5 h=4096 r=3 spawn car
+place a5.c4 x=58.5 y=61.5 h=8064 r=3 spawn car
+place a5.c5 x=45.5 y=68.5 h=4544 r=3 spawn car
+place a5.c6 x=72.5 y=73.5 h=8064 r=3 spawn car
+place a5.beacon x=55.5 y=38.5 h=0 r=1.5 pad car
+# act 6 THE GATE KEY: the key ship over the park
+place a6.gate x=40.5 y=60.5 h=12000 r=1.6 ring_x air
+place a6.boss x=64.5 y=60.5 h=11500 r=3 air

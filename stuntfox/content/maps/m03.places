@@ -1,0 +1,59 @@
+map 3
+# Killing Zone (map 3), the grown arena. The coordinates follow content/arena/killzone.json.
+# act 1 ORBITAL DROP: down over the Fox Field apron to the runway pad
+place a1.pad x=108.5 y=13.5 h=ground r=2 pad
+place a1.s x=100 y=20 h=30000 r=2.5 ring_h air
+# a1: drop rings from (100,20,30000) to (108.5,13.5,3300)
+place a1.1 x=102.12 y=18.38 h=20325 r=2 ring air
+place a1.2 x=104.25 y=16.75 h=14650 r=2 ring air
+place a1.3 x=106.38 y=15.12 h=8975 r=2 ring air
+place a1.4 x=108.5 y=13.5 h=3300 r=2 ring air
+# act 2 TRENCH RUN: eight rings down the canyon trench x104-107, under both skybridges (bottom 3584)
+zone a2.trench x=104..108 y=56..92
+place a2.gate x=105.5 y=93.5 h=1700 r=1.2 ring_y air
+# a2: ring line through (105.5,90.5,1700) (105.5,57.5,1700)
+place a2.1 x=105.5 y=90.5 h=1700 r=1.2 ring_y
+place a2.2 x=105.5 y=85.79 h=1700 r=1.2 ring_y
+place a2.3 x=105.5 y=81.07 h=1700 r=1.2 ring_y
+place a2.4 x=105.5 y=76.36 h=1700 r=1.2 ring_y
+place a2.5 x=105.5 y=71.64 h=1700 r=1.2 ring_y
+place a2.6 x=105.5 y=66.93 h=1700 r=1.2 ring_y
+place a2.7 x=105.5 y=62.21 h=1700 r=1.2 ring_y
+place a2.8 x=105.5 y=57.5 h=1700 r=1.2 ring_y
+# act 3 STUNT PARK OPEN: three loops, the mega ramp over the canal, then the kicker row
+place a3.beacon x=22.5 y=69.5 h=ground r=1.5 pad car
+place a3.l1 x=14.5 y=60.5 h=ground r=2.5 point car
+place a3.l2 x=26.5 y=60.5 h=ground r=2.5 point car
+place a3.l3 x=38.5 y=60.5 h=ground r=2.5 point car
+zone a3.kicker x=8..39 y=64..69
+# act 4 SPEEDWAY GP: the oval 6-103 x 96-111, three laps, run along the top lane east and the bottom lane west
+place a4.1 x=14.5 y=99.5 h=0 r=2.5 car
+place a4.2 x=36.5 y=99.5 h=0 r=2.5 car
+place a4.3 x=58.5 y=99.5 h=0 r=2.5 car
+place a4.4 x=80.5 y=99.5 h=0 r=2.5 car
+place a4.5 x=98.5 y=99.5 h=0 r=2.5 car
+place a4.6 x=101.5 y=103.5 h=0 r=2.5 car
+place a4.7 x=98.5 y=108.5 h=0 r=2.5 car
+place a4.8 x=80.5 y=108.5 h=0 r=2.5 car
+place a4.9 x=58.5 y=108.5 h=0 r=2.5 car
+place a4.10 x=36.5 y=108.5 h=0 r=2.5 car
+place a4.11 x=14.5 y=108.5 h=0 r=2.5 car
+place a4.12 x=8.5 y=103.5 h=0 r=2.5 car
+place a4.gate x=8.5 y=101.5 h=ground+400 r=1.6 ring_x car
+# act 5 DOCKS HEIST: four crates on the quay, one pirate van, drop in Old Town
+place a5.c1 x=111.5 y=105.5 h=0 r=1.5 pick car
+place a5.c2 x=117.5 y=101.5 h=0 r=1.5 pick car
+place a5.c3 x=114.5 y=109.5 h=0 r=1.5 pick car
+place a5.c4 x=119.5 y=106.5 h=0 r=1.5 pick car
+place a5.drop x=14.5 y=39.5 h=0 r=2 pad car
+place a5.beacon x=109.5 y=111.5 h=0 r=1.5 pad car
+place a5.van x=104.5 y=96.5 h=0 r=3 spawn car
+# act 6 PIT DEATHMATCH: six pirate cars in the Pit, then the dropship over Fox Tower
+place a6.p1 x=58.5 y=61.5 h=0 r=3 spawn car
+place a6.p2 x=80.5 y=61.5 h=0 r=3 spawn car
+place a6.p3 x=58.5 y=88.5 h=0 r=3 spawn car
+place a6.p4 x=80.5 y=88.5 h=0 r=3 spawn car
+place a6.p5 x=68.5 y=66.5 h=0 r=3 spawn car
+place a6.p6 x=76.5 y=80.5 h=0 r=3 spawn car
+place a6.beacon x=72.5 y=77.5 h=0 r=1.5 pad car
+place a6.boss x=68.5 y=14.5 h=11600 r=3 air

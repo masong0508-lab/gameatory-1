@@ -1,0 +1,33 @@
+
+act bd "BAY DROP" map=2 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "BAY DROP" "THE CORES SLEEP IN A HARBOUR FORT.\nWE ARE NOT KNOCKING. WE ARE DROPPING."
+  rings a1.1..a1.5 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE PIER"
+  finish
+
+act tt "TWIN TOWERS" map=2 act=2 giver=nova par=auto pay=350 score=50 fail=time start=a2.gate mode=fly
+  brief "TWIN TOWERS" "NOVA: ONCE ROUND BOTH TOWERS, THEN\nOVER THE TOP. DON'T CLIP THE ROOFS."
+  rings a2.1..a2.8 "LAP THE TWINS"
+  finish
+
+act hc "HARBOUR CHASE" map=2 act=3 giver=dusty par=auto pay=400 score=60 fail=zone,time start=a3.beacon mode=drive
+  brief "HARBOUR CHASE" "A PIRATE VAN IS RUNNING THE HARBOUR\nROAD. STAY ON IT. STAY CLOSE."
+  zone zone=a3.zone
+  chase a3.van type=7 ticks=90 "CATCH THE VAN"
+  finish
+
+act sm "SMUGGLER PIERS" map=2 act=4 giver=quill par=auto pay=450 score=60 fail=time start=a4.beacon mode=foot
+  brief "SMUGGLER PIERS" "FIVE CRATES ON THE QUAY. SHIFT THEM\nTO THE ROAD BEFORE THE TIDE TURNS."
+  crates a4.1..a4.5 drop=a4.drop "CARRY THE CRATES"
+  finish
+
+act cg "CORONA GP" map=2 act=5 giver=pip par=auto pay=500 score=70 fail=time start=a5.gate mode=drive
+  brief "CORONA GP" "THE BIG LOOP: EAST, DOWN, SOUTH.\nPIP SAYS FLAT OUT. PIP IS NOT DRIVING."
+  race a5.1..a5.11 "RACE THE GP"
+  finish
+
+act fb "FRIGATE IN THE BAY" map=2 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "FRIGATE IN BAY" "THE BLACK COMET FRIGATE IS IN THE BAY.\nTHIS IS WHAT THE ARWING IS FOR."
+  boss a6.boss boss=4 "SINK THE FRIGATE"
+  dock "DOCK UP"
+  finish

@@ -1,0 +1,36 @@
+
+act dd "DOWNTOWN DROP" map=1 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "DOWNTOWN DROP" "THE PIRATES PAY IN GOLD. TAKE THEIR\nROOF AWAY. START WITH A GOOD LANDING."
+  rings a1.1..a1.5 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE DECK"
+  finish
+
+act bb "BOULEVARD BLITZ" map=1 act=2 giver=pip par=auto pay=350 score=50 fail=time start=a2.gate mode=drive
+  brief "BOULEVARD BLITZ" "PIP: THE LONG ROAD, TWICE. DON'T\nLIFT. THE TRAFFIC WILL MOVE. PROBABLY."
+  race a2.1..a2.14 "RACE THE BOULEVARD"
+  finish
+
+act rc "ROOFTOP COURIER" map=1 act=3 giver=nova par=auto pay=400 score=60 fail=time start=a3.gate mode=fly
+  brief "ROOFTOP COURIER" "NOVA: THREE ROOFS, ONE PARCEL.\nTOUCH DOWN ON EACH. NO STOPS FOR TEA."
+  land a3.r1 "FIRST ROOF"
+  land a3.r2 "SECOND ROOF"
+  land a3.r3 "LAST ROOF"
+  finish
+
+act bc "BLACK COMET CARS" map=1 act=4 giver=dusty par=auto pay=450 score=60 fail=time start=a4.beacon mode=drive
+  brief "BLACK COMET CARS" "FOUR PIRATE CARS ARE PARKED WHERE\nTHEY SHOULD NOT BE. FIX THAT."
+  destroy a4.p1..a4.p4 type=0 "WRECK THE CARS"
+  finish
+
+act ec "ESCORT THE CORE" map=1 act=5 giver=quill par=auto pay=500 score=70 fail=escort,death start=a5.gate mode=fly
+  brief "ESCORT THE CORE" "QUILL'S VAN CARRIES A CORE. KEEP IT\nSAFE FROM THE RAIDERS."
+  escort a5.van a5.end type=7 "GUARD THE VAN"
+  foes a5.end n=4 kind=raider "SHOOT THE RAIDERS"
+  finish
+
+act ts "TOWER SIEGE" map=1 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "TOWER SIEGE" "A SIEGE BARGE SITS ON THE ROOFS.\nFOUR TURRETS FIRST. THEN THE BIG ONE."
+  foes a6.t n=4 kind=turret "KILL THE TURRETS"
+  boss a6.boss boss=2 "SINK THE BARGE"
+  dock "DOCK UP"
+  finish

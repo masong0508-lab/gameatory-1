@@ -1,0 +1,90 @@
+{
+ "bots": {
+  "m0.gk1": {
+   "finished": false,
+   "kind": "race-est",
+   "time": 22.5
+  },
+  "m0.gk2": {
+   "finished": true,
+   "kind": "race",
+   "time": 24.4
+  },
+  "m0.gr1": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 9.0
+  },
+  "m0.gr2": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 7.7
+  },
+  "m0.gr3": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 8.9
+  },
+  "m3.gk1": {
+   "finished": false,
+   "kind": "race-est",
+   "time": 31.5
+  },
+  "m3.gk2": {
+   "finished": false,
+   "kind": "race-est",
+   "time": 29.0
+  },
+  "m3.gr1": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 8.4
+  },
+  "m3.gr2": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 10.4
+  },
+  "m3.gr3": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 8.8
+  },
+  "m5.gk1": {
+   "finished": false,
+   "kind": "race-est",
+   "time": 25.2
+  },
+  "m5.gk2": {
+   "finished": true,
+   "kind": "race-line",
+   "time": 19.7
+  },
+  "m5.gr1": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 9.1
+  },
+  "m5.gr2": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 8.9
+  },
+  "m5.gr3": {
+   "finished": true,
+   "kind": "rings-line",
+   "time": 7.8
+  }
+ },
+ "par": {},
+ "speed": {
+  "drive": 4.48,
+  "fly": 8.26,
+  "foot": 1.13
+ },
+ "turn": {
+  "bank_lag_s": 0.3,
+  "cruise": 5.52,
+  "deg_s": 68.6
+ }
+}

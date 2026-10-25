@@ -1,0 +1,38 @@
+
+act id "ISLAND DROP" map=10 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "ISLAND DROP" "THE GATE IS LIT. END THIS, FOX.\nTHEN GO HOME. DROP IN."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE ISLAND"
+  finish
+
+act jr "JUNGLE RUN" map=10 act=2 giver=pip par=auto pay=350 score=50 fail=time start=a2.gate mode=drive
+  brief "JUNGLE RUN" "PIP: ONE ROAD, EIGHTY CELLS, NO MAP.\nTHE VINES ARE OPTIONAL. DRIVE."
+  race a2.1..a2.9 "RACE THE JUNGLE"
+  finish
+
+act pb "PIRATE BASE" map=10 act=3 giver=dusty par=auto pay=400 score=60 fail=time start=a3.beacon mode=drive
+  brief "PIRATE BASE" "SIX PIRATE VANS GUARD THE ROADS.\nDUSTY: THEY ARE ONLY VANS. WRECK THEM."
+  destroy a3.v1..a3.v6 type=7 "WRECK THE VANS"
+  finish
+
+act gg "GATE GENERATORS" map=10 act=4 giver=nova par=auto pay=450 score=70 fail=death start=a4.gate mode=fly
+  brief "GATE GENERATORS" "THREE POWER TOPS FEED THE GATE.\nCLEAR THE GUARDS. TOUCH THEM DOWN."
+  foes a4.f1 n=4 kind=raider "CLEAR THE GUARDS"
+  land a4.g1 "GENERATOR ONE"
+  land a4.g2 "GENERATOR TWO"
+  foes a4.f2 n=4 kind=raider "MORE GUARDS"
+  land a4.g3 "GENERATOR THREE"
+  finish
+
+act ms "MOTHERSHIP" map=10 act=5 giver=rook par=auto pay=600 score=100 fail=death start=a5.gate mode=fly
+  brief "MOTHERSHIP" "VEX FLIES HER MOTHERSHIP AT THE GATE.\nROOK: IT IS BIG. SO ARE YOUR GUNS."
+  boss a5.boss boss=8 "DOWN THE SHIP"
+  dock "DOCK UP"
+  finish
+
+act tg "THE GATE" map=10 act=6 giver=rook par=auto pay=1000 score=150 fail=death start=a6.gate mode=fly
+  brief "THE GATE" "THREE RINGS AND THE GATE IS SHUT.\nOR OPEN. ROOK IS NOT SURE. GO."
+  rings a6.1..a6.3 "FLY THE GATE"
+  set flag=FLAG_FINALE value=1
+  gateway 0
+  finish

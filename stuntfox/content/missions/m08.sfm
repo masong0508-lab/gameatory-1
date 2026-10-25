@@ -1,0 +1,36 @@
+
+act gd "GRID DROP" map=8 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "GRID DROP" "A RIGGED RACE MOVES THE CORES.\nDROP IN BEFORE THE FLAG."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND IN INFIELD"
+  finish
+
+act qu "QUALIFYING" map=8 act=2 giver=pip par=auto pay=350 score=50 fail=time start=a2.gate mode=drive
+  brief "QUALIFYING" "PIP: THREE SIDES OF THE BIG TRACK.\nTHE FOURTH IS FOR LATER."
+  race a2.1..a2.16 "QUALIFY"
+  finish
+
+act kl "KESTRELS LAP" map=8 act=3 giver=nova par=auto pay=400 score=60 fail=ceil,time start=a3.gate mode=fly
+  brief "KESTRELS LAP" "KESTREL FLIES THE LAP LOW. SO DO YOU.\nSTAY UNDER THE CEILING."
+  ceil 6800 zone=a3.zone
+  race a3.1..a3.16 "BEAT KESTREL"
+  finish
+
+act pc "PIT CREW" map=8 act=4 giver=dusty par=auto pay=450 score=60 fail=time start=a4.beacon mode=drive
+  brief "PIT CREW" "FIVE SPARE PARTS LIE IN THE INFIELD.\nGET THEM TO THE PIT LANE."
+  crates a4.1..a4.5 drop=a4.drop "CARRY THE PARTS"
+  finish
+
+act dd "DEMOLITION DERBY" map=8 act=5 giver=quill par=auto pay=500 score=70 fail=time start=a5.beacon mode=drive
+  brief "DEMOLITION DERBY" "EIGHT PIRATE CARS IN THE INFIELD.\nFOUR AT A TIME. NO REFUNDS."
+  destroy a5a.1..a5a.4 type=0 "WRECK FOUR CARS"
+  destroy a5b.1..a5b.4 type=0 "WRECK FOUR MORE"
+  finish
+
+act ke "KESTREL" map=8 act=6 giver=kestrel par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "KESTREL" "THE BLACK COMET ACE WANTS A REMATCH.\nGIVE HER ONE. IT GOES BADLY FOR HER."
+  boss a6.boss boss=5 "BEAT THE ACE"
+  set flag=FLAG_KESTREL value=1
+  unlock UNLOCK_QUARTERS
+  dock "DOCK UP"
+  finish

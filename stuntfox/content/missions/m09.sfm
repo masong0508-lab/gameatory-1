@@ -1,0 +1,37 @@
+
+act pd "PARK DROP" map=9 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "PARK DROP" "THE LAST CORES HIDE UNDER A PARK.\nMIND THE DUCKS. MIND THE PIRATES."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE DECK"
+  finish
+
+act rh "RELIC HUNT" map=9 act=2 giver=quill par=auto pay=350 score=50 fail=time start=a2.beacon mode=foot
+  brief "RELIC HUNT" "QUILL BURIED EIGHT RELICS ON THE\nLAWNS. SHE FORGOT WHERE. RUN."
+  collect a2.1..a2.8 "FIND THE RELICS"
+  finish
+
+act pl "PARK LAP" map=9 act=3 giver=pip par=auto pay=400 score=60 fail=time start=a3.gate mode=drive
+  brief "PARK LAP" "PIP: ONE LAP OF THE PARK ROAD.\nTHE DUCKS HAVE RIGHT OF WAY. LIE."
+  race a3.1..a3.15 "RACE THE LAP"
+  finish
+
+act st "STATUE TOPS" map=9 act=4 giver=nova par=auto pay=450 score=60 fail=time start=a4.gate mode=fly
+  brief "STATUE TOPS" "SIX STATUES, SIX SMALL HATS. NOVA\nWANTS A LANDING ON EACH ONE."
+  land a4.t1 "STATUE ONE"
+  land a4.t2 "STATUE TWO"
+  land a4.t3 "STATUE THREE"
+  land a4.t4 "STATUE FOUR"
+  land a4.t5 "STATUE FIVE"
+  land a4.t6 "STATUE SIX"
+  finish
+
+act pp "PICNIC PANIC" map=9 act=5 giver=dusty par=auto pay=500 score=70 fail=time start=a5.beacon mode=drive
+  brief "PICNIC PANIC" "SIX PIRATE CARS ARE PARKED ON THE\nLAWNS. THE PICNIC IS OVER. FOR THEM."
+  destroy a5.c1..a5.c6 type=0 "WRECK THE CARS"
+  finish
+
+act gk "THE GATE KEY" map=9 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "THE GATE KEY" "VEX HOLDS THE KEY IN A BIG SHIP\nOVER THE PARK. TAKE IT BACK."
+  boss a6.boss boss=7 "DOWN THE KEY SHIP"
+  dock "DOCK UP"
+  finish

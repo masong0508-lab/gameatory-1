@@ -7,3 +7,4 @@
 __pycache__/
 payback-mod/harness/mgba/
 stuntfox/build/
+!stuntfox/content/campaign.sfc

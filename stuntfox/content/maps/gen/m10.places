@@ -1,0 +1,99 @@
+map 10
+place gr1.s x=64.5 y=91.5 h=1536 r=1.1 ring_x air
+place gr1.1 x=70.57 y=94.6 h=1506 r=1.1 ring_x air
+place gr1.2 x=77.71 y=94.96 h=1590 r=1.1 ring_x air
+place gr1.3 x=84.86 y=95.32 h=1762 r=1.1 ring_x air
+place gr1.4 x=90.61 y=92.69 h=1912 r=1.1 ring_x air
+place gr1.5 x=96.32 y=89.52 h=2011 r=1.1 ring_x air
+place gr1.6 x=101.17 y=84.23 h=2155 r=1.1 ring_y air
+place gr1.7 x=105.55 y=78.75 h=2472 r=1.1 ring_y air
+place gr1.8 x=106.03 y=71.62 h=2985 r=1.1 ring_y air
+place gr1.9 x=106.5 y=64.5 h=3584 r=1.1 ring_y air
+place gr2.s x=64.5 y=103.5 h=1536 r=1.1 ring_x air
+place gr2.1 x=69.92 y=107.57 h=1456 r=1.1 ring_x air
+place gr2.2 x=76 y=110.14 h=1464 r=1.1 ring_x air
+place gr2.3 x=82.68 y=111.35 h=1568 r=1.1 ring_x air
+place gr2.4 x=89.42 y=110.76 h=1727 r=1.1 ring_x air
+place gr2.5 x=96.18 y=109.92 h=1874 r=1.1 ring_x air
+place gr2.6 x=102.74 y=110.72 h=1970 r=1.1 ring_x air
+place gr2.7 x=109.12 y=113.11 h=2018 r=1.1 ring_x air
+place gr2.8 x=115.5 y=115.5 h=2048 r=1.1 ring_x air
+place gr3.s x=106.5 y=78.5 h=4096 r=1.1 ring_y air
+place gr3.1 x=105.17 y=71.86 h=4088 r=1.1 ring_y air
+place gr3.2 x=103.84 y=65.21 h=4002 r=1.1 ring_y air
+place gr3.3 x=102.51 y=58.57 h=3645 r=1.1 ring_y air
+place gr3.4 x=101.5 y=51.97 h=2917 r=1.1 ring_y air
+place gr3.5 x=101.5 y=45.52 h=2178 r=1.1 ring_y air
+place gr3.6 x=98.27 y=40.89 h=1992 r=1.1 ring_x air
+place gr3.7 x=92.39 y=38.96 h=2507 r=1.1 ring_x air
+place gr3.8 x=90.27 y=34.21 h=3268 r=1.1 ring_x air
+place gr3.9 x=83.68 y=32.64 h=3740 r=1.1 ring_x air
+place gr3.10 x=77.09 y=31.07 h=3966 r=1.1 ring_x air
+place gr3.11 x=70.5 y=29.5 h=4096 r=1.1 ring_x air
+place gl1.s x=42.27 y=34.59 h=6080 r=1.6 ring_y air
+place gl1.1 x=36.5 y=41.5 h=5248 r=1.8 pad roof
+place gl1.2 x=40.5 y=44.5 h=2048 r=1.8 pad roof
+place gl1.3 x=46.5 y=51.5 h=2048 r=1.8 pad roof
+place gl2.s x=35.55 y=115.09 h=3392 r=1.6 ring_x air
+place gl2.1 x=28.5 y=109.5 h=2560 r=1.8 pad roof
+place gl2.2 x=27.5 y=104.5 h=2048 r=1.8 pad roof
+place gl2.3 x=36.5 y=97.5 h=2048 r=1.8 pad roof
+place gk1.s x=29.5 y=52.5 h=400 r=1.6 ring_y car
+place gk1.1 x=29.5 y=36.5 h=0 r=2.5 car
+place gk1.2 x=29.5 y=21.5 h=0 r=2.5 car
+place gk1.3 x=11.5 y=21.5 h=0 r=2.5 car
+place gk2.s x=88.5 y=35.5 h=400 r=1.6 ring_x car
+place gk2.1 x=74.5 y=35.5 h=0 r=2.5 car
+place gk2.2 x=60.5 y=35.5 h=0 r=2.5 car
+place gk2.3 x=60.5 y=44.5 h=0 r=2.5 car
+place gk2.4 x=60.5 y=54.5 h=0 r=2.5 car
+place gc1.1 x=78.5 y=54.5 h=ground r=1.5 pick
+place gc1.2 x=78.5 y=60.5 h=ground r=1.5 pick
+place gc1.3 x=79.5 y=47.5 h=ground r=1.5 pick
+place gc1.4 x=78.5 y=41.5 h=ground r=1.5 pick
+place gc1.5 x=66.5 y=42.5 h=ground r=1.5 pick
+place gc1.6 x=59.5 y=48.5 h=ground r=1.5 pick
+place gc1.s x=73.5 y=54.5 h=ground r=1.5 pad foot
+zone gs1.z x=34..47 y=104..117
+place gs1.s x=37.5 y=107.5 h=ground r=1.5 pad car
+place gm1.s x=119.81 y=108.49 h=9024 r=1.6 ring_y air
+place gm1.1 x=119.5 y=99.5 h=8192 r=1.8 pad roof
+place gm2.s x=117.16 y=86.52 h=7744 r=1.6 ring_y air
+place gm2.1 x=116.5 y=95.5 h=6528 r=1.8 pad roof
+place gm3.s x=119.19 y=70.76 h=9152 r=1.6 ring_x air
+place gm3.1 x=114.5 y=74.5 h=6528 r=1.8 pad roof
+place gm4.s x=32.5 y=45.5 h=400 r=1.6 ring_y car
+place gm4.1 x=32.5 y=32.5 h=0 r=2.5 car
+place gm4.2 x=32.5 y=20.5 h=0 r=2.5 car
+place gm4.3 x=32.5 y=7.5 h=0 r=2.5 car
+zone gm5.z x=58..71 y=66..79
+place gm5.s x=57.5 y=79.5 h=ground r=1.5 pad car
+zone gm6.z x=8..21 y=58..71
+place gm6.s x=14.5 y=61.5 h=ground r=1.5 pad car
+place kc.1 x=50.5 y=112.5 h=0 r=2.5 pick car
+place kc.2 x=86.5 y=112.5 h=0 r=2.5 car
+place kb.1 x=25.5 y=90.5 h=0 r=3 spawn car
+place kb.2 x=25.5 y=99.5 h=0 r=3 spawn car
+place kb.3 x=14.5 y=112.5 h=0 r=3 spawn car
+place kr.1 x=66.5 y=80.5 h=3584 r=1.1 ring_x air
+place kr.2 x=61.28 y=84.72 h=2983 r=1.1 ring_x air
+place kr.3 x=56.04 y=88.84 h=2143 r=1.1 ring_x air
+place kr.4 x=50.17 y=91.5 h=1913 r=1.1 ring_x air
+place kr.5 x=44.49 y=89.49 h=1910 r=1.1 ring_x air
+place kr.6 x=41.07 y=83.78 h=1761 r=1.1 ring_y air
+place kr.7 x=36.79 y=79.5 h=1870 r=1.1 ring_x air
+place kr.8 x=30.99 y=77.3 h=2382 r=1.1 ring_x air
+place kr.9 x=26.12 y=73.04 h=2876 r=1.1 ring_y air
+place kr.10 x=24.6 y=66.67 h=3029 r=1.1 ring_y air
+place kr.11 x=23.57 y=59.98 h=3173 r=1.1 ring_y air
+place kr.12 x=23.98 y=53.24 h=3565 r=1.1 ring_y air
+place kr.13 x=24.5 y=46.5 h=4096 r=1.1 ring_y air
+place kd.1 x=73.5 y=79.5 h=ground r=1.5 pick
+place kd.2 x=93.5 y=102.5 h=ground r=1.5 pick
+place kd.3 x=69.5 y=107.5 h=ground r=1.5 pick
+place kx.1 x=31.5 y=41.5 h=ground r=1.5 pick
+place kx.2 x=48.5 y=41.5 h=ground r=1.5 pick
+place kx.3 x=40.5 y=57.5 h=ground r=1.5 pick
+place kx.drop x=37.5 y=55.5 h=ground r=2 point foot
+place kt.s x=56.5 y=35.5 h=0 r=3 spawn car
+place kt.e x=88.5 y=35.5 h=0 r=3 car

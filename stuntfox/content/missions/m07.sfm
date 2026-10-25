@@ -1,0 +1,38 @@
+
+act bh "BEACHHEAD" map=7 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "BEACHHEAD" "VEX HAS ARMOUR NOW. ROOK SAYS DO NOT\nPANIC. DUSTY SAYS PANIC A LITTLE."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE BEACH"
+  finish
+
+act tb "TANK BUSTER" map=7 act=2 giver=nova par=auto pay=350 score=60 fail=time start=a2.gate mode=fly
+  brief "TANK BUSTER" "FIVE PIRATE TANKS ON FIVE CORNERS.\nNOVA SAYS: AIM FOR THE MIDDLE."
+  destroy a2.t1..a2.t5 type=11 "BUST THE TANKS"
+  finish
+
+act sl "SUPPLY LINE" map=7 act=3 giver=dusty par=auto pay=400 score=60 fail=time start=a3.beacon mode=drive
+  brief "SUPPLY LINE" "DUSTY LEFT A TANK BY THE ROAD. TAKE\nIT EAST ALONG THE COAST. SLOWLY."
+  spawnveh a3.tank type=11
+  enter drive veh=11 "GET IN THE TANK"
+  check a3.1..a3.4 "DRIVE THE LINE"
+  finish
+
+act bg "BRIDGEHEAD" map=7 act=4 giver=quill par=auto pay=450 score=70 fail=death start=a4.gate mode=fly
+  brief "BRIDGEHEAD" "HOLD THE FLAT ROOF. THE TANKS COME\nIN TWO WAVES. QUILL BRINGS TEA."
+  destroy a4a.1..a4a.3 type=11 "FIRST TANK WAVE"
+  defend a4.tower hp=40 secs=30 "HOLD THE ROOF"
+  destroy a4b.1..a4b.3 type=11 "SECOND TANK WAVE"
+  defend a4.tower hp=40 secs=30 "HOLD THE ROOF"
+  finish
+
+act ac "AIR COVER" map=7 act=5 giver=pip par=auto pay=500 score=70 fail=escort,death start=a5.gate mode=fly
+  brief "AIR COVER" "A SUPPLY TRUCK RUNS THE COAST ROAD.\nSHADOW IT. THE RAIDERS WILL TRY."
+  escort a5.s a5.e type=15 "COVER THE TRUCK"
+  foes a5.foes n=6 kind=raider "SHOOT THE RAIDERS"
+  finish
+
+act ic "IRON COMET" map=7 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "IRON COMET" "THE IRON COMET IS OVER THE BAY.\nVEX CALLS IT A SURPRISE. IT IS A BOSS."
+  boss a6.boss boss=6 "DOWN THE COMET"
+  dock "DOCK UP"
+  finish

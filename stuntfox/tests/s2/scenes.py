@@ -1,7 +1,7 @@
 """The first minute on foot, in a car and in the Arwing, the same inputs on any build: a picture and the position every
 second, saved under $OUT and in $OUT/scenes_$TAG.json. tests/s2/scenecmp.py sets two runs side by side.
 
-    SP=.. OUT=dir TAG=name [SKEW=frames] ROM=x.gba ELF=x.elf python3 tests/s2/scenes.py      (from stuntfox/)
+    SP=.. OUT=dir TAG=name [SKEW=frames] [MAP=n] ROM=x.gba ELF=x.elf python3 tests/s2/scenes.py      (from stuntfox/)
 
 SKEW starts the script that many frames late: two runs of one build a few frames apart show how much of a difference
 between two builds is only where in the frame the first key landed.
@@ -14,6 +14,8 @@ OUT, TAG, SKEW = os.environ['OUT'], os.environ['TAG'], int(os.environ.get('SKEW'
 WANT = os.environ.get('SCENES', 'foot,car,arwing').split(',')
 res = {}
 merged_state(e)
+if os.environ.get('MAP'):
+    gstate(int(os.environ['MAP']))              # (the first minute of another map)
 run(30 + SKEW)
 base = e.save_state()
 fm_start(TAG)

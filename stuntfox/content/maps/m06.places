@@ -1,0 +1,45 @@
+map 6
+# Desert Deathmatch (map 6), chapter 8. Sand, dunes, a long raised path at x91-96, an oasis at x52 y84-98.
+# act 1 SANDFALL: down onto the open sand west of the mesa wall
+place a1.pad x=60.5 y=56.5 h=ground r=2 pad
+place a1.s x=52 y=46 h=30000 r=2.5 ring_h air
+# a1: drop rings from (52,46,30000) to (60.5,56.5,3300)
+place a1.1 x=54.12 y=48.62 h=20325 r=2 ring air
+place a1.2 x=56.25 y=51.25 h=14650 r=2 ring air
+place a1.3 x=58.38 y=53.88 h=8975 r=2 ring air
+place a1.4 x=60.5 y=56.5 h=3300 r=2 ring air
+# act 2 CANYON DASH: down the x38/39 lane, across on y97/98, up the x70/71 lane
+# a2: lane runs through (38.5,62.5) (38.5,97.5) (70.5,97.5) (70.5,63.5)
+place a2.1 x=38.5 y=62.5 h=0 r=2.5 car
+place a2.2 x=38.5 y=79.5 h=0 r=2.5 car
+place a2.3 x=38.5 y=97.5 h=0 r=2.5 car
+place a2.4 x=54.5 y=97.5 h=384 r=2.5 car
+place a2.5 x=70.5 y=97.5 h=0 r=2.5 car
+place a2.6 x=70.5 y=80.5 h=0 r=2.5 car
+place a2.7 x=70.5 y=63.5 h=0 r=2.5 car
+place a2.gate x=38.5 y=58.5 h=ground+400 r=1.6 ring_y car
+# act 3 MESA HOP: the two flat roofs of the desert (2048 and 4096) and two sand pads between them
+place a3.gate x=84.5 y=28.5 h=5000 r=1.6 ring_y air
+place a3.p1 x=80.5 y=46.5 h=ground r=2 pad
+place a3.p2 x=86.5 y=81.5 h=2048 r=1.8 pad roof
+# ^ a3.p2 top 2048, 13 cells
+place a3.p3 x=60.5 y=97.5 h=ground r=2 pad
+place a3.p4 x=45.5 y=56.5 h=4096 r=1.8 pad roof
+# ^ a3.p4 top 4096, 12 cells
+# act 4 DESERT DEATHMATCH: eight cars at eight of the old start points, four and four
+place a4a.1 x=43.5 y=56.5 h=0 r=3 spawn car
+place a4a.2 x=47.5 y=72.5 h=0 r=3 spawn car
+place a4a.3 x=49.5 y=93.5 h=0 r=3 spawn car
+place a4a.4 x=58.5 y=66.5 h=0 r=3 spawn car
+place a4b.1 x=60.5 y=87.5 h=0 r=3 spawn car
+place a4b.2 x=63.5 y=49.5 h=0 r=3 spawn car
+place a4b.3 x=67.5 y=65.5 h=0 r=3 spawn car
+place a4b.4 x=72.5 y=90.5 h=0 r=3 spawn car
+place a4.beacon x=54.5 y=60.5 h=0 r=1.5 pad car
+# act 5 OASIS: the well on the east shore of the oasis pool
+place a5.well x=55.5 y=90.5 h=0 r=3 point foot
+place a5.gate x=44.5 y=88.5 h=3500 r=1.6 ring_x air
+place a5.foes x=56.5 y=74.5 h=3500 r=3 air
+# act 6 SAND CARRIER: the carrier over the dunes
+place a6.gate x=62.5 y=40.5 h=6200 r=1.6 ring_x air
+place a6.boss x=80.5 y=70.5 h=6600 r=3 air

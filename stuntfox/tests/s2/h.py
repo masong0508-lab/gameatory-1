@@ -60,6 +60,19 @@ def s2f():
                 story=story, air=air, sgstate=sgs, veh=veh, ticks=ticks, clock=clock, me=me)
 
 
+def mission_names(d):
+    """The mission keys (m3.gr1 ...) of a parsed blob: the blob's own, else the sidecar the build writes (the ROM's copy has none)."""
+    import json
+    names = d.get('names', [])[:len(d['missions'])]
+    if len(names) != len(d['missions']):
+        try:
+            with open(os.path.join(START, 'build', 'content', 'names.json')) as f:
+                names = json.load(f)
+        except OSError:
+            names = []
+    return names if len(names) == len(d['missions']) else ['#%d' % i for i in range(len(d['missions']))]
+
+
 class Check:
     """pass/fail lines; exit status 1 if any failed"""
     def __init__(self):

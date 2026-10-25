@@ -1,0 +1,52 @@
+map 1
+# Los Francos (map 1), chapter 3. Tops come from the atlas pads; lanes from its lane graph.
+# act 1 DOWNTOWN DROP: down the west face of the big block to the 8192 roof deck
+place a1.pad x=88.5 y=122.5 h=8192 r=2 pad roof
+# ^ a1.pad top 8192, 100 cells
+place a1.s x=94 y=98 h=30000 r=2.5 ring_h air
+# a1: drop rings from (94,98,30000) to (88.5,122.5,11492)
+place a1.1 x=92.9 y=102.9 h=23098 r=2 ring air
+place a1.2 x=91.8 y=107.8 h=20196 r=2 ring air
+place a1.3 x=90.7 y=112.7 h=17295 r=2 ring air
+place a1.4 x=89.6 y=117.6 h=14393 r=2 ring air
+place a1.5 x=88.5 y=122.5 h=11492 r=2 ring air
+# act 2 BOULEVARD BLITZ: east along y48/49, back west to the x98/99 lane, north, then west along y15/16
+# a2: lane runs through (9.5,48.5) (124.5,48.5) (124.5,49.5) (99.5,49.5) (99.5,16.5) (33.5,16.5)
+place a2.1 x=9.5 y=48.5 h=0 r=2.5 car
+place a2.2 x=32.5 y=48.5 h=0 r=2.5 car
+place a2.3 x=55.5 y=48.5 h=0 r=2.5 car
+place a2.4 x=78.5 y=48.5 h=0 r=2.5 car
+place a2.5 x=101.5 y=48.5 h=0 r=2.5 car
+place a2.6 x=124.5 y=48.5 h=0 r=2.5 car
+place a2.7 x=124.5 y=49.5 h=0 r=2.5 car
+place a2.8 x=111.5 y=49.5 h=0 r=2.5 car
+place a2.9 x=99.5 y=49.5 h=0 r=2.5 car
+place a2.10 x=99.5 y=32.5 h=0 r=2.5 car
+place a2.11 x=99.5 y=16.5 h=0 r=2.5 car
+place a2.12 x=77.5 y=16.5 h=0 r=2.5 car
+place a2.13 x=55.5 y=16.5 h=0 r=2.5 car
+place a2.14 x=33.5 y=16.5 h=0 r=2.5 car
+place a2.gate x=6.5 y=48.5 h=ground+400 r=1.6 ring_x car
+# act 3 ROOFTOP COURIER: three roofs, far apart: the big deck, a mid roof, the north-west deck
+place a3.gate x=88.5 y=121.5 h=10000 r=1.6 ring_y air
+place a3.r1 x=88.5 y=122.5 h=8192 r=2 pad roof
+# ^ a3.r1 top 8192, 100 cells
+place a3.r2 x=64.5 y=53.5 h=4096 r=2 pad roof
+# ^ a3.r2 top 4096, 42 cells
+place a3.r3 x=40.5 y=8.5 h=3200 r=1.8 pad roof
+# ^ a3.r3 top 3200, 9 cells
+# act 4 BLACK COMET CARS: two cars by the phones on the avenue, two by the harbour road
+place a4.p1 x=64.5 y=58.5 h=0 r=3 spawn car
+place a4.p2 x=64.5 y=63.5 h=0 r=3 spawn car
+place a4.p3 x=31.5 y=113.5 h=0 r=3 spawn car
+place a4.p4 x=31.5 y=120.5 h=0 r=3 spawn car
+place a4.beacon x=52.5 y=62.5 h=0 r=1.5 pad car
+# act 5 ESCORT THE CORE: the van runs the x22/23 lane south, then east to (58,118)
+place a5.van x=22.5 y=93.5 h=0 r=3 spawn car
+place a5.end x=58.5 y=118.5 h=0 r=3 car
+place a5.gate x=20.5 y=90.5 h=9000 r=1.6 ring_y air
+# act 6 TOWER SIEGE: four turrets on the 8192 roofs, then the barge
+place a6.t x=118.5 y=106.5 h=8192 r=2 pad roof
+# ^ a6.t top 8192, 64 cells
+place a6.gate x=108.5 y=96.5 h=11000 r=1.6 ring_y air
+place a6.boss x=117.5 y=110.5 h=10200 r=3 air

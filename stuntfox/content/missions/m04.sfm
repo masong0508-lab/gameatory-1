@@ -1,0 +1,35 @@
+
+act ed "EL DROP" map=4 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "EL DROP" "THE MONEY MEN LIVE UP HIGH. LUCKY WE\nFLY. THE EL KEEPS THE CITY HONEST."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND UNDER THE EL"
+  finish
+
+act le "LOOP THE EL" map=4 act=2 giver=pip par=auto pay=350 score=50 fail=time start=a2.beacon mode=drive
+  brief "LOOP THE EL" "PIP: THE RAISED ROAD IS EMPTY. DRIVE\nIT THERE AND BACK BEFORE IT WAKES UP."
+  check a2.1..a2.8 "RIDE THE EL"
+  finish
+
+act fs "FOUR SPIRES" map=4 act=3 giver=nova par=auto pay=400 score=60 fail=time start=a3.gate mode=fly
+  brief "FOUR SPIRES" "NOVA: FOUR TALL SPIRES. KEEP THE\nARWING ABOVE THE TOPS AND SHOW OFF."
+  rings a3.1..a3.8 "FLY THE SPIRES"
+  finish
+
+act gl "GANGLAND" map=4 act=4 giver=dusty par=auto pay=450 score=60 fail=time start=a4.beacon mode=drive
+  brief "GANGLAND" "SIX GANG CARS BETWEEN THE TOWERS.\nDUSTY WANTS THEM IN SMALL PIECES."
+  destroy a4.p1..a4.p6 type=0 "WRECK THE GANG"
+  finish
+
+act bo "BLACKOUT" map=4 act=5 giver=quill par=auto pay=500 score=70 fail=death start=a5.gate mode=fly
+  brief "BLACKOUT" "THE PIRATES WANT THE POWER BOXES.\nGUARD EACH ONE. WE NEED THE LIGHTS."
+  foes a5.foes n=6 kind=raider "SHOOT THE RAIDERS"
+  defend a5.b1 hp=30 secs=30 "GUARD BOX ONE"
+  defend a5.b2 hp=30 secs=30 "GUARD BOX TWO"
+  defend a5.b3 hp=30 secs=30 "GUARD BOX THREE"
+  finish
+
+act co "CARRIER OVER CITY" map=4 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "CARRIER OVER CITY" "A PIRATE CARRIER HANGS OVER THE BLOCK.\nBRING IT DOWN. GENTLY. NOT GENTLY."
+  boss a6.boss boss=3 "DOWN THE CARRIER"
+  dock "DOCK UP"
+  finish

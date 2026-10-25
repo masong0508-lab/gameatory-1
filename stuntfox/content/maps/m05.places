@@ -1,0 +1,54 @@
+map 5
+# Woods (map 5), chapter 5. Three 8192 blocks at x36-54 y15-24, a lake at x7-26 y57-72, long logging roads on the lanes.
+# act 1 TREETOP DROP: down onto the middle 8192 block
+place a1.pad x=45.5 y=20.5 h=8192 r=2 pad roof
+# ^ a1.pad top 8192, 50 cells
+place a1.s x=45 y=40 h=30000 r=2.5 ring_h air
+# a1: drop rings from (45,40,30000) to (45.5,20.5,11492)
+place a1.1 x=45.17 y=33.5 h=21164 r=2 ring air
+place a1.2 x=45.33 y=27 h=16328 r=2 ring air
+place a1.3 x=45.5 y=20.5 h=11492 r=2 ring air
+# act 2 LAKE SKIM: six rings low over the lake, the ceiling at 900
+zone a2.lake x=6..28 y=56..74
+place a2.gate x=11.5 y=57.5 h=1300 r=1 ring_x air
+# a2: ring line through (15.5,57.5,480) (24.5,57.5,480) (25.5,62.5,480) (24,70.5,480)
+place a2.1 x=15.5 y=57.5 h=480 r=0.8 ring_x
+place a2.2 x=20 y=57.5 h=480 r=0.8 ring_x
+place a2.3 x=24.5 y=57.5 h=480 r=0.8 ring_x
+place a2.4 x=25.5 y=62.5 h=480 r=0.8 ring_y
+place a2.5 x=24.75 y=66.5 h=480 r=0.8 ring_y
+place a2.6 x=24 y=70.5 h=480 r=0.8 ring_y
+# act 3 LOGGING ROAD: east on the y53/54 lanes, south on x118, west on y73/74, down x94/95, west on y96/97
+# a3: lane runs through (6.5,53.5) (117.5,53.5) (118.5,54.5) (118.5,73.5) (94.5,73.5) (94.5,92.5) (94.5,96.5) (55.5,96.5)
+place a3.1 x=6.5 y=53.5 h=0 r=2.5 car
+place a3.2 x=28.5 y=53.5 h=0 r=2.5 car
+place a3.3 x=50.5 y=53.5 h=0 r=2.5 car
+place a3.4 x=73.5 y=53.5 h=0 r=2.5 car
+place a3.5 x=95.5 y=53.5 h=0 r=2.5 car
+place a3.6 x=117.5 y=53.5 h=0 r=2.5 car
+place a3.7 x=118.5 y=54.5 h=0 r=2.5 car
+place a3.8 x=118.5 y=73.5 h=0 r=2.5 car
+place a3.9 x=94.5 y=73.5 h=0 r=2.5 car
+place a3.10 x=94.5 y=92.5 h=0 r=2.5 car
+place a3.11 x=94.5 y=96.5 h=2048 r=2.5 car
+place a3.12 x=74.5 y=96.5 h=0 r=2.5 car
+place a3.13 x=55.5 y=96.5 h=0 r=2.5 car
+place a3.gate x=4.5 y=53.5 h=ground+400 r=1.6 ring_x car
+# act 4 POACHERS: three trucks, one at each of the old start points
+place a4.p1 x=41.5 y=74.5 h=0 r=3 spawn car
+place a4.p2 x=53.5 y=53.5 h=0 r=3 spawn car
+place a4.p3 x=89.5 y=61.5 h=0 r=3 spawn car
+place a4.beacon x=66.5 y=66.5 h=0 r=1.5 pad car
+# act 5 LOST PROBE: six parts in the woods round the pad, a walk of 83 cells
+# a5: 6 parts 12 cells apart (gen_misc.scatter_cells near the pad, seed a5s6080; the walk gen_misc.tour, kept under HUNT_ROUTE_MAX)
+place a5.1 x=59.5 y=78.5 h=ground r=1.5 pick
+place a5.2 x=47.5 y=75.5 h=ground r=1.5 pick
+place a5.3 x=55.5 y=66.5 h=ground r=1.5 pick
+place a5.4 x=67.5 y=66.5 h=ground r=1.5 pick
+place a5.5 x=57.5 y=91.5 h=ground r=1.5 pick
+place a5.6 x=43.5 y=88.5 h=ground r=1.5 pick
+place a5.beacon x=55.5 y=75.5 h=ground r=1.5 pad foot
+# act 6 AMBUSH: three waves over the woods, then the Gullwing mk2
+place a6.gate x=60.5 y=30.5 h=9000 r=1.6 ring_y air
+place a6.foes x=60.5 y=40.5 h=9400 r=3 air
+place a6.boss x=60.5 y=40.5 h=10200 r=3 air

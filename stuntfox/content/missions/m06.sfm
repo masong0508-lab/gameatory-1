@@ -1,0 +1,40 @@
+
+act sf "SANDFALL" map=6 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "SANDFALL" "THE PIRATES TRAIN IN THE SAND.\nBRING WATER AND A BIG GUN."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE SAND"
+  finish
+
+act cd "CANYON DASH" map=6 act=2 giver=pip par=auto pay=350 score=50 fail=time start=a2.gate mode=drive
+  brief "CANYON DASH" "PIP: DOWN ONE ROAD, ACROSS, UP THE\nOTHER. DUST IS A FEATURE."
+  race a2.1..a2.7 "RACE THE CANYON"
+  finish
+
+act mh "MESA HOP" map=6 act=3 giver=nova par=auto pay=400 score=60 fail=time start=a3.gate mode=fly
+  brief "MESA HOP" "FOUR STOPS: TWO ROOFS, TWO SAND PADS.\nBIG WINGS, SMALL PADS. NOVA WATCHES."
+  land a3.p1 "STOP ONE"
+  land a3.p2 "STOP TWO"
+  land a3.p3 "STOP THREE"
+  land a3.p4 "STOP FOUR"
+  finish
+
+act dd "DESERT DEATHMATCH" map=6 act=4 giver=dusty par=auto pay=450 score=60 fail=death start=a4.beacon mode=drive
+  brief "DESERT DEATHMATCH" "EIGHT PIRATE CARS, ONE DESERT. DUSTY\nSAYS BRING SNACKS. THEN WRECK THEM."
+  destroy a4a.1..a4a.4 type=0 "WRECK FOUR CARS"
+  destroy a4b.1..a4b.4 type=0 "WRECK FOUR MORE"
+  survive secs=20 "STAY ALIVE"
+  finish
+
+act oa "OASIS" map=6 act=5 giver=quill par=auto pay=500 score=70 fail=death start=a5.gate mode=fly
+  brief "OASIS" "THE ONLY WATER FOR TEN MILES. KEEP\nTHE PIRATES AWAY FROM THE WELL."
+  foes a5.foes n=3 kind=raider "FIRST RAIDERS"
+  defend a5.well hp=30 secs=30 "GUARD THE WELL"
+  foes a5.foes n=3 kind=raider "MORE RAIDERS"
+  defend a5.well hp=30 secs=30 "HOLD THE WELL"
+  finish
+
+act sc "SAND CARRIER" map=6 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "SAND CARRIER" "A PIRATE CARRIER CRAWLS OVER THE\nDUNES. TIME TO DISAGREE WITH IT."
+  boss a6.boss boss=3 "DOWN THE CARRIER"
+  dock "DOCK UP"
+  finish

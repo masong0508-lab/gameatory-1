@@ -1,0 +1,36 @@
+
+act td "TREETOP DROP" map=5 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "TREETOP DROP" "A SECRET WORKSHOP SITS UNDER THE\nTREES. DROP IN. KEEP YOUR WINGS DRY."
+  rings a1.1..a1.3 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE BLOCK"
+  finish
+
+act ls "LAKE SKIM" map=5 act=2 giver=nova par=auto pay=350 score=50 fail=ceil,time start=a2.gate mode=fly
+  brief "LAKE SKIM" "NOVA: STAY UNDER 900 OVER THE LAKE.\nFISH WILL WAVE. DO NOT WAVE BACK."
+  ceil 900 zone=a2.lake
+  rings a2.1..a2.6 strict "SKIM THE LAKE"
+  finish
+
+act lr "LOGGING ROAD" map=5 act=3 giver=pip par=auto pay=400 score=60 fail=time start=a3.gate mode=drive
+  brief "LOGGING ROAD" "PIP: THE LONGEST ROAD IN THE WOODS.\nNO BRAKES, NO REGRETS."
+  race a3.1..a3.13 "RACE THE ROAD"
+  finish
+
+act po "POACHERS" map=5 act=4 giver=dusty par=auto pay=450 score=60 fail=time start=a4.beacon mode=drive
+  brief "POACHERS" "THREE PIRATE TRUCKS ARE HAULING OFF\nTHE TREES. DUSTY HATES THAT."
+  destroy a4.p1..a4.p3 type=15 "WRECK THE TRUCKS"
+  finish
+
+act lp "LOST PROBE" map=5 act=5 giver=quill par=auto pay=500 score=70 fail=time start=a5.beacon mode=foot
+  brief "LOST PROBE" "QUILL'S PROBE BROKE INTO SIX PIECES\nAND FELL IN THE WOODS. FIND THEM."
+  collect a5.1..a5.6 "FIND THE PARTS"
+  finish
+
+act am "AMBUSH" map=5 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.gate mode=fly
+  brief "AMBUSH" "THEY WERE WAITING IN THE TREES.\nTHREE WAVES, THEN A BIGGER SHIP."
+  foes a6.foes n=4 kind=raider "FIRST WAVE"
+  foes a6.foes n=4 kind=raider "SECOND WAVE"
+  foes a6.foes n=4 kind=raider "THIRD WAVE"
+  boss a6.boss boss=0 "DOWN THE GULLWING"
+  dock "DOCK UP"
+  finish

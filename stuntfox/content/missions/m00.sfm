@@ -1,0 +1,36 @@
+
+act fd "FOX DOWN" map=0 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.beacon mode=foot
+  brief "FOX DOWN" "THE CITY CALLS. VEX RAN WITH A CORE.\nTAKE THE ARWING AND FOLLOW THE RIVER."
+  talk rook 1 "ROOK: VEX GRABBED A CORE AND RAN.\nGET TO THE ARWING. KEEP IT LOW."
+  enter fly "GET IN THE ARWING"
+  rings a1.1..a1.11 "FLY THE RIVER"
+  land a1.deck "LAND ON THE DECK"
+  finish
+
+act br "BRIDGE RUN" map=0 act=2 giver=pip par=auto pay=350 score=50 fail=time start=a2.gate mode=drive
+  brief "BRIDGE RUN" "PIP: THE PIRATE VAN IS HEADING FOR\nTHE BRIDGE. BEAT IT THERE."
+  race a2.1..a2.13 "RACE TO THE BRIDGE"
+  goto a2.bridge "ON THE BRIDGE"
+  finish
+
+act cs "COMET SIGHTING" map=0 act=3 giver=nova par=auto pay=400 score=60 fail=death start=a3.gate mode=fly
+  brief "COMET SIGHTING" "NOVA: THREE RAIDERS OVER THE TOWER.\nSHOW THEM HOW A FOX FLIES."
+  foes a3.foe n=3 kind=raider "SHOOT THE RAIDERS"
+  survive secs=20 "STAY ALIVE"
+  finish
+
+act jc "JUMP CORE" map=0 act=4 giver=dusty par=auto pay=450 score=60 fail=time start=a4.beacon mode=drive
+  brief "JUMP CORE" "DUSTY: THAT VAN HAS A CORE IN IT.\nCATCH IT BEFORE THE BRIDGE."
+  chase a4.van type=7 ticks=90 "CATCH THE VAN"
+  finish
+
+act ft "FIVE TOWERS" map=0 act=5 giver=nova par=auto pay=500 score=70 fail=time start=a5.gate mode=fly
+  brief "FIVE TOWERS" "KESTREL SET A LAP. UP, DOWN, UP,\nDOWN, THEN HOME ALONG THE COAST."
+  race a5.t1..a5.t5 a5h.1..a5h.10 "BEAT KESTREL"
+  finish
+
+act bc "BLACK COMET RAID" map=0 act=6 giver=rook par=auto pay=700 score=100 fail=death start=a6.gate mode=fly
+  brief "BLACK COMET RAID" "THE GULLWING IS HERE. BRING IT DOWN\nAND DOCK WITH THE STATION."
+  boss a6.boss boss=0 "DOWN THE GULLWING"
+  dock "DOCK UP"
+  finish

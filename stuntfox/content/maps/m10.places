@@ -1,0 +1,50 @@
+map 10
+# Isla Nublar (map 10), chapter 11, the last. A high plateau in the east, jungle roads in the west, the gate at x90 y52.
+# act 1 ISLAND DROP: down to the east plateau
+place a1.pad x=118.5 y=71.5 h=4480 r=2.5 pad roof
+# ^ a1.pad top 4480, 716 cells
+place a1.s x=104 y=60 h=30000 r=2.5 ring_h air
+# a1: drop rings from (104,60,30000) to (118.5,71.5,7780)
+place a1.1 x=107.62 y=62.88 h=21445 r=2 ring air
+place a1.2 x=111.25 y=65.75 h=16890 r=2 ring air
+place a1.3 x=114.88 y=68.62 h=12335 r=2 ring air
+place a1.4 x=118.5 y=71.5 h=7780 r=2 ring air
+# act 2 JUNGLE RUN: the south road east, up to y101, then the long road north
+# a2: lane runs through (50.5,109.5) (88.5,109.5) (88.5,101.5) (76.5,101.5) (76.5,38.5)
+place a2.1 x=50.5 y=109.5 h=0 r=2.5 car
+place a2.2 x=69.5 y=109.5 h=0 r=2.5 car
+place a2.3 x=88.5 y=109.5 h=0 r=2.5 car
+place a2.4 x=88.5 y=101.5 h=0 r=2.5 car
+place a2.5 x=76.5 y=101.5 h=0 r=2.5 car
+place a2.6 x=76.5 y=85.5 h=0 r=2.5 car
+place a2.7 x=76.5 y=69.5 h=0 r=2.5 car
+place a2.8 x=76.5 y=54.5 h=0 r=2.5 car
+place a2.9 x=76.5 y=38.5 h=0 r=2.5 car
+place a2.gate x=48.5 y=109.5 h=ground+400 r=1.6 ring_x car
+# act 3 PIRATE BASE: six pirate vans parked along the jungle roads
+place a3.v1 x=20.5 y=4.5 h=0 r=3 spawn car
+place a3.v2 x=30.5 y=13.5 h=0 r=3 spawn car
+place a3.v3 x=30.5 y=37.5 h=0 r=3 spawn car
+place a3.v4 x=60.5 y=45.5 h=0 r=3 spawn car
+place a3.v5 x=76.5 y=56.5 h=0 r=3 spawn car
+place a3.v6 x=40.5 y=79.5 h=768 r=3 spawn car
+place a3.beacon x=32.5 y=24.5 h=0 r=1.5 pad car
+# act 4 GATE GENERATORS: the guard waves, and three tops near the gate
+place a4.gate x=50.5 y=52.5 h=8500 r=1.6 ring_x air
+place a4.f1 x=72.5 y=44.5 h=7600 r=3 air
+place a4.f2 x=88.5 y=56.5 h=8200 r=3 air
+place a4.g1 x=72.5 y=44.5 h=5248 r=2 pad roof
+# ^ a4.g1 top 5248, 86 cells
+place a4.g2 x=91.5 y=47.5 h=4096 r=2 pad roof
+# ^ a4.g2 top 4096, 46 cells
+place a4.g3 x=63.5 y=46.5 h=3200 r=2 pad roof
+# ^ a4.g3 top 3200, 52 cells
+# act 5 MOTHERSHIP: the pirate mothership over the gate
+place a5.gate x=60.5 y=40.5 h=10500 r=1.6 ring_x air
+place a5.boss x=90.5 y=52.5 h=10200 r=3 air
+# act 6 THE GATE: three rings through the lit gate, then home
+# a6: ring line through (70.5,52.5,8800) (80.5,52.5,9000) (90.5,52.5,9000)
+place a6.1 x=70.5 y=52.5 h=8800 r=1.4 ring_x
+place a6.2 x=80.5 y=52.5 h=9000 r=1.4 ring_x
+place a6.3 x=90.5 y=52.5 h=9000 r=1.4 ring_x
+place a6.gate x=62.5 y=52.5 h=8800 r=1.6 ring_x air

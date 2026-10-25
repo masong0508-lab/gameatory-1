@@ -36,6 +36,7 @@ static u16 hold_mis;               /* the challenge just finished, + 1: its beac
 #define FLOOR_NEVER 0x7f           /* a floor no one stands on */
 #define NTAG 6                     /* tagged Payback spawns alive at once */
 #define ROAM_CELLS 10
+#define ROAM_PER_TICK 2            /* missions the roam scan looks at a tick (a map's 30 or so: a beacon armed within 15 ticks of coming in range) */
 #define ACT_ROAM_CELLS 4           /* the act of a campaign-less map is shown only this near: an act standing armed costs a line and a beacon every frame */
 #define BAN_TICKS 220              /* a title banner is on the card's rows this long (measured: letters in at tick 22, out by 216) */
 #define HL_RANGE 48                /* the armed line says where the beacon is within this many cells; farther it is off (a line is ~3.5k cycles) */
@@ -963,10 +964,13 @@ static void armed_hud(const MisDef *d, const MsPlace *p)
         return;
     }
     const char *t = ms_text(d->title);
-    if (d->kind == MK_ACT && d->act && !(r->flags & RF_ROAM)) {
+    int tl = 0;
+    while (t[tl])
+        tl++;
+    if (d->kind == MK_ACT && d->act && !(r->flags & RF_ROAM) && tl + 6 <= HL_LEFT_MAX) {     /* ("ACT 3 " only where the whole title fits after it) */
         char *b = hud_buf;
         *b++ = 'A', *b++ = 'C', *b++ = 'T', *b++ = ' ', *b++ = '0' + d->act % 10, *b++ = ' ';
-        for (int i = 0; t[i] && b < hud_buf + HL_LEFT_MAX; i++)
+        for (int i = 0; t[i]; i++)
             *b++ = t[i];
         *b = 0;
         hl_text(hud_buf);
@@ -1012,8 +1016,38 @@ static void armed_tick(void)
     armed_hud(d, p);
 }
 
+/* one mission of the roam scan: arms it when it is a challenge or medal (or the demo act) whose beacon is within reach and nearer than cur; 1 when it did */
+static int roam_look(int i, s32 cur)
+{
+    MisRun *r = &ms_run;
+    const MisDef *d = ms_def(i);
+    int lim = ROAM_CELLS;
+    if (d && d->kind == MK_ACT && i + 1 == demo_act && !act_mis && !cp_mis_done(i))
+        lim = ACT_ROAM_CELLS;
+    else if (!d || (d->kind != MK_CHAL && d->kind != MK_MEDAL))
+        return 0;
+    if (d->map != s2f.map || d->start == NOPLACE || !d->nobj)
+        return 0;
+    if (d->kind == MK_MEDAL && cp_mis_done(i))
+        return 0;
+    const MsPlace *p = ms_place(d->start);
+    if (!p)
+        return 0;
+    V3 c = wpos(p);
+    s32 dd = ab(c.x - s2f.pos.x) + ab(c.z - s2f.pos.z);
+    if (hold_mis == i + 1) {                        /* (just finished: back only after the player has left its beacon) */
+        if (dd > lim * CELL_U)
+            hold_mis = 0;
+        return 0;
+    }
+    if (dd > lim * CELL_U || dd >= cur || (r->state == MS_ARMED && r->mis == i))
+        return 0;
+    arm(i, 1);
+    return 1;
+}
+
 /* the beacons of challenges and medals (and of a campaign-less map's first act, nearer in): one within ROAM_CELLS of the player and nearer than the one now armed takes the
-   stage (one mission looked at a frame); walk away, or nearer to the act's own beacon, and the act's comes back */
+   stage (two of the map's missions looked at a tick); walk away, or nearer to the act's own beacon, and the act's comes back */
 static void roam_scan(void)
 {
     MisRun *r = &ms_run;
@@ -1039,32 +1073,24 @@ static void roam_scan(void)
     }
     if (roam_off)
         return;
-    int i = r->rr;
-    if (++r->rr >= n)
-        r->rr = 0;
-    const MisDef *d = ms_def(i);
-    int lim = ROAM_CELLS;
-    if (d && d->kind == MK_ACT && i + 1 == demo_act && !act_mis && !cp_mis_done(i))
-        lim = ACT_ROAM_CELLS;
-    else if (!d || (d->kind != MK_CHAL && d->kind != MK_MEDAL))
-        return;
-    if (d->map != s2f.map || d->start == NOPLACE || !d->nobj)
-        return;
-    if (d->kind == MK_MEDAL && cp_mis_done(i))
-        return;
-    const MsPlace *p = ms_place(d->start);
-    if (!p)
-        return;
-    V3 c = wpos(p);
-    s32 dd = ab(c.x - s2f.pos.x) + ab(c.z - s2f.pos.z);
-    if (hold_mis == i + 1) {                        /* (just finished: back only after the player has left its beacon) */
-        if (dd > lim * CELL_U)
-            hold_mis = 0;
-        return;
+    int lo = 0, hi = n;                             /* (this map's missions: its chapter's range, about 30, so a beacon is found within a second) */
+    for (int c = 0; c < H->nchap; c++) {
+        const Chapter *ch = ms_chap(c);
+        if (ch->map == s2f.map && !(ch->flags & CH_RESERVED)) {
+            lo = ch->mis0, hi = lo + ch->nmis;
+            if (hi > n)
+                hi = n;
+            break;
+        }
     }
-    if (dd > lim * CELL_U || dd >= cur || (r->state == MS_ARMED && r->mis == i))
-        return;
-    arm(i, 1);
+    for (int k = 0; k < ROAM_PER_TICK && lo < hi; k++) {
+        int i = r->rr;
+        if (i < lo || i >= hi)
+            i = lo;
+        r->rr = i + 1 >= hi ? lo : i + 1;
+        if (roam_look(i, cur))
+            break;
+    }
 }
 
 void ms_tick(void)

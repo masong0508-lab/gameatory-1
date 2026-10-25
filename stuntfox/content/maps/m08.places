@@ -1,0 +1,73 @@
+map 8
+# Big Track (map 8), chapter 7. The circuit is the lane ring x3-6, x121-124, y2-5, y122-125; the infield is hills and low blocks.
+# act 1 GRID DROP: down into the open infield
+place a1.pad x=58.5 y=72.5 h=ground r=2 pad
+place a1.s x=56 y=56 h=30000 r=2.5 ring_h air
+# a1: drop rings from (56,56,30000) to (58.5,72.5,3300)
+place a1.1 x=56.62 y=60.12 h=20325 r=2 ring air
+place a1.2 x=57.25 y=64.25 h=14650 r=2 ring air
+place a1.3 x=57.88 y=68.38 h=8975 r=2 ring air
+place a1.4 x=58.5 y=72.5 h=3300 r=2 ring air
+# act 2 QUALIFYING: north up the west side, east along the top, south down the east side (358 cells)
+# a2: lane runs through (4.5,123.5) (4.5,3.5) (122.5,3.5) (122.5,123.5)
+place a2.1 x=4.5 y=123.5 h=0 r=2.5 car
+place a2.2 x=4.5 y=99.5 h=0 r=2.5 car
+place a2.3 x=4.5 y=75.5 h=0 r=2.5 car
+place a2.4 x=4.5 y=51.5 h=0 r=2.5 car
+place a2.5 x=4.5 y=27.5 h=0 r=2.5 car
+place a2.6 x=4.5 y=3.5 h=0 r=2.5 car
+place a2.7 x=28.5 y=3.5 h=0 r=2.5 car
+place a2.8 x=51.5 y=3.5 h=0 r=2.5 car
+place a2.9 x=75.5 y=3.5 h=0 r=2.5 car
+place a2.10 x=98.5 y=3.5 h=0 r=2.5 car
+place a2.11 x=122.5 y=3.5 h=0 r=2.5 car
+place a2.12 x=122.5 y=27.5 h=0 r=2.5 car
+place a2.13 x=122.5 y=51.5 h=0 r=2.5 car
+place a2.14 x=122.5 y=75.5 h=0 r=2.5 car
+place a2.15 x=122.5 y=99.5 h=0 r=2.5 car
+place a2.16 x=122.5 y=123.5 h=0 r=2.5 car
+place a2.gate x=4.5 y=120.5 h=ground+400 r=1.6 ring_y car
+# act 3 KESTRELS LAP: a whole lap of the circuit in the air, under 2000
+zone a3.zone x=3..124 y=3..124
+place a3.gate x=24.5 y=123.5 h=1300 r=1 ring_x air
+# a3: ground-following checkpoints along (34.5,123.5) (122.5,123.5) (122.5,4.5) (4.5,4.5) (4.5,123.5)
+place a3.1 x=34.5 y=123.5 h=4608 r=2 point air
+place a3.2 x=64 y=123.5 h=4608 r=2 point air
+place a3.3 x=93 y=123.5 h=5376 r=2 point air
+place a3.4 x=122.5 y=123.5 h=5376 r=2 point air
+place a3.5 x=122.5 y=93 h=5376 r=2 point air
+place a3.6 x=122.5 y=63.5 h=1152 r=2 point air
+place a3.7 x=122.5 y=34 h=1152 r=2 point air
+place a3.8 x=122 y=4.5 h=1152 r=2 point air
+place a3.9 x=92.5 y=4.5 h=6016 r=2 point air
+place a3.10 x=63 y=4.5 h=6016 r=2 point air
+place a3.11 x=33.5 y=4.5 h=1152 r=2 point air
+place a3.12 x=4.5 y=5 h=1152 r=2 point air
+place a3.13 x=4.5 y=35 h=1152 r=2 point air
+place a3.14 x=4.5 y=64.5 h=1152 r=2 point air
+place a3.15 x=4.5 y=94 h=1152 r=2 point air
+place a3.16 x=4.5 y=123.5 h=1152 r=2 point air
+# act 4 PIT CREW: five crates in the south infield, carried to the pit lane
+# a4: 5 spread picks in (30, 96, 100, 118) (seed 8)
+place a4.1 x=30.5 y=96.5 h=ground r=1.5 pick
+place a4.2 x=70.5 y=98.5 h=ground r=1.5 pick
+place a4.3 x=100.5 y=101.5 h=ground r=1.5 pick
+place a4.4 x=47.5 y=118.5 h=ground r=1.5 pick
+place a4.5 x=79.5 y=118.5 h=ground r=1.5 pick
+place a4.drop x=50.5 y=119.5 h=0 r=2 pad car
+place a4.beacon x=64.5 y=106.5 h=0 r=1.5 pad car
+# act 5 DEMOLITION DERBY: eight cars in the infield, four and four
+# a5a: 4 spread picks in (30, 30, 100, 64) (seed 3)
+place a5a.1 x=33.5 y=30.5 h=ground r=3 spawn
+place a5a.2 x=100.5 y=37.5 h=ground r=3 spawn
+place a5a.3 x=56.5 y=56.5 h=ground r=3 spawn
+place a5a.4 x=86.5 y=64.5 h=ground r=3 spawn
+# a5b: 4 spread picks in (30, 66, 100, 100) (seed 4)
+place a5b.1 x=84.5 y=66.5 h=ground r=3 spawn
+place a5b.2 x=48.5 y=67.5 h=ground r=3 spawn
+place a5b.3 x=88.5 y=99.5 h=ground r=3 spawn
+place a5b.4 x=30.5 y=100.5 h=ground r=3 spawn
+place a5.beacon x=64.5 y=63.5 h=0 r=1.5 pad car
+# act 6 KESTREL: the ace over the infield
+place a6.gate x=76.5 y=20.5 h=6200 r=1.6 ring_y air
+place a6.boss x=76.5 y=60.5 h=4600 r=3 air

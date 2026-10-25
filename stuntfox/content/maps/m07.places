@@ -1,0 +1,44 @@
+map 7
+# Tank Warfare (map 7), chapter 9. Sea to the east, flat bridgehead roofs, tanks at the old start points.
+# act 1 BEACHHEAD: down over the sea to the beach deck at x94-97 y88-98
+place a1.pad x=96.5 y=93.5 h=4096 r=2 pad roof
+# ^ a1.pad top 4096, 44 cells
+place a1.s x=108 y=76 h=30000 r=2.5 ring_h air
+# a1: drop rings from (108,76,30000) to (96.5,93.5,7396)
+place a1.1 x=105.12 y=80.38 h=21349 r=2 ring air
+place a1.2 x=102.25 y=84.75 h=16698 r=2 ring air
+place a1.3 x=99.38 y=89.12 h=12047 r=2 ring air
+place a1.4 x=96.5 y=93.5 h=7396 r=2 ring air
+# act 2 TANK BUSTER: tanks at five of the six old start points
+place a2.t1 x=9.5 y=55.5 h=0 r=3 spawn car
+place a2.t2 x=69.5 y=117.5 h=0 r=3 spawn car
+place a2.t3 x=5.5 y=5.5 h=0 r=3 spawn car
+place a2.t4 x=98.5 y=59.5 h=768 r=3 spawn car
+place a2.t5 x=117.5 y=5.5 h=0 r=3 spawn car
+place a2.gate x=40.5 y=40.5 h=6500 r=1.6 ring_x air
+# act 3 SUPPLY LINE: take the tank, drive the y=3 road east to x75
+place a3.beacon x=6.5 y=8.5 h=0 r=1.5 pad car
+place a3.tank x=10.5 y=8.5 h=0 r=2.5 spawn car
+# a3: lane runs through (14.5,3.5) (74.5,3.5)
+place a3.1 x=14.5 y=3.5 h=0 r=2.5 car
+place a3.2 x=34.5 y=3.5 h=0 r=2.5 car
+place a3.3 x=54.5 y=3.5 h=0 r=2.5 car
+place a3.4 x=74.5 y=3.5 h=0 r=2.5 car
+# act 4 BRIDGEHEAD: the flat roof at x81-85 y65-77 is the asset; tanks come up the x71 lane
+place a4.tower x=83.5 y=76.5 h=1920 r=3 point roof
+# ^ a4.tower top 1920, 43 cells
+place a4a.1 x=72.5 y=88.5 h=0 r=3 spawn car
+place a4a.2 x=79.5 y=86.5 h=0 r=3 spawn car
+place a4a.3 x=88.5 y=86.5 h=0 r=3 spawn car
+place a4b.1 x=66.5 y=80.5 h=0 r=3 spawn car
+place a4b.2 x=76.5 y=80.5 h=0 r=3 spawn car
+place a4b.3 x=90.5 y=80.5 h=0 r=3 spawn car
+place a4.gate x=60.5 y=64.5 h=4600 r=1.6 ring_x air
+# act 5 AIR COVER: the truck runs the x83/84 lane north
+place a5.s x=83.5 y=52.5 h=0 r=3 spawn car
+place a5.e x=83.5 y=6.5 h=0 r=3 car
+place a5.gate x=76.5 y=58.5 h=4200 r=1.6 ring_x air
+place a5.foes x=83.5 y=30.5 h=3600 r=3 air
+# act 6 IRON COMET: the iron boss over the bay
+place a6.gate x=40.5 y=58.5 h=5000 r=1.6 ring_x air
+place a6.boss x=60.5 y=60.5 h=4800 r=3 air

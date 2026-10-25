@@ -1,0 +1,26 @@
+# The campaign: eleven cities in order, and a twelfth reserved for the giant map of stage 3.
+#   chapter map=N flags=story,drop,final,reserved split=N hover=X,Y title="..." brief="line one\nline two"
+# split: the acts in Payback's first level of the map (3 in a story city, 6 in a rampage). hover: the cell the station hangs over.
+# A story city is a chapter of Payback's two story levels; the rest are its rampage.
+
+# The crew (talk and giver ids; station and campaign code use the same numbers)
+crew rook=1 pip=2 nova=3 dusty=4 quill=5 juno=6 kestrel=7
+
+# Unlock and story-flag numbers the acts use (the campaign code and the station read the same ones)
+const UNLOCK_QUARTERS = 1
+const UNLOCK_GHOST = 2
+const FLAG_KESTREL = 1
+const FLAG_FINALE = 2
+
+chapter map=0  flags=story       split=3 hover=62,30  title="FREEDOM CITY"      brief="CAPTAIN VEX IS STEALING JUMP CORES.\nFIND HER CREW BEFORE THE COMET RISES."
+chapter map=3  flags=drop        split=6 hover=100,20  title="KILLING ZONE"      brief="ROOK TURNED VEX'S TEST GROUND INTO\nA TRAINING DISTRICT. USE IT."
+chapter map=1  flags=story,drop  split=3 hover=94,98  title="LOS FRANCOS"       brief="THE PIRATES PAY IN GOLD. WE PAY IN\nBROKEN CARS AND BRUISED ROOFTOPS."
+chapter map=4  flags=drop        split=6 hover=90,90  title="LITTLE CHICAGO"    brief="THE MONEY MEN LIVE UP HIGH. GOOD\nTHING WE FLY. WATCH THE EL TRAINS."
+chapter map=5  flags=drop        split=6 hover=45,40  title="WOODS"             brief="A SECRET WORKSHOP SITS UNDER THE\nTREES. KEEP YOUR WINGS DRY."
+chapter map=2  flags=story,drop  split=3 hover=28,53  title="CORONA"            brief="THE CORES SLEEP IN A HARBOUR FORT.\nWE ARE NOT KNOCKING."
+chapter map=8  flags=drop        split=6 hover=56,56  title="BIG TRACK"         brief="A RIGGED RACE MOVES THE CORES.\nVEX SENT HER BEST PILOT."
+chapter map=6  flags=drop        split=6 hover=52,46  title="DESERT DEATHMATCH" brief="THE PIRATES TRAIN IN THE SAND.\nBRING WATER AND A BIG GUN."
+chapter map=7  flags=drop        split=6 hover=108,76  title="TANK WARFARE"      brief="VEX HAS ARMOUR NOW. ROOK SAYS DO NOT\nPANIC. DUSTY SAYS PANIC A LITTLE."
+chapter map=9  flags=drop        split=6 hover=99,92  title="REAL PARK"         brief="THE LAST CORES HIDE UNDER A PARK.\nPICNIC IS CANCELLED."
+chapter map=10 flags=drop,final  split=6 hover=104,60  title="ISLA NUBLAR"      brief="THE GATE IS LIT. END THIS, FOX.\nTHEN GO HOME."
+chapter map=11 flags=reserved    split=0 hover=0,0    title="THE BIG ONE"       brief="STAGE THREE. NOT YET."

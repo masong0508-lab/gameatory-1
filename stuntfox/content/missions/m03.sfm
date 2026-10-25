@@ -1,0 +1,44 @@
+
+act od "ORBITAL DROP" map=3 act=1 giver=rook par=auto pay=300 score=50 fail=death start=a1.s mode=space,fly
+  brief "ORBITAL DROP" "ROOK TURNED VEX'S TEST GROUND INTO A\nGYM. DIVE IN AND LAND ON THE RUNWAY."
+  rings a1.1..a1.4 "DIVE THROUGH RINGS"
+  land a1.pad "LAND ON THE RUNWAY"
+  finish
+
+act tr "TRENCH RUN" map=3 act=2 giver=nova par=auto pay=350 score=60 fail=time,death,ceil start=a2.gate mode=fly
+  brief "TRENCH RUN" "STAY UNDER THE SKYBRIDGES. THE WALLS\nARE NOT FRIENDLY."
+  ceil 3500 zone=a2.trench
+  rings a2.1..a2.8 strict "FLY THE TRENCH"
+  land a1.pad "LAND ON THE RUNWAY"
+  finish
+
+act sp "STUNT PARK OPEN" map=3 act=3 giver=dusty par=auto pay=400 score=60 fail=time start=a3.beacon mode=drive
+  brief "STUNT PARK OPEN" "DUSTY: LOOPS, A RAMP, A CANAL. GO\nMAKE A MESS OF THE PLACE."
+  group
+    goto a3.l1 "FIRST LOOP"
+    goto a3.l2 "SECOND LOOP"
+    goto a3.l3 "THIRD LOOP"
+  endgroup
+  jump cells=6 "JUMP THE CANAL"
+  stunt points=3000 zone=a3.kicker "KICKER ROW STUNTS"
+  finish
+
+act gp "SPEEDWAY GP" map=3 act=4 giver=pip par=auto pay=450 score=70 fail=time start=a4.gate mode=drive
+  brief "SPEEDWAY GP" "THREE LAPS UNDER THE OVERPASS.\nPIP BET HER LUNCH ON YOU."
+  race a4.1..a4.12 laps=3 "RACE THE OVAL"
+  finish
+
+act dh "DOCKS HEIST" map=3 act=5 giver=quill par=auto pay=500 score=70 fail=time start=a5.beacon mode=drive
+  brief "DOCKS HEIST" "FOUR PIRATE CRATES ON THE QUAY.\nTAKE EACH ONE TO OLD TOWN."
+  spawnveh a5.van type=7
+  crates a5.c1..a5.c4 drop=a5.drop "CRATE TO OLD TOWN"
+  finish
+
+act pd "PIT DEATHMATCH" map=3 act=6 giver=rook par=auto pay=800 score=100 fail=death start=a6.beacon mode=drive
+  brief "PIT DEATHMATCH" "SIX PIRATE CARS IN THE PIT. THEN\nTHE DROPSHIP SHOWS UP. RUDE."
+  destroy a6.p1..a6.p6 type=0 "WRECK THE PIRATES"
+  survive secs=20 "HOLD ON"
+  enter fly "TAKE THE ARWING"
+  boss a6.boss boss=1 "DOWN THE DROPSHIP"
+  dock "DOCK UP"
+  finish

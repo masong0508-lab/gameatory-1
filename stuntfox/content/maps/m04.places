@@ -1,0 +1,53 @@
+map 4
+# Little Chicago (map 4), chapter 4. The EL is the raised loop at car floor 3968 (x80 column, y118 row).
+# act 1 EL DROP: down the avenue to the broad roof under the EL
+place a1.pad x=85.5 y=120.5 h=2944 r=2 pad roof
+# ^ a1.pad top 2944, 228 cells
+place a1.s x=90 y=90 h=30000 r=2.5 ring_h air
+# a1: drop rings from (90,90,30000) to (85.5,120.5,6244)
+place a1.1 x=88.88 y=97.62 h=21061 r=2 ring air
+place a1.2 x=87.75 y=105.25 h=16122 r=2 ring air
+place a1.3 x=86.62 y=112.88 h=11183 r=2 ring air
+place a1.4 x=85.5 y=120.5 h=6244 r=2 ring air
+# act 2 LOOP THE EL: eight checkpoints on the raised road, x80 down and y118 across, and back
+# a2: raised road checkpoints at the deck floor
+place a2.1 x=80.5 y=88.5 h=3968 r=2 car
+place a2.2 x=80.5 y=103.5 h=3968 r=2 car
+place a2.3 x=80.5 y=117.5 h=3968 r=2 car
+place a2.4 x=96.5 y=118.5 h=3968 r=2 car
+place a2.5 x=111.5 y=118.5 h=3968 r=2 car
+place a2.6 x=96.5 y=118.5 h=3968 r=2 car
+place a2.7 x=80.5 y=117.5 h=3968 r=2 car
+place a2.8 x=80.5 y=100.5 h=3968 r=2 car
+place a2.beacon x=84.5 y=87.5 h=0 r=1.5 pad car
+# act 3 FOUR SPIRES: rings over the 10240 towers (the rings sit above the tops), A* between them
+place a3.gate x=37.5 y=123.5 h=9000 r=1.6 ring_y air
+# a3: ring course via (37.5,115.5,11700) (55.5,58.5,11700) (54.5,45.5,11700) (78.5,41.5,11700)
+place a3.1 x=37.5 y=115.5 h=11776 r=1.3 ring
+place a3.2 x=42 y=101.25 h=11776 r=1.3 ring
+place a3.3 x=46.5 y=87 h=11776 r=1.3 ring
+place a3.4 x=51 y=72.75 h=11776 r=1.3 ring
+place a3.5 x=55.5 y=58.5 h=11776 r=1.3 ring
+place a3.6 x=54.5 y=45.5 h=11776 r=1.3 ring
+place a3.7 x=66.5 y=43.5 h=11776 r=1.3 ring
+place a3.8 x=78.5 y=41.5 h=11776 r=1.3 ring
+# act 4 GANGLAND: six cars between the x65-70 towers
+place a4.p1 x=63.5 y=84.5 h=0 r=3 spawn car
+place a4.p2 x=63.5 y=90.5 h=0 r=3 spawn car
+place a4.p3 x=72.5 y=90.5 h=0 r=3 spawn car
+place a4.p4 x=63.5 y=100.5 h=0 r=3 spawn car
+place a4.p5 x=72.5 y=100.5 h=0 r=3 spawn car
+place a4.p6 x=72.5 y=84.5 h=0 r=3 spawn car
+place a4.beacon x=60.5 y=80.5 h=0 r=1.5 pad car
+# act 5 BLACKOUT: three roof boxes on the central towers, raiders on them
+place a5.gate x=52.5 y=72.5 h=10500 r=1.6 ring_x air
+place a5.b1 x=67.5 y=86.5 h=6784 r=2 point roof
+# ^ a5.b1 top 6784, 54 cells
+place a5.b2 x=69.5 y=97.5 h=7040 r=2 point roof
+# ^ a5.b2 top 7040, 48 cells
+place a5.b3 x=66.5 y=109.5 h=9088 r=2 point roof
+# ^ a5.b3 top 9088, 54 cells
+place a5.foes x=67.5 y=97.5 h=9500 r=3 air
+# act 6 CARRIER OVER CHICAGO: the carrier circles the 5120 block at x90-101 y36-47
+place a6.gate x=85.5 y=52.5 h=8600 r=1.6 ring_y air
+place a6.boss x=95.5 y=41.5 h=8200 r=3 air

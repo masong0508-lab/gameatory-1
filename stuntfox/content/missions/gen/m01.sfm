@@ -1,0 +1,69 @@
+chal gr1 "CLOUD CIRCUIT" map=1 par=auto pay=150 score=20 fail=time start=gr1.s mode=fly
+  rings gr1.1..gr1.10 "FLY THE RINGS"
+
+chal gr2 "WING DANCE" map=1 par=auto pay=200 score=30 fail=time start=gr2.s mode=fly
+  rings gr2.1..gr2.13 "FLY THE RINGS"
+
+chal gr3 "THE SQUEEZE" map=1 par=auto pay=250 score=40 fail=time start=gr3.s mode=fly
+  rings gr3.1..gr3.11 strict "FLY THE RINGS"
+
+chal gl1 "CHIMNEY CHASE" map=1 par=auto pay=150 score=20 fail=time start=gl1.s mode=fly
+  land gl1.1 "ROOF 1 OF 5"
+  land gl1.2 "ROOF 2 OF 5"
+  land gl1.3 "ROOF 3 OF 5"
+  land gl1.4 "ROOF 4 OF 5"
+  land gl1.5 "ROOF 5 OF 5"
+
+chal gl2 "ROOFTOP RALLY" map=1 par=auto pay=200 score=20 fail=time start=gl2.s mode=fly
+  land gl2.1 "ROOF 1 OF 4"
+  land gl2.2 "ROOF 2 OF 4"
+  land gl2.3 "ROOF 3 OF 4"
+  land gl2.4 "ROOF 4 OF 4"
+
+chal gk1 "TAILGATE RALLY" map=1 par=auto pay=200 score=30 fail=time start=gk1.s mode=drive
+  race gk1.1..gk1.4 "RACE THE LANES"
+
+chal gk2 "ROUND THE BLOCK" map=1 par=auto pay=250 score=30 fail=time start=gk2.s mode=drive
+  race gk2.1..gk2.5 "RACE THE LANES"
+
+chal gc1 "PARTS RUN" map=1 par=auto pay=150 score=20 fail=time start=gc1.s mode=foot
+  collect gc1.1..gc1.6 "GRAB THE PARTS"
+
+chal gs1 "STUNT SCHOOL" map=1 par=75 pay=200 score=30 fail=time start=gs1.s mode=drive
+  stunt points=2000 zone=gs1.z "SHOW SOME TRICKS"
+
+medal gm1 "HIGH ROOST" map=1 par=auto pay=200 score=20 start=gm1.s mode=fly
+  land gm1.1 "LAND ON THE TOP"
+
+medal gm2 "SKY PERCH" map=1 par=auto pay=200 score=20 start=gm2.s mode=fly
+  land gm2.1 "LAND ON THE TOP"
+
+medal gm3 "CROWN JEWEL" map=1 par=auto pay=200 score=20 start=gm3.s mode=fly
+  land gm3.1 "LAND ON THE TOP"
+
+medal gm4 "FAST AND FAIR" map=1 par=19 pay=200 score=20 fail=time start=gm4.s mode=drive
+  check gm4.1..gm4.4 "BEAT THE CLOCK"
+
+medal gm5 "RAMP RANGER" map=1 par=60 pay=200 score=20 fail=time start=gm5.s mode=drive
+  jump cells=6 "JUMP THE GAP"
+
+medal gm6 "CROWD PLEASER" map=1 par=90 pay=200 score=20 fail=time start=gm6.s mode=drive
+  stunt points=3000 zone=gm6.z "SHOW SOME TRICKS"
+
+contract kc "COURIER RUN" map=1 giver=pip par=auto pay=250 score=20 fail=time,vehlost mode=drive
+  deliver kc.1..kc.2 mode=drive "DELIVER THE PARCEL"
+
+contract kb "BOUNTY HUNT" map=1 giver=dusty par=auto pay=350 score=30 fail=time mode=drive
+  destroy kb.1..kb.3 type=0 "WRECK THE CARS"
+
+contract kr "RING TIME ATTACK" map=1 giver=nova par=auto pay=300 score=30 fail=time mode=fly
+  rings kr.1..kr.10 "FLY THE COURSE"
+
+contract kd "LEG WORK" map=1 giver=quill par=auto pay=200 score=20 fail=time mode=foot
+  deliver kd.1..kd.3 mode=foot "DELIVER IT"
+
+contract kx "BLAST CONTRACT" map=1 giver=dusty par=auto pay=300 score=30 fail=time mode=foot
+  crates kx.1..kx.3 drop=kx.drop "CARRY THE CRATES"
+
+contract kt "TRUCK ESCORT" map=1 giver=rook par=auto pay=450 score=40 fail=escort,time mode=drive
+  escort kt.s kt.e type=15 "ESCORT THE TRUCK"

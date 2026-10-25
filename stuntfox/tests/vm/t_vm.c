@@ -204,11 +204,11 @@ static void put_obj(void)                          /* the bot walks to the objec
 
 /* ---- a blob built here: for the cases the demo has no objective for ---- */
 typedef struct {
-    MisDef mis[16];
+    MisDef mis[64];
     MisObj obj[128];
     MsPlace pl[128];
     Chapter ch[2];
-    char *text[64];
+    char *text[160];
     int nmis, nobj, npl, ntext, nch;
 } Syn;
 static Syn syn;
@@ -401,7 +401,7 @@ static void case_roam(void)
     level(0);
     s2f.mode = DRIVE;
     s2f.pos = v3(14 * 1024, 0, 38 * 1024);
-    frames(14);                                    /* (one mission looked at a frame, the nearest taken) */
+    frames(14);                                    /* (the map's missions looked at a few a tick, the nearest taken) */
     ck(ms_state() == MS_ARMED && (ms_run.flags & RF_ROAM), "driving up to a challenge's beacon (within 10 cells, nearer than the act's) arms it");
     ck(ms_current() == 1, "the near one: STUNT 300");
     s2f.pos = v3(60 * 1024, 0, 60 * 1024);
@@ -414,6 +414,39 @@ static void case_roam(void)
     ms_dbg(10, 0);
     frames(14);
     ck(ms_state() == MS_ARMED, "roaming on again");
+}
+
+/* a real campaign has about 30 missions a map and 300 in all: the beacon of the last mission of the map's chapter arms within 15 ticks
+   whatever the other chapters hold (the scan looks at the map's own chapter only) */
+static void case_roam_chapter(void)
+{
+    syn_reset();
+    syn_pl(5, 5, 0, 1, PK_POINT);                   /* 0: the near beacon */
+    syn_pl(100, 100, 0, 1, PK_POINT);               /* 1: a far one */
+    syn_pl(60, 60, 0, 1, PK_POINT);                 /* 2: the objective's place */
+    int o = syn_obj(OP_GOTO, 2, 0, 1, 0, 0, 0, "GO");
+    static char t[64][8];
+    for (int m = 0; m < 60; m++) {                  /* chapter 0 (map 0): missions 0..29, chapter 1 (map 1): 30..59, the near one the last */
+        snprintf(t[m], sizeof t[m], "M%d", m);
+        syn_mis(m < 30 ? 0 : 1, MK_CHAL, t[m], m == 59 ? 0 : 1, MS_FOOT, o, 1, 0, 10, 1);
+    }
+    syn.ch[0] = (Chapter){0, CH_STORY, 0, 0, 0, 30, 0, 0, 0, 0, 1};
+    syn.ch[1] = (Chapter){1, 0, 0, 0, 30, 30, 0, 0, 0, 0, 0xffff};
+    syn.nch = 2;
+    syn_pack();
+    level(1);
+    s2f.mode = FOOT;
+    s2f.pos = v3(5 * 1024 + 512, 0, 5 * 1024 + 512);
+    int n = 0;
+    while (ms_state() != MS_ARMED && n < 64)
+        frames(1), n++;
+    ck(ms_state() == MS_ARMED && ms_current() == 59, "the last mission of the map's chapter arms by itself");
+    ck(n <= 16, "and within 16 ticks, not the 60 the whole blob took");
+    level(0);
+    s2f.pos = v3(100 * 1024 + 512, 0, 100 * 1024 + 512);
+    for (n = 0; n < 64 && ms_state() != MS_ARMED; n++)
+        frames(1);
+    ck(ms_state() == MS_ARMED && ms_current() < 30, "on map 0 only map 0's chapter is looked at");
 }
 
 static void case_range(void)
@@ -1229,6 +1262,8 @@ int main(int argc, char **argv)
     case_range();
     static u8 demo[1 << 16];
     memcpy(demo, s2_blob_store, 1 << 16);
+    case_roam_chapter();
+    memcpy(s2_blob_store, demo, 1 << 16);
     case_phone();
     case_carry();
     case_end();
