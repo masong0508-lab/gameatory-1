@@ -45,6 +45,7 @@ WEAK void st_hud(void) {}
 WEAK void st_ev(int ev, int a, int b) { (void)ev; (void)a; (void)b; }
 WEAK int st_dbg(int cmd, int arg) { (void)cmd; (void)arg; return -1; }
 WEAK int st_active(void) { return 0; }
+WEAK int st_sway(void) { return 256; }
 WEAK int sg_dbg(int cmd, int arg) { (void)cmd; (void)arg; return -1; }
 WEAK int sg_job_active(void) { return 0; }
 WEAK int sg_foe_spawn(int kind, V3 p, V3 home, int hp, int tag) { (void)kind; (void)p; (void)home; (void)hp; (void)tag; return -1; }

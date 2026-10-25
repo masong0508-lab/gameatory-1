@@ -251,9 +251,9 @@ for k in range(30):
 ck(r32(S['sg_state']) == 2, 'the Arwing docks', 'state %d' % r32(S['sg_state']))
 ck(events()['DOCK'] == 1, 'EV_DOCK raised once', 'x%d' % events()['DOCK'])
 run(60)
-for k in range(4):
+for k in range(5 if 'st_enter' in S else 4):
     tap('DOWN', hold=8, after=24)
-tap('A', hold=8, after=60)                            # LAUNCH (the fifth row, with no station built in)
+tap('A', hold=8, after=60)                            # LAUNCH (the fifth row; the sixth with the station built in)
 for k in range(40):
     run(15)
     if r32(S['sg_state']) == 0:

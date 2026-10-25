@@ -96,6 +96,19 @@ low gravity), six rocks and four beacons, all solid, and three sample objectives
 In the hangar Up / Down choose, A takes a job or buys (a second A confirms a purchase), B goes
 back. There is no barrel roll and no rudder here: L and R are the guns.
 
+Fox Station on foot: the hangar menu's STATION line (or B on the main menu) walks the fox out of the hangar into the station's hub,
+a long hall with a door to each room: OPS (the contracts board, the travel list, the briefing table, Rook), SHOP (the shipyard and
+paint consoles, Pip), NAV (the holo map, Nova), LOUNGE (the story so far, Dusty), MEDALS (the trophy plinths, Quill), COMMS (save,
+codes, messages, Juno) and BUNKS (Kestrel's log; locked until she joins the crew). D-pad walks, R runs, A talks to the crew or uses a
+console (A again to go on, B to cut a talk short), L opens the quick menu from anywhere, B goes back (a room to the hub, the hub to the
+hangar). The camera cuts between a few fixed viewpoints a room; it never turns, so the D-pad means the same on every screen, it holds
+a cut for half a second and a walker standing on a border does not make it flicker. The crew's talk follows the story (what has been
+done decides what they say) and then settles into chatter; the messages and Kestrel's log are in the consoles. Full-screen pages are
+held for a moment before they close, so mashing the buttons cannot make the screen flash. Nothing in the station can hurt the fox.
+Rooms are drawn in flat shades with no Payback tiles (the world renderer's look is untouched) at 30 frames a second; the hangar is the
+docked view as ever. The words and rooms are ROM data, built by `tools/content/station.py` from `tools/content/stgeo.py` (nothing from
+Payback is in the repo). `src/station.c`, `src/stationdraw.c`; `tests/s2/station.py`, `fps_station.py`, `flash_station.py`.
+
 How it fits: `src/merge.c` (the glue), `src/merge.ld` (which of Payback's memory it borrows),
 `src/keyhook.s`, and `build_merge()` in `build.py`, which redirects Payback's calls to its world
 renderer, keypad reader and palette fade. The title is STAR-FLYBACK: `tools/mklogo.py` draws it at build
@@ -157,6 +170,7 @@ Hold SELECT + START to see the frame rate.
   act where they happen, so the car pitches, rolls, flips and falls off the loop when it is
   too slow. Nothing is scripted.
 - `src/space.c`, `src/models.c`: sky by altitude, stars, the station and asteroids.
+- `src/station.c`, `src/stationdraw.c` (stage 2, merge build): Fox Station on foot: the walker, the rooms' cameras and doors, the crew's talk and the consoles; the rooms and the talk are the ROM blob `tools/content/station.py` builds.
 - `src/spacewalk.c` (merge build): the space walk: the man out of the Arwing high up (the slow fall, floating, the jet pack), the moon, rocks and beacons.
 - `tools/sim/`: runs the physics on a PC for testing (`tools/sim/run.sh loop 200`).
 - `src/stage2.h`, `src/s2core.c`, `src/pbapi.h` (stage 2, merge build only): the frame state and

@@ -50,8 +50,6 @@ static SvW sw;
 static SvPick spick;
 enum { Q_OFF, Q_MAIN, Q_TRAVEL, Q_CODE, Q_ENTER };
 
-extern int st_enter(void) __attribute__((weak));   /* S's walker: it has its own quick menu, which opens ours (cp_open) */
-#define st_enter_present() (st_enter != 0)
 
 static int on(void) { return cp_prog.flags & CPF_ON; }
 int cp_active(void) { return on(); }
@@ -588,12 +586,17 @@ void cp_open(void)
     C.q = Q_MAIN, C.cur = C.top = C.confirm = 0;
 }
 
+void cp_open_at(int line)
+{
+    C.q = Q_MAIN, C.cur = line, C.top = C.confirm = 0;
+}
+
 int cp_dock_keys(u16 hit, u16 keys, int main_ok)
 {
     (void)keys;
     C.main_ok = main_ok;
     if (!C.q) {
-        if (main_ok && (hit & KEY_L) && !st_enter_present())
+        if (main_ok && (hit & KEY_L) && !st_active())     /* (in the station's rooms the walker's L is its own quick menu, which opens ours) */
             cp_open();
         return C.q != 0;
     }
@@ -729,7 +732,7 @@ void cp_hud(void)
 {
     if (!C.q) {
         int news = news_draw(124);
-        if (!news && C.main_ok && s2f.docked && !st_enter_present())
+        if (!news && C.main_ok && s2f.docked && !st_active())
             d_text(8, 127, "L: CAMPAIGN", HELP);
         return;
     }

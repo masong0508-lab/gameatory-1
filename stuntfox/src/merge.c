@@ -1291,7 +1291,7 @@ static void camera_update(const u8 *me)
     } else if (mode == FLY && sg_state == SG_DOCKED) {
         /* in the hangar: the camera sways slowly in front of the Arwing on its pad */
         M3 m;
-        myaw(&m, 41768 + fsin(frame_count * 40) * 4000 / ONE);       /* in front, to one side */
+        myaw(&m, 41768 + (fsin(frame_count * 40) * 4000 / ONE * st_sway() >> 8));       /* in front, to one side */
         /* (shifted sideways, so the Arwing stands clear of the menu on the left) */
         camera_look(vadd(sg_pad(), vscale(m.r, 300)), m.f, level, 800, 300, 40, 0, 0);
     } else if (mode == FLY) {

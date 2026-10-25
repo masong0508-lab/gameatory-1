@@ -52,6 +52,7 @@ int cp_ace(void);                  /* Ace mode: the finale was won (foes hp x 1.
 /* travel to chapter c (its index in the blob): 1 now (a rampage level is left through its end screens), 2 booked for the end
    of this story level, 0 not open */
 int cp_travel(int c);
+void cp_open_at(int line);         /* the same, on one of its lines */
 void cp_open(void);                /* the campaign's quick menu (the station's own menu opens it) */
 int cp_pw_apply(const char *code); /* a typed code: 1 and the campaign continues from it, 0 wrong */
 
