@@ -31,19 +31,16 @@
 #include "ragdoll.h"
 #include "radio.h"
 #include "settings.h"
+#include "stage2.h"
 
 /* ---- Payback (Europe), see payback-mod/docs/payback-notes.md ---- */
 
-#define PB_GRID (*(const u32 *volatile *)0x03000d60)       /* level cells: column pointers */
-#define PB_ENTITY ((u8 *const volatile *)0x03000c60)        /* the entity list */
-#define PB_NENTITY (*(volatile s16 *)0x0300000c)            /* the LAST INDEX in that list, not a count:
-                                                               list[0..PB_NENTITY] are all live (loop <=) */
-#define PB_CONTROLLED (*(volatile s16 *)0x02001db8)         /* the entity the player is or drives */
-#define PB_RESPAWN (*(volatile s16 *)0x02001e0c)            /* the player's respawn countdown: from 80 when
-                                                               Payback's death (or arrest) of the player
-                                                               starts, 0 once a new man stands there */
-#define PB_LEVEL_CLOCK (*(volatile u32 *)0x02001e00)        /* 30 a second; a level (or replay) starts it at 0 */
-#define PB_ARROW ((volatile s32 *)0x020025f0)               /* where the arrow over the player points (x, y) */
+/* (the addresses of the level cells' column pointers PB_GRID, the entity list PB_ENTITY and its LAST
+   INDEX PB_NENTITY (list[0..PB_NENTITY] are all live: loop <=), the entity the player is or drives
+   PB_CONTROLLED, the respawn countdown PB_RESPAWN (from 80 when Payback's death or arrest of the player
+   starts, 0 once a new man stands there) and the arrow PB_ARROW are in pbapi.h, with the rest of
+   Payback's addresses that stage 2 shares) */
+#define PB_LEVEL_CLOCK PB_CLOCK                             /* 30 a second; a level (or replay) starts it at 0 */
 #define PB_STREET 0x100                                     /* a column's height at street level (yoff: one map is lower) */
 #define PB_TILE_WATER 0x311                                 /* the tile of water (Payback's man sinks in it) */
 #define PB_IWRAM_IMAGE ((const u8 *)0x087d9ab8)             /* the ROM copy of Payback's IWRAM code */
@@ -76,10 +73,7 @@ typedef void (*Fade)(int);
 #define LOOK0 0x1a
 
 /* the buttons Payback decoded this tick (its keypad reader, 0x08072f68, which the build
-   hooks): one byte each, 1 = held */
-#define PB_BTN ((volatile u8 *)0x0200c3e4)
-enum { B_UP = 0, B_DOWN = 1, B_SELECT = 2, B_LEFT = 4, B_RIGHT = 5, B_A = 6, B_B = 7, B_R = 8,
-       B_START = 9, B_L = 10, B_SELECT2 = 11, B_N = 14 };
+   hooks): one byte each, 1 = held (PB_BTN and B_UP.. in pbapi.h) */
 
 /* the phone ticker at the bottom of the screen: ten 500-byte message slots, and the call that
    queues one (from payback-mod/asm/editor.c) */
@@ -262,7 +256,7 @@ static u32 pb_clock(void)
 
 /* ---- our side ---- */
 
-enum { FOOT, DRIVE, FLY };         /* FOOT: Payback moves the player (walking, its helicopter) */
+/* (FOOT, DRIVE, FLY: stage2.h. FOOT: Payback moves the player, walking or in its helicopter) */
 
 static u32 last_clock, tick_acc;
 static V3 cam_off, cam_up;
@@ -311,6 +305,7 @@ static u8 cam_keep;                /* on foot: it swings round you at its distan
 static s32 fade_d;                 /* Payback's last fade (0: none), see sf_fade */
 
 static int map_now;                /* the map whose world is loaded */
+static u16 air_run;                /* units flown level since the wheels (or gear) left the ground (EV_LAND) */
 static u8 chain_to;                /* 1 + the map the rampage campaign goes on to (sf_menu) */
 static u32 level_clock;            /* Payback's level clock at our last frame */
 static int mirror_load(void);
@@ -336,6 +331,7 @@ static void start(int map)
     cam_zoom = cam_dflt;
     __keep_canary[0] = CANARY;
     STATE[0] = MAGIC;
+    s2_level_enter(map);
 }
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
@@ -612,8 +608,7 @@ void sf_hook_wall(u8 *e, int hx, int hy)
    as it rings: so it gets a steady column of light over it (never the flicker of its object byte,
    which flips every tick), and a pointer at the edge of the screen while it is out of sight. Any
    goal but those, the level's target (0) and a hidden pickup (47) means a mission is on. */
-#define PB_GOALS ((const s32 *)0x0201a7e0)          /* 9 words a goal: id, kind, x, y (2048 a cell), floor, ... */
-#define PB_NGOALS (*(volatile s16 *)0x0201a7d8)
+/* (PB_GOALS: 9 words a goal: id, kind, x, y (2048 a cell), floor, ...; PB_NGOALS: pbapi.h) */
 #define RINGS 4
 static s32 ring_x[RINGS], ring_z[RINGS];           /* units */
 static u8 nring, ring_red;                         /* ring_red: bit i, phone i is a red one */
@@ -718,12 +713,12 @@ static void ring_pointer(const u8 *me)
 #define E_AMBIENT 0x5d             /* s8: -1 for the city's own people and traffic; 0 for the player and
                                       for vehicles a level placed (parked ones, the tank, the helicopter) */
 #define E_SCORE 0x90               /* s32: the player's score, in the record he controls */
-#define PB_BONUS (*(volatile s16 *)0x02001df0)              /* the score's bonus multiplier */
+#define PB_BONUS PB_MULT                                    /* the score's bonus multiplier */
 /* Payback's "the player hurt entity i" (0x0800020c), which its own weapons call after each hit:
    wanted stars, the kill score (1500 x the bonus multiplier, 2500 for the police), kill counts
    and the mission goals waiting on that entity (a kill target, or one that must not be hurt).
    1: the player did it on foot (we fly as Payback's man). Called once our frame is over. */
-#define PB_HURT ((void (*)(int, int))0x0800020d)
+#define PB_HURT pb_hurt
 static u8 hurt_q[8], hurt_n;       /* (8: a missile's splash can hurt a crowd in one frame) */
 
 static void hurt_send(void)
@@ -759,7 +754,10 @@ static int ent_hurt(u8 *e, int i, int dmg, u8 *me)
     } else
         hurt_q[hurt_n++] = i;
     s16 *hp = (s16 *)(e + E_HEALTH);
+    int alive = *hp > 0;
     *hp = *hp > dmg ? *hp - dmg : 0;
+    if (alive && !*hp)
+        s2_ev(EV_KILL, *(s32 *)(e + PBE_TAG), PB_DESC_K(entity_desc(e)));
     *(u8 **)(e + E_FOE) = me;
     if (is_person(e) && !*hp)
         e[E_STATE] = ST_DOWN;
@@ -1012,10 +1010,14 @@ static int chord_wait(void)
     return mode == DRIVE && ((radio.keys & 15) <= 6 || radio_chord());
 }
 
-void sf_keys(void)
+/* our memory is set up and whole (Payback's renderer reuses it on a map we do not draw) */
+int s2_ready(void)
 {
-    if (STATE[0] != MAGIC || __keep_canary[0] != CANARY)
-        return;
+    return STATE[0] == MAGIC && __keep_canary[0] == CANARY;
+}
+
+static void keys_main(void)
+{
     sf_guard[3] = 0;                                   /* a new tick (see sf_guard) */
     key_calls++;
     if (key_calls - frame_calls > 4 || fade_d) {
@@ -1106,6 +1108,15 @@ void sf_keys(void)
         if (PB_BTN[B_L] && !bail)
             bail_press();                              /* the car stops dead, or at speed he bails out */
     }
+}
+
+/* (stage 2's keys come last, whichever way keys_main left: a paused or faded tick too) */
+void sf_keys(void)
+{
+    if (!s2_ready())
+        return;
+    keys_main();
+    s2_keys();
 }
 
 /* ---- the camera ---- */
@@ -1310,6 +1321,7 @@ static void car_take(u8 *e)
     car_kind = vehicle_kind(e);
     car_boom = car_wet = 0;
     mode = DRIVE;
+    air_run = 0;                                   /* (the car and the ship share it) */
     ghost = GH_NONE;                               /* (back into the car rolling on empty: it stops) */
 }
 
@@ -1526,29 +1538,53 @@ static void car_fence(void)
 static int air_ticks, loop_top, upside_ticks;
 static s32 spin_pitch, spin_roll, spin_yaw;
 
+/* a stunt done: stage 2 hears of it whether or not the ticker has room for the shout; its points by kind */
+static void stunt(int kind, const char *s)
+{
+    static const u16 pts[] = {0, 300, 300, 300, 250, 300, 100, 500};
+    s2_ev(EV_STUNT, pts[kind], kind);
+    shout(s);
+}
+
+/* a car or the Arwing set down after air_run units level, on a roof or deck or not (bumps are no landing) */
+static void touched_down(Body *b, int roof, int ticks)
+{
+    if (ticks >= 12)
+        s2_ev(EV_LAND, air_run >> 7, roof || surface_fine(b->pos) > (300 << FX));
+    air_run = 0;
+}
+
 static void car_stunts(void)
 {
     Body *b = &car.b;
     if (car.in_water)
-        air_ticks = 0;                                 /* (sinking is no jump) */
+        air_ticks = air_run = 0;                       /* (sinking is no jump) */
     else if (car.wheels == 0) {
         air_ticks++;
         spin_pitch += vdot(b->w, b->m.r);
         spin_roll += vdot(b->w, b->m.f);
         spin_yaw += vdot(b->w, b->m.u);
+        s32 run = vlen(v3(b->vel.x, 0, b->vel.z)) >> FX;
+        air_run = air_run + run > 65535 ? 65535 : air_run + run;
     } else {
         if (air_ticks > 45 && car.wheels >= 2 && b->m.u.y > 8000) {
             s32 turn = 1544000;                        /* 0.9 of a turn, 1.18 radians */
             if (iabs(spin_pitch) > turn)
-                shout(spin_pitch > 0 ? "FRONT FLIP!" : "BACK FLIP!");
+                spin_pitch > 0 ? stunt(STUNT_FRONT_FLIP, "FRONT FLIP!") : stunt(STUNT_BACK_FLIP, "BACK FLIP!");
             else if (iabs(spin_roll) > turn)
-                shout("BARREL ROLL!");
+                stunt(STUNT_BARREL, "BARREL ROLL!");
             else if (iabs(spin_yaw) > turn)
-                shout("360 SPIN!");
+                stunt(STUNT_SPIN, "360 SPIN!");
             else if (air_ticks > 100)
-                shout("HUGE AIR!");
+                stunt(STUNT_HUGE_AIR, "HUGE AIR!");
             else
-                shout("BIG AIR!");
+                stunt(STUNT_BIG_AIR, "BIG AIR!");
+        }
+        if (air_ticks) {
+            int deck = 0;
+            for (int i = 0; i < 4; i++)
+                deck |= car.touch[i] == SURF_DECK;
+            touched_down(b, deck, air_ticks);
         }
         air_ticks = 0;
         spin_pitch = spin_roll = spin_yaw = 0;
@@ -1558,7 +1594,7 @@ static void car_stunts(void)
     if (loop_top && !car.on_loop && car.wheels >= 3) {
         loop_top = 0;
         if (b->m.u.y > 12000)
-            shout("LOOP THE LOOP!");
+            stunt(STUNT_LOOP, "LOOP THE LOOP!");
     }
     /* stuck on the roof or side: back on its wheels */
     if (b->m.u.y < 4000 && vlen(b->vel) < 1000)
@@ -1838,6 +1874,7 @@ static void board(u8 *me)
     mode = FLY;
     parked = 0;
     was_flying = 0;
+    air_run = 0;
     sg_state = SG_FLY;
     cam_cut = 1;                                   /* (swung round from where you stood, it can go through a wing) */
 }
@@ -1990,22 +2027,29 @@ static void ship_events(void)
     if (!ship.gear) {
         if (alt > 600)
             was_flying = 1;
+        s32 run = vlen(v3(b->vel.x, 0, b->vel.z)) >> FX;
+        air_run = air_run + run > 65535 ? 65535 : air_run + run;
     } else if (was_flying && vlen(b->vel) < (25 << FX) && ship.gear >= 2) {
         was_flying = 0;
+        touched_down(b, ship.gear_kind == SURF_DECK, 99);
         if (ship.gear_kind == SURF_DECK)
             sg_landed(&ship);
         else if (surface_fine(b->pos) > (300 << FX))
             sg_note("ROOFTOP LANDING!");
         else
             sg_note("Nice landing. Hold SELECT to get out.");
-    }
+    } else if (!was_flying)
+        air_run = 0;                                   /* (gear down, never high: a low hop is no flight) */
     if (alt > SPACE_HI && !in_space) {
         in_space = 1;
         told |= 1 << H_CLIMB;
         sg_note("SPACE! Fox Station is on the radar.");
+        s2_ev(EV_SPACE, 1, 0);
     }
-    if (alt < SPACE_LO)
+    if (alt < SPACE_LO && in_space) {
         in_space = 0;
+        s2_ev(EV_SPACE, 0, 0);
+    }
 }
 
 /* ---- drawing ---- */
@@ -3387,6 +3431,8 @@ static void step(u8 *me, int ticks)
             sg_tick(&ship, mirror_keys(keys), t ? 0 : hits);
             if (sg_state == SG_FLY)
                 ship_events();
+            else
+                air_run = 0;                           /* (docked, or down: no flight to land from) */
         }
         if (ghost == GH_CAR && mode != DRIVE)
             ghost_car();
@@ -3466,6 +3512,8 @@ static void level_enter(int map)
             t[13] = t[14], t[14] = ' ';
         sg_note(t);
     }
+    air_run = 0;
+    s2_level_enter(map);
 }
 
 /* The progress is checked once a frame against a copy at the top of EWRAM, past everything
@@ -3519,14 +3567,13 @@ static void progress_keep(void)
    reached, we answer instead: a rampage on the next map, at once. So one rampage runs through
    all eleven maps, the cities and then every multiplayer map, as a campaign. */
 #define PB_GAME_MENU ((int (*)(int))0x08037fe5)
-#define PB_LEVEL_END (*(volatile s16 *)0x02001e08)    /* 3: the level's target was reached */
-#define PB_MAP (*(volatile s16 *)0x02001d40)          /* the map rampage plays, 0..10 */
-#define PB_RAMPAGE (*(volatile u8 *)0x02001d39)
-#define PB_WAS_RAMPAGE (*(volatile u8 *)0x02001d3a)   /* Payback sets it as a rampage ends */
 #define MAPS 11
 
 int sf_menu(int arg)
 {
+    int r = s2_menu(arg);                              /* (stage 2: a level of its own choosing, or -1) */
+    if (r >= 0)
+        return r;
     int m = PB_MAP;
     if (PB_WAS_RAMPAGE && PB_LEVEL_END == 3 && m >= 0 && m < MAPS - 1) {
         PB_MAP = ++m;
@@ -3634,6 +3681,77 @@ static void sel_look(void)
     sel_seen = 1;
 }
 
+/* ---- stage 2 (stage2.h) ---- */
+
+/* s2f, as far as merge.c knows it: where the player is, how fast, what he drives; s2core.c has the rest. Speeds in
+   units a second: a car's or ship's fine/tick x 60 >> FX; a man's the change in his record since Payback's last
+   tick (2048 a cell, 30 a second: x 15 for the units) */
+static APART void s2_gather(const u8 *me, int paused)
+{
+    S2Frame *f = &s2f;
+    f->mode = mode;
+    f->docked = mode == FLY && sg_state == SG_DOCKED;
+    f->paused = paused || fade_d;
+    f->map = map_now;
+    f->sgstate = sg_state;
+    f->me = (void *)me;
+    f->airborne = 0;
+    f->veh = 0;
+    if (mode == FLY) {
+        f->pos = vshr(ship.b.pos, FX);
+        f->heading = heading_of(&ship.b.m);
+        f->speed = vlen(ship.b.vel) * 15 >> 6;
+        f->airborne = !ship.gear;
+    } else if (mode == DRIVE) {
+        f->pos = vshr(car.b.pos, FX);
+        f->heading = heading_of(&car.b.m);
+        f->speed = iabs(car.speed) * 15 >> 6;
+        f->airborne = !car.wheels;
+        if (car_ent)
+            f->veh = PB_DESC_K(entity_desc(car_ent));
+    } else if (me) {
+        const s32 *w = (const s32 *)me;
+        s32 a = iabs(w[E_X / 4] - w[E_PREV1 / 4]), b = iabs(w[E_Y / 4] - w[E_PREV1 / 4 + 1]);
+        f->pos = entity_pos(me);
+        f->heading = entity_heading(me);
+        f->speed = (a > b ? a + (b * 3 >> 3) : b + (a * 3 >> 3)) * 15;
+        if (is_vehicle(me))
+            f->veh = PB_DESC_K(entity_desc(me));
+    }
+}
+
+/* Move the player to p (our units, the height as the caller wants it) facing heading, in mode m (the mode now).
+   The Arwing goes anywhere, at rest. A man or a car goes by Payback's record, and Payback refuses a jump of
+   13 cells or more (measured by p25), so only under 12 cells: otherwise, or while he swims, bails out or is being
+   brought back, nothing moves. 1 if it moved */
+int s2_put_player(V3 p, int heading, int m)
+{
+    if (!s2_ready() || m != mode)
+        return 0;
+    cam_cut = 1;
+    if (m == FLY) {
+        ship.b.pos = v3(p.x << FX, p.y << FX, p.z << FX);
+        myaw(&ship.b.m, heading);
+        ship.b.vel = ship.b.w = v3(0, 0, 0);
+        return 1;
+    }
+    u8 *me = controlled();
+    if (!me || PB_RESPAWN > 0 || swimming || bail)
+        return 0;
+    V3 at = m == DRIVE ? vshr(car.b.pos, FX) : entity_pos(me);
+    if (iabs(p.x - at.x) >= 12 * CELL || iabs(p.z - at.z) >= 12 * CELL)
+        return 0;
+    if (m == DRIVE && car_ent == me) {
+        car_reset(&car, v3(p.x, p.y + 140, p.z), heading);
+        entity_put(car_ent, p, heading, v3(0, 0, 0));
+    } else {
+        man_put(me, p, heading);
+    }
+    *(u16 *)(me + E_Z) = 19904 - 2 * (p.y - world.yoff);
+    *(s16 *)(me + E_VZ) = 0;
+    return 1;
+}
+
 /* Called by sf_frame (keyhook.s) in place of Payback's world renderer, with that renderer's
    split-screen view: 0 when Payback is to draw this frame itself (on a map we have no world
    for), else we drew it. Payback's renderer then runs from sf_frame with Payback's own stack:
@@ -3709,11 +3827,26 @@ int sf_draw(int view)
         bail_frame(me, ticks);
         hint_now = hint_pick(me);
     }
+    s2_gather(me, paused);
+    s2_tick();                     /* (every frame: the mailbox and the clocks run through a pause too) */
     camera_move(ticks);
     camera_update(me ? me : hero && is_person(hero) ? hero : 0);
 
-    s32 alt = cam.pos.y;
     r_pmap = pb_pmap;
+    int v = s2_room_view();        /* a station room (1) or the picture as it was (2): 0 is the usual frame */
+    if (v == 2)
+        goto tail;
+    if (v) {
+        tex_on = 0, r_nofog = 1;   /* (flat shades, no Payback tiles, no fog) */
+        r_begin();
+        s2_room_draw();
+        r_flush_bg();
+        r_flush_fg();
+        r_end();
+        s2_hud();
+        goto tail;
+    }
+    s32 alt = cam.pos.y;
     tex_on = opt_tex;              /* Payback's tiles (they fade out with height, see tex.c) */
     r_nofog = alt > 16000;         /* (our fog colours are the sky's; in space there is none) */
     r_begin();
@@ -3738,6 +3871,7 @@ int sf_draw(int view)
     if (!hangar)
         draw_entities(me), draw_ladders(), rag_draw();   /* (the ladders after him: he is on top where they tie) */
     sg_draw(&ship);
+    s2_draw3d();
     /* the phone's pointer down in the city, by the view's eased height over it (see world_draw:
        by the ground straight under the camera it blinked over every roof) */
     if (view_alt > 6400) ring_high = 1;
@@ -3779,6 +3913,8 @@ int sf_draw(int view)
                 d_text(8, 44 + 10 * k, t[swim_msg][k], COLOR(M_GLOW, 3, 0));
         swim_hint = swim_hint > ticks ? swim_hint - ticks : 0;
     }
+    s2_hud();
+tail:
     if (fade_d && palette_plain())
         fade_d = 0;                /* Payback has put its colours back */
     sf_guard[0] = mode == FLY || bail || ghost == GH_CAR ? hero : 0;   /* (a body, or by his car rolling on) */

@@ -17,8 +17,8 @@
 #include "model.h"
 #include "palette.h"
 #include "world.h"
+#include "stage2.h"
 
-#define PB_GRID (*(const u32 *volatile *)0x03000d60)       /* level cells: column pointers */
 #define PB_OBJ ((const u8 *)0x08353f00)                     /* object descriptors, 0x3c a type */
 #define PB_SIN ((const s16 *)0x08666daa)                    /* Payback's sine and cosine: 5760 a turn, x 256 */
 #define PB_COS ((const s16 *)0x08669aaa)
@@ -535,8 +535,10 @@ void sf_crate_fx(int desc, int k1, int px, int py, int z, int ang, int n)
     int cx = px >> 11, cz = py >> 11, k = k1 - 1;
     if ((u32)g >= 0x02000000 && (u32)g < 0x0203c000 && (u32)cx < CITY && (u32)cz < CITY && (u32)k < 3) {
         const u8 *c = (const u8 *)g[cx * CITY + cz];
-        if ((u32)c >= 0x02000000)
+        if ((u32)c >= 0x02000000) {
             puff_put((cx * CITY + cz) << 2 | k, column_y(c, k), 1);
+            s2_ev(EV_KILL, cx << 7 | cz, EVK_BOX);
+        }
     }
     PB_BURST(desc, k1, px, py, z, ang, n);
 }

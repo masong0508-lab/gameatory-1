@@ -1,6 +1,8 @@
 # Payback memory our linker script must never place anything in.
-# One range per line: start-end (end exclusive), then what it is. tools/memguard.py reads this
-# after linking and fails the build on any overlap with our sections or merge.ld regions.
+# One range per line: [KIND] start-end (end exclusive), then what it is. KIND is FORBID (the default: no
+# word), RESERVE, SCRATCH or KEEP; tools/memguard.py has what each means. It reads this after linking and
+# fails the build on any overlap with our sections or merge.ld regions, and on a keep with less free than
+# stage 3's reserve and the margin (the KEEP line at the end).
 #
 # Seen by a watch of every load and store (phone missions on Freedom City in story and rampage,
 # the tank mission, story level 2, two arenas with painted phones, phones answered one after
@@ -36,3 +38,18 @@
 0x0201a7d8-0x0201b870  goal count, queue index, goal list (100 x 0x24) and the first 16 command-queue entries
 0x0201b870-0x0203c720  the rest of the command queue, which runs into heap 0 at its entry 110 (0x0201c720): per-cell occupancy, the map's column table
 0x0203c720-0x0203cfe8  VIEW REPLAY input recorder, as capped by the survival fix
+#
+# Stage 3 (big-map streaming) takes its buffers from the queue range above, which Payback's own play reaches
+# only as far as entry 11: a hand-over promised to it, so stage 2 stays out of it too (it is forbidden above
+# as well; the line says whose it is).
+RESERVE 0x0201b870-0x0201c720  stage 3: big-map streaming and its .bigram (command queue entries 16..109)
+#
+# Per-frame data only (a frame's scratch is rebuilt in the frame: nothing in these lives from one frame to the
+# next). scr is the tail of Payback's third pool, behind its effect records; scr2 lies between bits of its
+# mission data, its first 253 bytes under the crime report's sentence (see the line for it above).
+SCRATCH 0x02017fc4-0x02019404  scr: the frame's polygons, projected vertices, rows of the floor
+SCRATCH 0x020075a8-0x0200798c  scr2: what else a frame rebuilds, and hot6b's copy while we run
+#
+# Our own variables: .canary .data .bss .noinit in merge.ld's keep, up to the copy of the progress (STATE),
+# with stage 3's 1 KB and a margin of 256 bytes always free.
+KEEP keep reserve=1024 margin=256

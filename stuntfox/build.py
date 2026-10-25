@@ -26,7 +26,8 @@ import mksolo   # noqa: E402
 import mklogo   # noqa: E402
 import mkmusic  # noqa: E402
 import mkmip    # noqa: E402
-import mknormals  # noqa: E402
+import mkconst  # noqa: E402
+import s2build  # noqa: E402
 import mkradio  # noqa: E402
 
 CFLAGS = ['--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-O2', '-ffreestanding', '-fno-builtin',
@@ -84,6 +85,7 @@ def build(payback, out):
 # --merge: Stunt Fox inside Payback
 MERGE_ONLY = {'merge.c', 'keyhook.s', 'guard.s', 'rechash.s', 'traffic.c', 'tex.c', 'texrun.s', 'draw2d.c',
               'spacegame.c', 'settings.c', 'title.c', 'props.c', 'ragdoll.c', 'radio.c', 'radiodec.s', 'cart32.s'}
+MERGE_ONLY |= set(s2build.S2_SOURCES)         # (stage 2: tools/s2build.py)
 MERGE_SKIP = {'main.c', 'hud.c', 'crt0.s', 'assets.s'}   # (the worlds go above 8 MiB instead)
 NWORLD = 11                                   # Payback's level grids (src/world.h)
 GBA = 0x08000000
@@ -283,18 +285,19 @@ def build_merge(payback, out, bps_out=None, remixes=True):
     rom = PaybackRom(orig)                    # checks it is Payback (Europe); moves the column table
     mksolo.offer_every_map(rom.d)             # every map in single-player rampage ...
     phones = mksolo.add_phones(rom)           # ... with phones (so missions and a target) on each
+    loops = s2build.pre_world(rom, orig)      # (stage 2: an arena regrids its map and stamps its loops)
     mkmusic.drop_song(rom.d, bl_target)       # one song less (tools/mkmusic.py)
     # a world for each of Payback's maps, above its 8 MiB (after the addressable columns)
     grids = [rom.painted.get(m) or rom.grid(m) for m in range(NWORLD)]
     where, stats, worlds = [], [], []
     for m in range(NWORLD):
-        data, st = mkworld.build(orig, merge=True, level=m, rom=rom)
+        data, st = mkworld.build(orig, merge=True, level=m, rom=rom, loops=loops)
         where.append(GBA + rom.alloc(data))
         stats.append(st)
         worlds.append(data)
     print('worlds: %d KiB at 0x%08x-0x%08x' % ((GBA + rom.free - where[0]) // 1024, where[0], GBA + rom.free))
     mkassets.main(os.path.join(GEN, 'tables.c'))
-    mknormals.main(os.path.join(GEN, 'normals.c'), os.path.join(GEN, 'tables.c'))   # (in ROM: RAM is short)
+    mkconst.main(os.path.join(GEN, 'consttab.c'), os.path.join(GEN, 'tables.c'))   # (in ROM: RAM is short)
     mkpal.main(orig, os.path.join(GEN, 'pbtables.c'))
     nmip = mkmip.main(orig, worlds, os.path.join(GEN, 'pbmip.c'))   # (every map's ground tiles)
     mklogo.main(orig, os.path.join(GEN, 'logo.c'))
@@ -315,11 +318,12 @@ def build_merge(payback, out, bps_out=None, remixes=True):
                     cells.append(c)
             f.write('    {%s},\n' % ', '.join('{%d, 0x%08x}' % (c, rom.col_ptr(grid[c])) for c in cells))
         f.write('};\n')
+    s2src, s2ld = s2build.pre_link(rom, orig, GEN)   # (stage 2: its blobs above 8 MiB, its sources)
     objs = []
     sources = [os.path.join(SRC, f) for f in sorted(os.listdir(SRC))
-               if f.endswith(('.c', '.s')) and f not in MERGE_SKIP]
+               if f.endswith(('.c', '.s')) and f not in MERGE_SKIP and f not in s2build.S2_SOURCES]
     sources += [os.path.join(GEN, 'tables.c'), os.path.join(GEN, 'merge_sig.c'), os.path.join(GEN, 'pbtables.c'),
-                os.path.join(GEN, 'logo.c'), os.path.join(GEN, 'pbmip.c'), os.path.join(GEN, 'normals.c')]
+                os.path.join(GEN, 'logo.c'), os.path.join(GEN, 'pbmip.c'), os.path.join(GEN, 'consttab.c')] + s2src
     for src in sources:
         name = os.path.basename(src)
         obj = os.path.join(BUILD, 'merge', name + '.o')
@@ -331,10 +335,7 @@ def build_merge(payback, out, bps_out=None, remixes=True):
             run(['clang'] + CFLAGS + ['-mthumb', '-DMERGE', '-I' + SRC, '-c', src, '-o', obj])
         objs.append(obj)
     elf = os.path.join(BUILD, 'merge', 'stuntfox-merge.elf')
-    run(['ld.lld', '-T', os.path.join(SRC, 'merge.ld'), '--gc-sections', '-e', 'sf_frame', '-o', elf] + objs)
-    # nothing of ours on Payback's goals, commands, mission state or replay recorder (memmap.txt)
-    print(run([sys.executable, os.path.join(HERE, 'tools', 'memguard.py'), elf, os.path.join(SRC, 'merge.ld'),
-               os.path.join(HERE, 'memmap.txt')]).strip())
+    run(['ld.lld', '-T', os.path.join(SRC, 'merge.ld'), '--gc-sections', '-e', 'sf_frame', '-o', elf] + s2ld + objs)
     blob = os.path.join(BUILD, 'merge', 'stuntfox-merge.bin')
     run(['llvm-objcopy', '-O', 'binary', elf, blob])
     code = open(blob, 'rb').read()
@@ -419,6 +420,10 @@ def build_merge(payback, out, bps_out=None, remixes=True):
     redirect(MERGE_SELECT[0], MERGE_SELECT[1], sym['sf_hook_select'])
     vehicle_sizes(rom.d, mark)
     redirect(MERGE_CRATE_FX[0], MERGE_CRATE_FX[1], sym['sf_crate_fx'])
+    # stage 2: its redirects, then the checks (memguard: nothing of ours on Payback's goals, commands, mission
+    # state or replay recorder, keep's headroom; pbapi_check; lint_text)
+    s2build.post_link(rom, sym, elf, redirect,
+                      lambda fn: [a for a in range(GBA, 0x08100000, 2) if bl_target(rom.d, a) == fn], orig, s2src)
     hs, he, hl = sym['__hot_start'], sym['__hot_end'], sym['__hot_lma']   # merge.c's hot_mine
     assert hs <= PB_HOT_WORDS[0] and PB_HOT_WORDS[-1] + 4 <= he - 4, "Payback's words are not inside hot"
     for a in (hs + 4, he - 4):

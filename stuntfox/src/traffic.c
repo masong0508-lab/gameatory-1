@@ -182,7 +182,7 @@ static const MVert hero_hi_v[4][56] = {{HERO_HI(0)}, {HERO_HI(26)}, {HERO_HI(-26
 }};
 Model mdl_hero[4][2];
 #ifndef NORMALS_HOST
-/* RAM is short: the normals were worked out at build time (tools/mknormals.py) */
+/* RAM is short: the normals were worked out at build time (tools/mkconst.py) */
 extern const N3 gen_hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)], gen_tnbuf[];
 #define hero_n ((N3 *)gen_hero_n)
 #define tnbuf ((N3 *)gen_tnbuf)

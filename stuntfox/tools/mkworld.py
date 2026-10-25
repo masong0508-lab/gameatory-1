@@ -1052,12 +1052,15 @@ def pick_loop(cells, decks, decks2, walls, objs, level):
 
 
 
-def build(rom_bytes, merge=False, level=0, rom=None, limits=True):
+def build(rom_bytes, merge=False, level=0, rom=None, limits=True, loops=None):
     """merge: for Stunt Fox inside Payback, where Payback's own collision decides where people
     walk, so the city is drawn exactly as Payback has it (its stadium, not the stunt arena).
     level: which of Payback's 11 level grids; rom: a PaybackRom whose grids may be repainted.
     limits: fail on more than citydraw.c can draw (tools/colcheck.py, which only collides, needs
-    no drawing)."""
+    no drawing).
+    loops: {level: [(x, z, dir, radius, width), ...]} instead of the loops picked for those levels
+    (tools/s2build.py: a stage-2 arena that stamps its own)."""
+    over = loops
     global STREET
     rom = rom or PaybackRom(rom_bytes)
     grid = rom.painted.get(level) or rom.grid(level)
@@ -1087,7 +1090,8 @@ def build(rom_bytes, merge=False, level=0, rom=None, limits=True):
                         if i in dd and dd[i][5] != 1 else None, 8)
     # loops: (x, z) of the entry point in units, direction (0 +z, 1 +x, 2 -z, 3 -x), radius, width
     # (Freedom City's, in its stadium)
-    loops = [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)] if level == 0 else \
+    loops = over[level] if over and level in over else \
+        [(60 * CELL, int(36.5 * CELL), 1, 2560, 1536)] if level == 0 else \
         pick_loop(cells, decks, decks2, walls, objs, level) if merge else []
     lines = centre_lines(rom, cells, grid)
     if merge:

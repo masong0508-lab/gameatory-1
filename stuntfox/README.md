@@ -146,6 +146,14 @@ Hold SELECT + START to see the frame rate.
   too slow. Nothing is scripted.
 - `src/space.c`, `src/models.c`: sky by altitude, stars, the station and asteroids.
 - `tools/sim/`: runs the physics on a PC for testing (`tools/sim/run.sh loop 200`).
+- `src/stage2.h`, `src/s2core.c`, `src/pbapi.h` (stage 2, merge build only): the frame state and
+  events the packages share, the hook dispatch (a weak stub for every package's entry point, so each
+  builds and plays alone), the debug mailbox the tests read, and every Payback address stage 2 uses, named.
+  `tools/s2build.py` is the build's one call into it; after linking, `tools/memguard.py`,
+  `tools/pbapi_check.py` and `tools/lint_text.py` check the memory map, the addresses against the ROM,
+  and that stage-2 code never prints through the ticker. `tools/mkconst.py` turns the tables the code used
+  to build at start-up into ROM constants. `tests/s2/` has the hook demo, the override build, the check
+  tests and the before/after gates (each file says how it runs).
 
 ## Game settings
 

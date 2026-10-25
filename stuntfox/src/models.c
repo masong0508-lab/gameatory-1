@@ -101,11 +101,30 @@ static const MFace bay_f[] = {
     F4(M_GLOW, MF_GLOW, 36, 37, 38, 39), F4(M_GLOW, MF_GLOW, 40, 41, 42, 43),
 };
 
-/* The ring around the hub, built at start-up: 8 sides, and 4 spokes. */
+/* The ring around the hub, built at start-up: 8 sides, and 4 spokes. Inside Payback (RAM is short) that
+   start-up ran at build time, on this computer (tools/mkconst.py, the host build marked NORMALS_HOST): the
+   ring's and the race gate's corners and faces are ROM const there, bit for bit what the code gives. */
 #define RING_N 8
 #define RING_Y 400
-static MVert ring_v[RING_N * 4 + 16] EWRAM_BSS;
-static MFace ring_f[RING_N * 4 + 4] EWRAM_BSS;
+#define RING_NV (RING_N * 4 + 16)
+#define RING_NF (RING_N * 4 + 4)
+#if defined(MERGE) && !defined(NORMALS_HOST)
+#define CONST_TABLES
+extern const MVert gen_ring_v[RING_NV], gen_gate_v[16];
+extern const MFace gen_ring_f[RING_NF], gen_gate_f[8];
+#define ring_v gen_ring_v
+#define ring_f gen_ring_f
+#define gate_v gen_gate_v
+#define gate_f gen_gate_f
+#else
+#ifdef NORMALS_HOST
+#define HOST_VISIBLE               /* (the dump program reads them) */
+#else
+#define HOST_VISIBLE static
+#endif
+HOST_VISIBLE MVert ring_v[RING_NV] EWRAM_BSS;
+HOST_VISIBLE MFace ring_f[RING_NF] EWRAM_BSS;
+#endif
 
 /* An asteroid: a lumpy octahedron, radius 256. */
 static const MVert rock_v[] = {
@@ -206,8 +225,10 @@ static const MFace crate_f[] = {
 };
 
 /* a race gate: an eight-sided ring facing along z, in the paint of model_body */
-static MVert gate_v[16] EWRAM_BSS;
-static MFace gate_f[8] EWRAM_BSS;
+#ifndef CONST_TABLES
+HOST_VISIBLE MVert gate_v[16] EWRAM_BSS;
+HOST_VISIBLE MFace gate_f[8] EWRAM_BSS;
+#endif
 
 /* a beacon: a tall shaft of light over a rooftop (two crossed panels) */
 static const MVert beacon_v[] = {
@@ -224,7 +245,7 @@ static const MFace boom_f[] = {
 };
 
 #if defined(MERGE) && !defined(NORMALS_HOST)
-/* inside Payback, RAM is short: the normals were worked out at build time (tools/mknormals.py) */
+/* inside Payback, RAM is short: the normals were worked out at build time (tools/mkconst.py) */
 extern const N3 gen_nbuf[];
 #define nbuf ((N3 *)gen_nbuf)
 #define model_init(md)
@@ -246,7 +267,8 @@ static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int
     model_init(md);
 }
 
-void models_init(void)
+#ifndef CONST_TABLES
+static void tables_init(void)
 {
     for (int i = 0; i < RING_N; i++) {
         s32 a = i * 65536 / RING_N + 4096, c = fcos(a), s = fsin(a);
@@ -276,14 +298,6 @@ void models_init(void)
         ring_f[nf++] = (MFace)F4(M_STEEL, MF_TWO, nv, nv + 1, nv + 2, nv + 3);
         nv += 4;
     }
-    N3 *nb = nbuf;
-    setup(&mdl_car, car_v, sizeof car_v / sizeof car_v[0], car_f, sizeof car_f / sizeof car_f[0], 300, &nb);
-    setup(&mdl_arwing, arwing_v, sizeof arwing_v / sizeof arwing_v[0], arwing_f, sizeof arwing_f / sizeof arwing_f[0], 450, &nb);
-    setup(&mdl_hub, hub_v, sizeof hub_v / sizeof hub_v[0], hub_f, sizeof hub_f / sizeof hub_f[0], 2400, &nb);
-    setup(&mdl_ring, ring_v, nv, ring_f, nf, 6700, &nb);
-    setup(&mdl_rock, rock_v, sizeof rock_v / sizeof rock_v[0], rock_f, sizeof rock_f / sizeof rock_f[0], 270, &nb);
-    setup(&mdl_ped, ped_v, sizeof ped_v / sizeof ped_v[0], ped_f, sizeof ped_f / sizeof ped_f[0], 130, &nb);
-    setup(&mdl_heli, heli_v, sizeof heli_v / sizeof heli_v[0], heli_f, sizeof heli_f / sizeof heli_f[0], 560, &nb);
     for (int i = 0; i < 8; i++) {
         s32 a = i * 8192, c = fcos(a), s = fsin(a);
         gate_v[i] = (MVert){(s16)((700 * s) >> 14), (s16)((700 * c) >> 14), 0};
@@ -291,6 +305,22 @@ void models_init(void)
         int j = (i + 1) & 7;
         gate_f[i] = (MFace)F4(M_CAR, MF_TWO | MF_GLOW, i, j, 8 + j, 8 + i);
     }
+}
+#endif
+
+void models_init(void)
+{
+#ifndef CONST_TABLES
+    tables_init();
+#endif
+    N3 *nb = nbuf;
+    setup(&mdl_car, car_v, sizeof car_v / sizeof car_v[0], car_f, sizeof car_f / sizeof car_f[0], 300, &nb);
+    setup(&mdl_arwing, arwing_v, sizeof arwing_v / sizeof arwing_v[0], arwing_f, sizeof arwing_f / sizeof arwing_f[0], 450, &nb);
+    setup(&mdl_hub, hub_v, sizeof hub_v / sizeof hub_v[0], hub_f, sizeof hub_f / sizeof hub_f[0], 2400, &nb);
+    setup(&mdl_ring, ring_v, RING_NV, ring_f, RING_NF, 6700, &nb);
+    setup(&mdl_rock, rock_v, sizeof rock_v / sizeof rock_v[0], rock_f, sizeof rock_f / sizeof rock_f[0], 270, &nb);
+    setup(&mdl_ped, ped_v, sizeof ped_v / sizeof ped_v[0], ped_f, sizeof ped_f / sizeof ped_f[0], 130, &nb);
+    setup(&mdl_heli, heli_v, sizeof heli_v / sizeof heli_v[0], heli_f, sizeof heli_f / sizeof heli_f[0], 560, &nb);
     setup(&mdl_bay, bay_v, N(bay_v), bay_f, N(bay_f), 2000, &nb);
     setup(&mdl_raider, raider_v, N(raider_v), raider_f, N(raider_f), 420, &nb);
     setup(&mdl_carrier, carrier_v, N(carrier_v), carrier_f, N(carrier_f), 1800, &nb);

@@ -6,37 +6,63 @@
 #include "world.h"
 
 #define NSTARS 40
-static V3 stars[NSTARS] EWRAM_BSS;
+#define NROCK 12
+/* The stars, and each asteroid's first turn and spin, come from a small random series. Inside Payback (RAM is
+   short) it ran at build time, on this computer (tools/mkconst.py, the host build marked NORMALS_HOST): they
+   are ROM const there, bit for bit what space_init gives. rock_m turns every frame, so it stays in RAM. */
+#if defined(MERGE) && !defined(NORMALS_HOST)
+#define CONST_TABLES
+extern const V3 gen_stars[NSTARS], gen_rock_w[NROCK];
+extern const u16 gen_rock_yaw[NROCK];
+#define stars gen_stars
+#define rock_w gen_rock_w
+#else
+#ifdef NORMALS_HOST
+#define HOST_VISIBLE               /* (the dump program reads them) */
+#else
+#define HOST_VISIBLE static
+#endif
+HOST_VISIBLE V3 stars[NSTARS] EWRAM_BSS;
+HOST_VISIBLE V3 rock_w[NROCK] EWRAM_BSS;
+HOST_VISIBLE u16 rock_yaw[NROCK];
+#endif
 static M3 rock_m[16] EWRAM_BSS;
-static V3 rock_w[16] EWRAM_BSS;
 static M3 ring_m;
 static s32 ring_a;
 static int sky_step = -1, sky_pending = -1;
 
+#ifndef CONST_TABLES
 static u32 seed = 0x5f0c2b1d;
 static s32 rnd(s32 lo, s32 hi)
 {
     seed = seed * 1664525 + 1013904223;
     return lo + (s32)((seed >> 8) % (u32)(hi - lo + 1));
 }
+#endif
 
 void space_init(void)
 {
     station_pos = v3(62 * 1024, 34000, 30 * 1024);
+#ifndef CONST_TABLES
     for (int i = 0; i < NSTARS; i++)
         stars[i] = vnorm(v3(rnd(-1000, 1000), rnd(60, 1000), rnd(-1000, 1000)));
+#endif
     static const s16 spots[12][4] = {
         {-9000, 2500, 7000, 900}, {8000, -1500, 9000, 1300}, {14000, 3000, -6000, 700},
         {-15000, -2000, -9000, 1500}, {3000, 5000, -15000, 1000}, {-4000, -4000, 16000, 800},
         {20000, 1000, 12000, 1600}, {-21000, 4000, 3000, 1100}, {11000, 6000, 21000, 900},
         {-12000, 7000, -20000, 1400}, {24000, -3000, -18000, 1200}, {0, 9000, 26000, 1500},
     };
-    nrocks = 12;
+    nrocks = NROCK;
     for (int i = 0; i < nrocks; i++) {
         rocks[i].c = vadd(station_pos, v3(spots[i][0], spots[i][1], spots[i][2]));
         rocks[i].r = spots[i][3];
-        myaw(&rock_m[i], rnd(0, 65535));
+#ifdef CONST_TABLES
+        myaw(&rock_m[i], gen_rock_yaw[i]);
+#else
+        myaw(&rock_m[i], rock_yaw[i] = rnd(0, 65535));
         rock_w[i] = v3(rnd(-60, 60), rnd(-60, 60), rnd(-60, 60));
+#endif
     }
     myaw(&ring_m, 0);
 }
