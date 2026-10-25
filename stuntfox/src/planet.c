@@ -428,7 +428,10 @@ void pl_draw(const u16 *cols, const s32 *bounds)
         else if (f->full == 2)
             r_poly2d(rect, 4, sc[5], 0, 1);
         else {
-            r_sky(sc, sb, 5, 5);
+            /* the sky only down to where the atmosphere's cone takes over (its ring covers all inside the cone, a hair of overlap kept): the
+               last band no longer runs under the whole planet */
+            sb[4] = -f->lay[0].ca - 164;
+            r_sky(sc, sb, 6, 5);
             ring(&f->lay[0]);
         }
         ring(&f->lay[1]);

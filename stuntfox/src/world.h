@@ -54,6 +54,8 @@ typedef struct {
     int nladder;
     const Ladder *ladder;
     s32 yoff;                 /* added to Payback's heights: its streets are at 0x100 on all maps but one */
+    s32 top;                  /* the highest thing a body can meet here (units): ground, deck, wall, railing or loop */
+    /* a hard bound: ship_settle (600 margin) and ray_surface (8 * max) skip everything above it, so any solid added above it (cells, decks, walls, rails, loops, props) must raise it in world_top */
 } World;
 
 extern World world;

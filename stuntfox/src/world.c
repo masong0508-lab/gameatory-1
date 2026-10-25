@@ -3,6 +3,39 @@
 
 World world;
 
+/* the height of the highest thing the physics can meet (a block's top, a deck, a wall, a railing, a loop), so that a body over it
+   has nothing of the city to be tested against (physics.c, ship.c): a few hundred thousand cycles once, at a level's load */
+static s32 world_top(void)
+{
+    s32 t = 0;
+    for (int i = 0; i < CITY * CITY; i++) {
+        if (world.cell[i].hi > t)
+            t = world.cell[i].hi;
+        for (int k = 0; k < 2; k++) {
+            const s8 *d = &(k ? world.deck2 : world.deck)[4 * i];
+            if (d[0] | d[1]) {
+                s32 y = ((d[1] > d[2] ? d[1] : d[2]) + HBIAS) * 64;
+                if (y > t)
+                    t = y;
+            }
+        }
+        if (world.wall[i] & 15) {
+            s32 y = (((const s8 *)world.wall)[CITY * CITY + 2 * i + 1] + HBIAS) * 64;
+            if (y > t)
+                t = y;
+        }
+    }
+    for (int i = 0; i < world.ntree; i++) {
+        const Tree *r = &world.tree[i];
+        if (r->kind >= 2 && r->kind <= 5 && RAIL_BASE(r) + 192 > t)
+            t = RAIL_BASE(r) + 192;
+    }
+    for (int i = 0; i < world.nloop; i++)
+        if (2 * world.loop[i].r + 256 > t)
+            t = 2 * world.loop[i].r + 256;
+    return t + 64;
+}
+
 static void world_load(const u32 *h)
 {
     const u8 *base = (const u8 *)h;
@@ -33,6 +66,7 @@ static void world_load(const u32 *h)
     world.swim = base + h[25];
     world.nladder = *(const u16 *)(world.swim + CITY * CITY);
     world.ladder = (const Ladder *)(world.swim + CITY * CITY + 4);
+    world.top = world_top();
 }
 
 #ifdef MERGE

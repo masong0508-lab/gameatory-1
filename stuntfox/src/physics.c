@@ -214,6 +214,8 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
 {
     s32 best = max + 1;
     int found = 0;
+    if (p.y >= (world.top << FX) + 8 * max)   /* over everything the city has: the station's deck alone is left */
+        goto station;
     V3 n = world_normal(p.x >> FX, p.z >> FX);
     s32 g = ground_fine(p.x, p.z), dt;
     int k, ds = deck_under(p, &k, &dt);
@@ -254,6 +256,7 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
             }
         }
     }
+station:;
     /* the station's deck */
     s32 sx = (p.x >> FX) - station_pos.x, sz = (p.z >> FX) - station_pos.z;
     if (up.y > 6000 && sx > -HUB_HX && sx < HUB_HX && sz > -HUB_HZ && sz < HUB_HZ) {
@@ -305,6 +308,8 @@ static COLD int space_hit(V3 p, Hit *h)
         h->dist = (best + 1) << FX;
         return 1;
     }
+    if ((dx > 29000 || dx < -29000 || dz > 29000 || dz < -29000 || dy > 12000 || dy < -12000))
+        goto moon;                                          /* (the rocks all lie within that of the station) */
     for (int i = 0; i < nrocks; i++) {
         V3 d = vsub(v3(px, py, pz), rocks[i].c);
         s32 r = rocks[i].r;
@@ -318,6 +323,7 @@ static COLD int space_hit(V3 p, Hit *h)
             return 1;
         }
     }
+moon:
 #ifdef MERGE
     return sw_moon_near ? sw_solid(p, h) : 0;      /* the moon and its rocks (spacewalk.c), when the camera is by them */
 #else
@@ -358,6 +364,8 @@ static int rail_on(V3 p, int k)
 int penetrate(V3 p, Hit *h)
 {
     s32 db, dt;
+    if (p.y > world.top << FX)             /* over the highest thing the city has: only the station and the rocks are left */
+        return (p.y >> FX) > SPACE_LO ? space_hit(p, h) : 0;
     if (deck_in(p, &db, &dt)) {
         /* inside a bridge deck: out over the top or down under it, whichever is nearer ... */
         h->kind = SURF_GROUND;

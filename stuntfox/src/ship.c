@@ -332,6 +332,9 @@ void ship_settle(Ship *s)
 {
     Body *b = &s->b;
     s->impact = 0;
+    s32 alt = b->pos.y >> FX;
+    if (alt > world.top + 600 && alt <= SPACE_LO)     /* clear of everything the city has (the hull reaches 480 off the middle) */
+        return;
     water_floats = ship_hull = 1;                          /* (the hull skims water; the gear never rests on it) */
     for (unsigned i = 0; i < NHULL; i++) {
         s32 imp;

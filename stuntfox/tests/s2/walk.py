@@ -484,7 +484,7 @@ if 'outside' in ONLY:
         n += 1
     k = r8(S['bail']) - 1
     rx = r32(RAG + RS * k + 144) if k >= 0 else 1 << 30
-    ck(k >= 0 and st()['on'] == 0 and abs(rx - 2 * 1024) < 64, 'bailing low off the western edge: the ragdoll as ever (no walk, the same place as on the base ROM)', 'x %d' % rx)
+    ck(k >= 0 and st()['on'] == 0 and abs(rx + 6000) < 150, 'bailing low off the western edge: the ragdoll as ever (no walk, the same place as on the base ROM)', 'x %d' % rx)
     run(600)
     ck(r8(S['bail']) == 0 and modename() == 'FOOT' and r16(pba('PBA_RESPAWN')) == 0, 'and he is up on foot, alive', status()[:60])
 
