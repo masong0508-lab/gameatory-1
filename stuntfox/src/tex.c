@@ -51,7 +51,7 @@ static union {
 #define gdz gt.level.dz
 #define sgx gt.rolled.x
 #define sgz gt.rolled.z
-static int rolled, steep;
+static int rolled;
 static const u16 *tex_tab;         /* the floor being drawn: its cells' tile ids (its TexFloor's) */
 int tex_on;
 /* what nearer walls hide (see tex_occlude) */
@@ -138,9 +138,6 @@ HOT4 void tex_frame(void)
     V3 r = cam.m.r, u = cam.m.u, f = cam.m.f;
     int on = tex_on && camy <= TEX_TOP;
     rolled = r.y > 600 || r.y < -600;      /* (two degrees: below that a row barely changes depth) */
-    /* walls in pieces only when looked at steeply or rolled: from a level camera the depth
-       down a column barely changes, and the pieces cost about a frame a second */
-    steep = rolled || f.y > 4000 || f.y < -4000;
 #pragma clang loop unroll(disable)
     for (int j = 0; j < 80; j++)
         gfar[j] = 0;
@@ -557,6 +554,20 @@ HOT11 __attribute__((minsize)) void tex_cover_done(void)
     cover_from(cov_r, 119, -1, 0);
 }
 
+/* how many rows a column's pieces are, so that none puts the texture out by more than a pixel:
+   a straight run is out by about (the texture's run down the column, ds or dt, in texels) times (the
+   share w changes by, dw / w0) over 4, in texels of 2 pixels; half the rows is a fourth of it */
+__attribute__((noinline)) static int wall_split(int rows, s32 ds, s32 dt, s32 w0, s32 dw)
+{
+    if (ds < 0) ds = -ds;
+    if (dt < 0) dt = -dt;
+    s64 err = (s64)(ds > dt ? ds : dt) * (dw < 0 ? -dw : dw), lim = (s64)w0 << 17;
+    int j = 0;
+    while (j < 3 && err > lim)
+        j++, lim <<= 2;
+    return (rows + (1 << j) - 1) >> j;
+}
+
 /* a wall polygon (screen 28.4) in columns two pixels wide */
 HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
 {
@@ -576,13 +587,8 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
         int xc = x + 1, rb = r1 - 1, e;
         s32 wc = t->w[0] + xc * t->w[1], ac = t->a[0] + xc * t->a[1], bc = t->b[0] + xc * t->b[1];
         s32 wm = wc + ((r0 + r1) >> 1) * t->w[2];
-        if ((wm < 0 ? -wm : wm) < t->wlim) {
-            u16 c = color | color << 8;      /* too far for its tiles */
-            u8 *d = back + r0 * 240 + x;
-            for (int k = 0; k < rows; k++, d += 240)
-                *(u16 *)d = c;
-            continue;
-        }
+        if ((wm < 0 ? -wm : wm) < t->wlim)
+            goto flat;                       /* too far for its tiles */
         s32 w = wc + r0 * t->w[2], A = ac + r0 * t->a[2], B = bc + r0 * t->b[2];
         if (w < 0) w = -w, A = -A, B = -B;
         u32 r = recip(w | 1, &e);
@@ -597,36 +603,40 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
         if (slot < 0) slot = 0;
         if (slot > 3) slot = 3;
         const u8 *tile = t->tile[slot];
-        u8 *d = back + r0 * 240 + x;
         if (!tile) {
+        flat:;
             u16 c = color | color << 8;
-            for (int k = 0; k < rows; k++, d += 240)
-                *(u16 *)d = c;
+            u8 *f = back + r0 * 240 + x;
+            for (int k = 0; k < rows; k++, f += 240)
+                *(u16 *)f = c;
             continue;
         }
-        /* per pair of rows, stepped linearly; where the wall's depth changes much down the
-           column (looked at from above or below, or with the camera rolled) in pieces of 16
-           rows, each with its own exact ends, so the texture keeps its perspective */
+        u8 *d = back + r0 * 240 + x;
+        /* per pair of rows, stepped linearly; where that would put the texture out by more than a
+           pixel (a tall wall close by, looked at from above or below, or with the camera rolled: the
+           texture's run down the column times the share its depth changes by, over 2 texels) in 2,
+           4 or 8 pieces, each with its own exact ends, so the texture keeps its perspective (half
+           the rows is a fourth of the error) */
         s32 w0 = wc + r0 * t->w[2], w1 = wc + rb * t->w[2], dw = w1 - w0;
         if (w0 < 0) w0 = -w0;
-        int split = steep && rows > 16 && (dw < 0 ? -dw : dw) > (w0 >> 3) ? 16 : rows;
+        int split = rows > 16 && dw ? wall_split(rows, s1 - s0, t1 - t0, w0, dw) : rows;
         int ra = r0;
         while (ra < r1) {
             int L = r1 - ra;
             s32 ds = 0, dt = 0, sb = s1, tb = t1;
+            int span = L - 1;                /* (rows from the top to the exact end) */
             if (L > split) {
-                L = split;
+                L = span = split;
                 int R = ra + L;
                 w = wc + R * t->w[2], A = ac + R * t->a[2], B = bc + R * t->b[2];
                 if (w < 0) w = -w, A = -A, B = -B;
                 r = recip(w | 1, &e);
                 sb = DIVR(A, r, e), tb = DIVR(B, r, e);
-                ds = (sb - s0) >> 3;         /* (16 rows: the step per pair) */
-                dt = (tb - t0) >> 3;
-            } else if (L > 2) {
-                u32 inv = erecip[L - 1];      /* 2^24 / (L - 1), the step per row ... */
-                ds = (s32)(((s64)(s1 - s0) * inv) >> 23);   /* ... doubled */
-                dt = (s32)(((s64)(t1 - t0) * inv) >> 23);
+            }
+            if (span > 1) {
+                u32 inv = erecip[span];      /* 2^24 / span, the step per row ... */
+                ds = (s32)(((s64)(sb - s0) * inv) >> 23);   /* ... doubled */
+                dt = (s32)(((s64)(tb - t0) * inv) >> 23);
             }
             u32 uv = PACK(s0, t0), duv = PSTEP(ds, dt);
             int left = L, tall = dt < 0x5555 && dt > -0x5555 && L >= 4;

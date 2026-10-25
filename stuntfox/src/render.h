@@ -36,6 +36,8 @@ void r_poly(const V3 *v, int n, int color, int key, int bg);
 #ifdef MERGE
 /* a polygon with Payback's tiles on it (type PT_*, info its TexFloor or TexWall, copied) */
 void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const void *info);
+void r_reset(void);              /* the next frame clears the buckets whole (they carry over between frames) */
+int r_key(const V3 *v, int n);   /* the sort key key -1 would give */
 extern const u8 *r_pmap;          /* our colours -> the palette on screen (0: the same); colours
                                      from 0x100 up are that palette's own indices */
 #endif

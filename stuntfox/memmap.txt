@@ -21,6 +21,12 @@
 0x030072c0-0x030072e4  stay VIEW REPLAY's nine words, kept by its code at 0x030072e8 (under hot6b; hot6 ends before them)
 0x03007388-0x0300738c  stay word a level load writes (hot6b ends there)
 #
+# The renderer's bucket heads and their bitmap (scr, 0x02017fc4, render.c) now carry state from one frame to
+# the next (r_begin used to clear them every frame): nothing of Payback's may be written there. A write
+# watch over a boot, a game, the pause menu and an Arwing boarding found none; r_begin also clears them
+# whole on the first frame, on a new level (r_reset) and every 256th frame, so a stray write lives for
+# 256 frames at most.
+#
 # Not here, as poola shares it: Payback's 200 copies of the cells it changes (CUBE_BeginModify,
 # 64 bytes each from 0x02003f24 to 0x02007124, byte 8 0xff when free). Rampage maps use one,
 # Freedom City's second story level 56; render.c keeps the pool past the ones in use.

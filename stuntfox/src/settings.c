@@ -160,13 +160,20 @@ static void apply(void)
 #define XM ((volatile u32 *)0x0203ff90)
 #define XM_SUM(x) (((x) * 0x01000193u) ^ 0x53465832u)
 
+/* where an option's choice is kept: its place from the default, round the ring (no division: it ran every frame) */
+static u32 code(const Opt *o, int p)
+{
+    int c = p + o->n - o->def;
+    return c >= o->n ? c - o->n : c;
+}
+
 static u32 pack_x(void)
 {
     u32 x = 0;
     for (int i = 0; i < O_N; i++) {
         const Opt *o = &opts[i];
         if (o->word == 4)
-            x |= (u32)((pos[i] + o->n - o->def) % o->n) << o->shift;
+            x |= code(o, pos[i]) << o->shift;
     }
     return x;
 }
@@ -176,7 +183,7 @@ void opt_save(u32 *w)
     for (int i = 0; i < O_N; i++) {
         const Opt *o = &opts[i];
         if (o->word < 4)
-            w[o->word] |= (u32)((pos[i] + o->n - o->def) % o->n) << o->shift;
+            w[o->word] |= code(o, pos[i]) << o->shift;
     }
 }
 

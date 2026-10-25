@@ -91,7 +91,7 @@ static void wquad(V3 a, V3 b, V3 c, V3 d, int color, s32 key)
 /* One side of a building from its bottom corner a, len units along dir, h high. The wall and
    its windows share one depth key: within it the last submitted is drawn first, so the panes'
    pillars go in before the window rows and those before the wall. */
-static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f, const u16 *tiles)
+static void wall(V3 a, V3 dir, s32 len, s32 h, s32 cut, int m, int l, int f, const u16 *tiles)
 {
     V3 b = wpt(a, dir, len, 0), at = wpt(a, dir, 0, h), bt = wpt(a, dir, len, h);
     s32 key = (a.z + b.z + at.z + bt.z) >> 2, near = a.z < b.z ? a.z : b.z;
@@ -102,12 +102,12 @@ static void wall(V3 a, V3 dir, s32 len, s32 h, int m, int l, int f, const u16 *t
     if (tex_on && m != M_STUNT) {
         /* Payback's own wall tiles near by, their average colour further off */
         wc = tile_color(tiles[0] != 0xffff ? tiles[0] : tiles[1], l, wc);
-        V3 q[4] = {a, b, bt, at};
+        V3 q[4] = {cut ? wpt(a, dir, 0, cut) : a, cut ? wpt(a, dir, len, cut) : b, bt, at};   /* (the texture stays where it was: from the top) */
         s32 nz = near < at.z ? near : at.z;
         /* sorted by the middle of the part in view: a wall running past the camera has corners
            far behind it, and their average put it in front of everything beside it (the man,
            the Arwing's wing, a car) */
-        key = -1;
+        key = cut ? r_key((V3[4]){a, b, bt, at}, 4) : -1;
         if (nz < TEX_WALL_FAR) {
             TexWall t;
             tex_wall_setup(&t, at, dir, v3(-ay.x, -ay.y, -ay.z));
@@ -152,18 +152,35 @@ static inline int buried(s32 x, s32 z, s32 top)
     return world_ground(x, z) >= top;
 }
 
-/* is a side of a building hidden all along behind the cells beside it, up to its top: n cells
-   from cell (i, j) on, a step (si, sj) each? (Real Park's plaza is many boxes 6400 tall side by
-   side: their sides toward you were textured, then covered by the plaza's top, a third of the
-   frame) */
-static int walled_in(int i, int j, int si, int sj, int n, s32 top)
+/* how high a side of a building is hidden all along behind the cells beside it: n cells from
+   cell (i, j) on, a step (si, sj) each, the lowest of them. (Real Park's plaza is many boxes
+   6400 tall side by side: their sides toward you were textured, then covered by the plaza's top,
+   a third of the frame; where the cells beside a side stand a little lower, only the part above
+   them is drawn: the rest was painted, then covered by their tops) */
+static s32 side_cover(int i, int j, int si, int sj, int n)
 {
     if (i < 0 || j < 0 || i >= CITY || j >= CITY || i + si * (n - 1) >= CITY || j + sj * (n - 1) >= CITY)
-        return 0;
-    for (const Cell *c = &world.cell[i * CITY + j]; n--; c += si * CITY + sj)
-        if ((c->shape >= 2 && c->shape <= 5 ? c->lo : c->hi) < top)
-            return 0;
-    return 1;
+        return -0x7fffffff;                 /* (off the map nothing hides a side) */
+    s32 lo = 0x7fffffff;
+    for (const Cell *c = &world.cell[i * CITY + j]; n--; c += si * CITY + sj) {
+        s32 h = c->shape >= 2 && c->shape <= 5 ? c->lo : c->hi;
+        if (h < lo) lo = h;
+    }
+    return lo;
+}
+
+/* a side from its bottom corner a (at y0), up to yt, its bottom raised to what hides it (cover;
+   only a textured side: it is the polygon that shrinks, the texture stays put) */
+static void side(V3 a, V3 dir, s32 len, s32 y0, s32 yt, s32 cover, int m, int l, int f, const u16 *tiles)
+{
+    if (cover >= yt)
+        return;
+    s32 cut = 0;
+#ifdef MERGE
+    if (cover > y0 && tex_on && m != M_STUNT)
+        cut = cover - y0;
+#endif
+    wall(a, dir, len, yt - y0, cut, m, l, f, tiles);
 }
 
 static void draw_box(const Box *b)
@@ -204,14 +221,14 @@ static void draw_box(const Box *b)
         quad(c000, c100, c101, c001, COLOR(m, 0, f), 0);
     }
     int nx = b->x1 - b->x0, nz = b->z1 - b->z0;
-    if (cx > x0 + w && !(deck && buried(x0 + w + 8, mz, yt)) && !walled_in(b->x1, b->z0, 0, 1, nz, yt))
-        wall(c100, az, d, h, m, 2, f, bt + 4);
-    if (cx < x0 && !(deck && buried(x0 - 8, mz, yt)) && !walled_in(b->x0 - 1, b->z0, 0, 1, nz, yt))
-        wall(c000, az, d, h, m, 0, f, bt + 12);
-    if (cz > z0 + d && !(deck && buried(mx, z0 + d + 8, yt)) && !walled_in(b->x0, b->z1, 1, 0, nx, yt))
-        wall(c001, ax, w, h, m, 1, f, bt + 8);
-    if (cz < z0 && !(deck && buried(mx, z0 - 8, yt)) && !walled_in(b->x0, b->z0 - 1, 1, 0, nx, yt))
-        wall(c000, ax, w, h, m, 1, f, bt);
+    if (cx > x0 + w && !(deck && buried(x0 + w + 8, mz, yt)))
+        side(c100, az, d, y0, yt, side_cover(b->x1, b->z0, 0, 1, nz), m, 2, f, bt + 4);
+    if (cx < x0 && !(deck && buried(x0 - 8, mz, yt)))
+        side(c000, az, d, y0, yt, side_cover(b->x0 - 1, b->z0, 0, 1, nz), m, 0, f, bt + 12);
+    if (cz > z0 + d && !(deck && buried(mx, z0 + d + 8, yt)))
+        side(c001, ax, w, y0, yt, side_cover(b->x0, b->z1, 1, 0, nx), m, 1, f, bt + 8);
+    if (cz < z0 && !(deck && buried(mx, z0 - 8, yt)))
+        side(c000, ax, w, y0, yt, side_cover(b->x0, b->z0 - 1, 1, 0, nx), m, 1, f, bt);
 }
 
 static void draw_lot(const Lot *l)

@@ -3503,6 +3503,7 @@ static void level_enter(int map)
     tick_acc = 0;
     sg_level_enter();
     opt_level_enter();
+    r_reset();
     if (chain_to) {                /* the campaign's next map: where you are in it */
         char t[] = "RAMPAGE: MAP 00 OF 11";
         int n = chain_to;
@@ -3654,12 +3655,12 @@ static void filler_find(void)
     if (n <= CITY * CITY / 2) { x0 = z0 = 0; x1 = z1 = CITY - 1; }
     filler_box[0] = x0; filler_box[1] = x1; filler_box[2] = z0; filler_box[3] = z1;
     filler_corner = c;
-    filler_clock = PB_LEVEL_CLOCK | 1;                /* (a new level starts the clock again) */
+    filler_clock = PB_LEVEL_CLOCK + 1;                /* (a new level starts the clock again; one scan a tick at most: the chooser draws thousands) */
 }
 __attribute__((noinline)) int sf_pick_rand(int n)
 {
     u32 from = (u32)__builtin_return_address(0) & ~1u;
-    if (PB_GRID[0] != filler_corner || PB_LEVEL_CLOCK < filler_clock)
+    if (PB_GRID[0] != filler_corner || PB_LEVEL_CLOCK + 1 < filler_clock || !filler_clock)
         filler_find();
     if (from != PICK_X && from != PICK_Y)
         return PB_RAND(n);

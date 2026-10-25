@@ -155,6 +155,20 @@ Hold SELECT + START to see the frame rate.
   to build at start-up into ROM constants. `tests/s2/` has the hook demo, the override build, the check
   tests and the before/after gates (each file says how it runs).
 
+## Speed
+
+Payback's own game takes a quarter to a third of every frame, so what is left for the picture is
+what the renderer does not spend on things nobody sees. A side of a building is drawn only above
+the cells beside it (`side_cover` in `src/citydraw.c`: the part behind them is inside them), a
+wall hidden by a nearer one is skipped column by column (`tex_occlude`), and the polygon buckets
+in use are found from a bitmap, not by looking at all 1024 (`src/render.c`). What it spends: a
+wall column is stepped straight between its two exact ends, and cut in 2, 4 or 8 pieces (each with
+exact ends of its own) where one run would put the texture more than a pixel out, which is what a
+tall wall close by, seen from above or below or with the camera rolled, does (`wall_split` in
+`src/tex.c`; on a sample of frames the worst wall error goes from 2.7 to 1.0 pixels, the share of
+wall pixels over a pixel out from 14% to under 1%). The ground of a banking Arwing is stepped in
+40 pixel pieces, a pixel or two out at 15 degrees of bank, more over the bottom rows when low.
+
 ## Game settings
 
 Title menu > Game options (it takes the place of "Set language"; build.py renames the line and
@@ -167,6 +181,9 @@ default, B leaves. The list scrolls.
 - Arwing: speed, shield, endless missiles.
 - Ragdolls: gravity, bounce. Chase camera: close to farthest.
 - Performance: draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter.
+  Draw distance Near is the biggest saving where the view is open (Real Park on foot goes from
+  about 14 to 30 frames a second), Textures off the next (2 to 4 frames in the heavy places); both
+  together take the Big Track with the Arwing parked from 13 to 24.
 
 They are kept in spare bits of the progress words (settings.c); the extra ones live in a word of
 their own at 0x0203ff90 (just under the progress copy), checked and put back the same way.

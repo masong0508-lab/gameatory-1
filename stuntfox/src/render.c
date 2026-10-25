@@ -62,11 +62,6 @@ static u8 *pool_floor(void)
     return lo > __pool_a ? lo : __pool_a;
 }
 
-void r_end(void)
-{
-    for (u8 *f = PB_SLOT + 8 + 64 * ((pool_lo - PB_SLOT + 55) >> 6); f < pool_at; f += 64)
-        *f = 0xff;
-}
 #define POOL_END __pool_a_end
 #else
 static u32 pool[15000] EWRAM_BSS;
@@ -74,14 +69,26 @@ static u32 pool[15000] EWRAM_BSS;
 #define POOL_END ((u8 *)(pool + 15000))
 #endif
 static u16 bucket[NBUCKET] SCRATCH;
+static u32 bused[NBUCKET / 32] SCRATCH;     /* a bit for each bucket in use (r_flush_fg empties them as it goes) */
+static u8 bage;                             /* frames since the buckets were last cleared whole (0: do it now) */
 static u16 bglist[MAXBG] SCRATCH;
 static int npoly, nbg;
+static int npoly_done;                      /* npoly when the last frame's drawing ended */
 #ifdef MERGE
-#define MAXWL 96
+#define MAXWL 64
 static u32 wl[MAXWL] SCRATCH;              /* the frame's textured walls: bucket << 16 | index */
 static int nwl;
 #endif
 static u8 *back;
+#ifdef MERGE
+void r_reset(void) { bage = 0; }
+void r_end(void)
+{
+    for (u8 *f = PB_SLOT + 8 + 64 * ((pool_lo - PB_SLOT + 55) >> 6); f < pool_at; f += 64)
+        *f = 0xff;
+    npoly_done = npoly;
+}
+#endif
 extern const u32 rtab[2048];                /* 2^31 / (2048 + i) (tables.c) */
 extern const u32 erecip[2561];              /* (1 << 24) / i, for edge slopes */
 static const u16 inv_n[MAXV + 1] = {0, 65535, 32768, 21845, 16384, 13107, 10923, 9362, 8192, 7282, 6554, 5958, 5461, 5041, 4681, 4369, 4096};
@@ -96,9 +103,20 @@ void r_init(void)
 
 void r_begin(void)
 {
-    u32 *b = (u32 *)bucket;
-    for (int i = 0; i < NBUCKET / 2; i += 4)
-        b[i] = b[i + 1] = b[i + 2] = b[i + 3] = 0;
+    if (!bage++) {                              /* (the first frame, a new level, and every 256th: scratch held what was in memory, and nothing else may be trusted for long) */
+        u32 *b = (u32 *)bucket;
+        for (int i = 0; i < NBUCKET / 2; i++)
+            b[i] = 0;
+        for (int i = 0; i < NBUCKET / 32; i++)
+            bused[i] = 0;
+    } else if (npoly != npoly_done) {           /* (a polygon added since the last flush: never drawn, and its memory is gone) */
+        for (int i = 0; i < NBUCKET / 32; i++)
+            for (u32 m = bused[i], b = i * 32; m; m >>= 1, b++)
+                if (m & 1)
+                    bucket[b] = 0;
+        for (int i = 0; i < NBUCKET / 32; i++)
+            bused[i] = 0;
+    }
     npoly = nbg = 0;
 #ifdef MERGE
     pool_at = pool_lo = pool_floor();
@@ -166,13 +184,14 @@ HOT8 static u32 cut12(u32 n, u32 d)
                      (k) == 2 ? (v)->z * 121 + (v)->x * fl : (k) == 3 ? (v)->z * 81 - (v)->y * fl : \
                      (v)->z * 81 + (v)->y * fl)
 
-HOT __attribute__((minsize)) static int clip(V3 *in, int n, V3 *out, int k)
+HOT __attribute__((minsize)) static int clip(const V3 *in, int n, V3 *out, int k)
 {
     int m = 0;
     const s32 fl = focal;
-    for (int i = 0; i < n; i++) {
-        V3 *a = &in[i], *b = &in[i + 1 == n ? 0 : i + 1];
-        s32 da = PLANE(a, k), db = PLANE(b, k);
+    s32 da = PLANE(in, k), db;
+    for (int i = 0; i < n; i++, da = db) {
+        const V3 *a = &in[i], *b = &in[i + 1 == n ? 0 : i + 1];
+        db = PLANE(b, k);
         if (da >= 0)
             out[m++] = *a;
         if ((da >= 0) != (db >= 0)) {
@@ -191,7 +210,7 @@ HOT __attribute__((minsize)) static int clip(V3 *in, int n, V3 *out, int k)
     return m;
 }
 
-HOT5 static Poly *alloc(int key, int bg, int n, int extra)
+HOT7 static Poly *alloc(int key, int bg, int n, int extra)
 {
     u32 size = 4 + 4 * n + extra;
     if (pool_at + size > POOL_END)
@@ -207,6 +226,7 @@ HOT5 static Poly *alloc(int key, int bg, int n, int extra)
         if (b >= NBUCKET) b = NBUCKET - 1;
         p->next = bucket[b];
         bucket[b] = PIDX(p);
+        bused[b >> 5] |= 1u << (b & 31);
     }
     pool_at += size;
     npoly++;
@@ -224,16 +244,16 @@ HOT static void poly(const V3 *v, int n, int color, int key, int bg, int type, c
         int oc = (p->z < NEAR) | ((zx < x) << 1) | ((zx < -x) << 2) | ((zy < y) << 3) | ((zy < -y) << 4);
         outcode_all &= oc;
         outcode_any |= oc;
-        a[i] = v[i];
     }
     if (outcode_all)
         return;                                  /* entirely outside one plane */
-    V3 *cur = a, *tmp = b;
+    const V3 *cur = v;                           /* (the first cut reads v itself) */
+    V3 *tmp = a, *o = b;
     for (int k = 0; k < 5 && n >= 3; k++) {
         if (!(outcode_any & (1 << k)))
             continue;
         n = clip(cur, n, tmp, k);
-        V3 *s = cur; cur = tmp; tmp = s;
+        cur = tmp, tmp = o, o = (V3 *)cur;
     }
     if (n < 3)
         return;
@@ -274,7 +294,36 @@ HOT static void poly(const V3 *v, int n, int color, int key, int bg, int type, c
     }
 }
 
-HOT6B void r_poly(const V3 *v, int n, int color, int key, int bg)
+#ifdef MERGE
+/* the key a polygon gets from key -1 (the middle of what is in view), for a part of it that is drawn
+   on its own: it keeps its place among the rest as if it were whole */
+int r_key(const V3 *v, int n)
+{
+    V3 a[MAXV], b[MAXV];
+    int all = 0x1f, any = 0;
+    for (int i = 0; i < n; i++) {
+        const V3 *p = &v[i];
+        s32 zx = p->z * 121, zy = p->z * 81, x = p->x * focal, y = p->y * focal;
+        int oc = (p->z < NEAR) | ((zx < x) << 1) | ((zx < -x) << 2) | ((zy < y) << 3) | ((zy < -y) << 4);
+        all &= oc, any |= oc;
+    }
+    if (all)
+        return 0;
+    const V3 *cur = v;
+    V3 *tmp = a, *o = b;
+    for (int k = 0; k < 5 && n >= 3; k++) {
+        if (!(any & (1 << k)))
+            continue;
+        n = clip(cur, n, tmp, k);
+        cur = tmp, tmp = o, o = (V3 *)cur;
+    }
+    s32 sum = 0;
+    for (int i = 0; i < n; i++) sum += cur[i].z;
+    return n < 3 ? 0 : (s32)(((s64)sum * inv_n[n]) >> 16);
+}
+#endif
+
+HOT4 void r_poly(const V3 *v, int n, int color, int key, int bg)
 {
     poly(v, n, color, key, bg, 0, 0, 0);
 }
@@ -447,7 +496,7 @@ HOT static void raster(const Poly *p)
 /* which parts of walls nearer walls hide: the walls go to tex_occlude nearest first, the
    reverse of the order r_flush_fg draws them in (buckets near to far, and in a bucket as
    submitted, as each bucket's list starts with its last) */
-HOT7 __attribute__((minsize)) static void occlude(void)
+static void occlude(void)
 {
     tex_cover_clear();
     for (int i = 1; i < nwl; i++) {
@@ -479,11 +528,20 @@ void r_flush_bg(void)
 #endif
 }
 
+/* far to near: the buckets in use, the highest first, found a word of bits at a time */
 HOT6B void r_flush_fg(void)
 {
-    for (int b = NBUCKET - 1; b >= 0; b--)
-        for (int i = bucket[b]; i; i = PPTR(i)->next)
-            raster(PPTR(i));
+    for (int w = NBUCKET / 32 - 1; w >= 0; w--) {
+        u32 m = bused[w];
+        bused[w] = 0;
+        for (int b = w * 32 + 31; m; b--, m <<= 1) {
+            if (!(m >> 31))
+                continue;
+            for (int i = bucket[b]; i; i = PPTR(i)->next)
+                raster(PPTR(i));
+            bucket[b] = 0;
+        }
+    }
     r_polys = npoly;
 }
 

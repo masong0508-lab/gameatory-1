@@ -58,6 +58,7 @@ MEMORY {
     keep  (rw)  : ORIGIN = 0x0203d000, LENGTH = 0x2f90
     radio (rw)  : ORIGIN = 0x0203ffec, LENGTH = 0x14
     poola (rw)  : ORIGIN = 0x02004374, LENGTH = 0x28bc
+    /* scr holds the renderer's bucket heads and bitmap across frames (render.c clears them whole on the first frame, a new level and every 256th frame) */
     scr   (rw)  : ORIGIN = 0x02017fc4, LENGTH = 0x1440
     scr2  (rw)  : ORIGIN = 0x020075a8, LENGTH = 0x3e4
 }
