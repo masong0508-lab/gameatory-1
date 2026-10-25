@@ -36,8 +36,14 @@ void model_draw(const Model *md, const Place *pl);
 /* one extra polygon in a placed model's frame (local units); two-sided */
 void model_poly(const Place *pl, const MVert *v, int n, int color);
 
-extern Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
-extern Model mdl_bay, mdl_raider, mdl_carrier, mdl_pod, mdl_medal, mdl_crate, mdl_gate, mdl_beacon, mdl_boom;
+/* inside Payback (RAM is short) the models are ROM const, their normals worked out at build time (models.c, traffic.c) */
+#if defined(MERGE) && !defined(NORMALS_HOST)
+#define MODEL_ROM const
+#else
+#define MODEL_ROM
+#endif
+extern MODEL_ROM Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
+extern MODEL_ROM Model mdl_bay, mdl_raider, mdl_carrier, mdl_pod, mdl_medal, mdl_crate, mdl_gate, mdl_beacon, mdl_boom;
 extern u8 model_body;                           /* paint for M_CAR faces, M_CAR by default */
 extern u8 model_hull;                           /* ... and for M_SHIP faces, M_SHIP by default */
 extern u8 model_legs;                           /* paint for M_SKY faces (people's legs) */

@@ -180,10 +180,11 @@ static const MVert hero_hi_v[4][56] = {{HERO_HI(0)}, {HERO_HI(26)}, {HERO_HI(-26
     {37, 164, 110}, {49, 164, 110}, {49, 182, 110}, {37, 182, 110},  /* the fist */
     {37, 164, 128}, {49, 164, 128}, {49, 182, 128}, {37, 182, 128},
 }};
-Model mdl_hero[4][2];
 #ifndef NORMALS_HOST
 /* RAM is short: the normals were worked out at build time (tools/mkconst.py) */
 extern const N3 gen_hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)], gen_tnbuf[];
+#include "constlen.h"
+_Static_assert(N(hero_lo_f) + 2 * N(hero_hi_f) == GEN_HERO_N, "the player's normals: traffic.c and tools/mkconst.py differ");
 #define hero_n ((N3 *)gen_hero_n)
 #define tnbuf ((N3 *)gen_tnbuf)
 #define model_init(md)
@@ -198,6 +199,9 @@ static const MVert swim_back_v[] = {BOX(-32, 32, 0, 8, -6, -6, 34)};
 static const MVert swim_head_v[] = {BOX(-15, 15, 0, 38, 36, 36, 15), BOX(-17, 17, 24, 46, 32, 32, 17)};
 static const MFace swim_back_f[] = {SIDES(M_CAR, 0), TOP(M_CAR, 0)};
 static const MFace swim_head_f[] = {SIDES(M_CREAM, 0), SIDES(M_ROAD, 8), TOP(M_ROAD, 8)};
+
+#ifdef NORMALS_HOST
+Model mdl_hero[4][2];
 Model mdl_swim[2];
 
 Model mdl_saloon, mdl_limo, mdl_pickup, mdl_sport, mdl_van, mdl_bus, mdl_tank;
@@ -239,3 +243,35 @@ void traffic_init(void)
         setup(&mdl_hero[i][1], hero_hi_v[i], 56, hero_hi_f, N(hero_hi_f), 150, &hi);
     }
 }
+#else
+/* the models are ROM const too: each one's normals are the next N(faces) of gen_tnbuf, in this order (tests/s2/models.py
+   compares them with what start-up built in RAM) */
+enum {
+    O_SALOON, O_LIMO = O_SALOON + N(saloon_f), O_PICKUP = O_LIMO + N(saloon_f), O_SPORT = O_PICKUP + N(saloon_f),
+    O_VAN = O_SPORT + N(sport_f), O_BUS = O_VAN + N(van_f), O_TANK = O_BUS + N(bus_f), O_STAND = O_TANK + N(tank_f),
+    O_STRIDE_A = O_STAND + N(person_f), O_STRIDE_B = O_STRIDE_A + N(person_f), O_PUNCH = O_STRIDE_B + N(person_f),
+    O_SWIM = O_PUNCH + N(person_f)
+};
+_Static_assert(O_SWIM + N(swim_back_f) + N(swim_head_f) == GEN_TNBUF_N, "traffic.c's list and tools/mkconst.py's differ in length");
+#define MODEL(m, v, nv, f, nf, r, o) const Model m = {v, f, nv, nf, r, tnbuf + (o)}
+MODEL(mdl_saloon, saloon_v, N(saloon_v), saloon_f, N(saloon_f), 290, O_SALOON);
+MODEL(mdl_limo, limo_v, N(limo_v), saloon_f, N(saloon_f), 390, O_LIMO);
+MODEL(mdl_pickup, pickup_v, N(pickup_v), saloon_f, N(saloon_f), 300, O_PICKUP);
+MODEL(mdl_sport, sport_v, N(sport_v), sport_f, N(sport_f), 300, O_SPORT);
+MODEL(mdl_van, van_v, N(van_v), van_f, N(van_f), 340, O_VAN);
+MODEL(mdl_bus, bus_v, N(bus_v), bus_f, N(bus_f), 600, O_BUS);
+MODEL(mdl_tank, tank_v, N(tank_v), tank_f, N(tank_f), 520, O_TANK);
+MODEL(mdl_stand, stand_v, N(stand_v), person_f, N(person_f), 140, O_STAND);
+MODEL(mdl_stride_a, stride_a_v, N(stride_a_v), person_f, N(person_f), 140, O_STRIDE_A);
+MODEL(mdl_stride_b, stride_b_v, N(stride_b_v), person_f, N(person_f), 140, O_STRIDE_B);
+MODEL(mdl_punch, punch_v, N(punch_v), person_f, N(person_f), 150, O_PUNCH);
+const Model mdl_swim[2] = {
+    {swim_back_v, swim_back_f, N(swim_back_v), N(swim_back_f), 60, tnbuf + O_SWIM},
+    {swim_head_v, swim_head_f, N(swim_head_v), N(swim_head_f), 70, tnbuf + O_SWIM + N(swim_back_f)},
+};
+/* the walking poses share the standing one's normals (the limbs only lean a little): pose 3, the punch, has its own body's */
+#define HERO(i, hi) {{hero_lo_v[i], hero_lo_f, 32, N(hero_lo_f), 130, hero_n}, \
+                     {hero_hi_v[i], hero_hi_f, 56, N(hero_hi_f), 150, hero_n + N(hero_lo_f) + (hi)}}
+const Model mdl_hero[4][2] = {HERO(0, 0), HERO(1, 0), HERO(2, 0), HERO(3, N(hero_hi_f))};
+void traffic_init(void) {}
+#endif

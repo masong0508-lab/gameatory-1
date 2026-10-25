@@ -103,7 +103,6 @@ extern u8 __hot6b_start[], __hot6b_end[], __hot6b_lma[], __hot6b_save[];
 extern u8 __hot7_start[], __hot7_end[], __hot7_lma[], __hot8_start[], __hot8_end[], __hot8_lma[];
 extern u8 __hot9_start[], __hot9_end[], __hot9_lma[], __hot10_start[], __hot10_end[], __hot10_lma[];
 extern u8 __hot11_start[], __hot11_end[], __hot11_lma[];
-static u32 hot3_save[0x2f0 / 4] __attribute__((section(".noinit")));   /* (start() must not clear it) */
 extern u8 __data_start[], __data_end[], __data_lma[];
 extern u8 __bss_start[], __bss_end[];
 extern u32 __keep_canary[];
@@ -151,7 +150,9 @@ static void fill32(void *d, u32 v, u32 bytes)
    table. So our code stays there between frames with only those five words swapped, and all of
    Payback's code goes back before its renderer runs. So do hot4, hot6, hot7, hot8, hot10 and hot11,
    which Payback leaves alone everywhere else (merge.ld). hot2, hot3, hot5, hot6b and hot9 hold
-   code Payback runs outside our frame: they are lent for the length of our frame only. */
+   code Payback runs outside our frame: they are lent for the length of our frame only (hot3 comes
+   back from Payback's ROM image like the rest: watched over a boot, the menus, a game on three maps,
+   pause and the Arwing, nothing of Payback's wrote a byte of it after its start-up copy). */
 static const u16 pb_hot_words[] = {0x30b0, 0x3c04, 0x3c08, 0x3c0c, 0x3c10};   /* - 0x03000000 */
 
 /* is our code in hot (bar those words)? build.py checks that Payback's words here differ */
@@ -191,7 +192,6 @@ static void hot_install(void)
             copy32(stay[i].at, stay[i].lma, stay[i].end - stay[i].at);
     if (*(u32 *)__hot2_start != *(const u32 *)__hot2_lma) {
         copy32(__hot2_start, __hot2_lma, __hot2_end - __hot2_start);
-        copy32(hot3_save, __hot3_start, __hot3_end - __hot3_start);
         copy32(__hot3_start, __hot3_lma, __hot3_end - __hot3_start);
         copy32(__hot5_start, __hot5_lma, __hot5_end - __hot5_start);
         copy32(__hot6b_save, __hot6b_start, __hot6b_end - __hot6b_start);
@@ -215,7 +215,7 @@ static void hot_restore(int all)
         hot_words(PB_IWRAM_IMAGE);
     }
     if (*(u32 *)__hot2_start == *(const u32 *)__hot2_lma) {      /* (hot2 last: it says lent) */
-        copy32(__hot3_start, hot3_save, __hot3_end - __hot3_start);
+        PUT_BACK(__hot3_start, __hot3_end);
         PUT_BACK(__hot5_start, __hot5_end);
         copy32(__hot6b_start, __hot6b_save, __hot6b_end - __hot6b_start);
         PUT_BACK(__hot9_start, __hot9_end);

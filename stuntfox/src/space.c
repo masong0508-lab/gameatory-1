@@ -6,7 +6,6 @@
 #include "world.h"
 
 #define NSTARS 40
-#define NROCK 12
 /* The stars, and each asteroid's first turn and spin, come from a small random series. Inside Payback (RAM is
    short) it ran at build time, on this computer (tools/mkconst.py, the host build marked NORMALS_HOST): they
    are ROM const there, bit for bit what space_init gives. rock_m turns every frame, so it stays in RAM. */
@@ -26,7 +25,7 @@ HOST_VISIBLE V3 stars[NSTARS] EWRAM_BSS;
 HOST_VISIBLE V3 rock_w[NROCK] EWRAM_BSS;
 HOST_VISIBLE u16 rock_yaw[NROCK];
 #endif
-static M3 rock_m[16] EWRAM_BSS;
+static M3 rock_m[NROCK] EWRAM_BSS;
 static M3 ring_m;
 static s32 ring_a;
 static int sky_step = -1, sky_pending = -1;

@@ -247,11 +247,42 @@ static const MFace boom_f[] = {
 #if defined(MERGE) && !defined(NORMALS_HOST)
 /* inside Payback, RAM is short: the normals were worked out at build time (tools/mkconst.py) */
 extern const N3 gen_nbuf[];
+#include "constlen.h"
 #define nbuf ((N3 *)gen_nbuf)
 #define model_init(md)
 #else
 static N3 nbuf[200] EWRAM_BSS;
 #endif
+#if defined(MERGE) && !defined(NORMALS_HOST)
+/* the models too are ROM const: each one's normals are the next N(faces) of gen_nbuf, in this order (tests/s2/models.py
+   compares them with what start-up built in RAM) */
+enum {
+    O_CAR, O_ARWING = O_CAR + N(car_f), O_HUB = O_ARWING + N(arwing_f), O_RING = O_HUB + N(hub_f),
+    O_ROCK = O_RING + RING_NF, O_PED = O_ROCK + N(rock_f), O_HELI = O_PED + N(ped_f), O_BAY = O_HELI + N(heli_f),
+    O_RAIDER = O_BAY + N(bay_f), O_CARRIER = O_RAIDER + N(raider_f), O_POD = O_CARRIER + N(carrier_f),
+    O_MEDAL = O_POD + N(pod_f), O_CRATE = O_MEDAL + N(medal_f), O_GATE = O_CRATE + N(crate_f), O_BEACON = O_GATE + 8,
+    O_BOOM = O_BEACON + N(beacon_f)
+};
+_Static_assert(O_BOOM + N(boom_f) == GEN_NBUF_N, "models.c's list and tools/mkconst.py's differ in length");
+#define MODEL(m, v, nv, f, nf, r, o) const Model m = {v, f, nv, nf, r, nbuf + (o)}
+MODEL(mdl_car, car_v, N(car_v), car_f, N(car_f), 300, O_CAR);
+MODEL(mdl_arwing, arwing_v, N(arwing_v), arwing_f, N(arwing_f), 450, O_ARWING);
+MODEL(mdl_hub, hub_v, N(hub_v), hub_f, N(hub_f), 2400, O_HUB);
+MODEL(mdl_ring, ring_v, RING_NV, ring_f, RING_NF, 6700, O_RING);
+MODEL(mdl_rock, rock_v, N(rock_v), rock_f, N(rock_f), 270, O_ROCK);
+MODEL(mdl_ped, ped_v, N(ped_v), ped_f, N(ped_f), 130, O_PED);
+MODEL(mdl_heli, heli_v, N(heli_v), heli_f, N(heli_f), 560, O_HELI);
+MODEL(mdl_bay, bay_v, N(bay_v), bay_f, N(bay_f), 2000, O_BAY);
+MODEL(mdl_raider, raider_v, N(raider_v), raider_f, N(raider_f), 420, O_RAIDER);
+MODEL(mdl_carrier, carrier_v, N(carrier_v), carrier_f, N(carrier_f), 1800, O_CARRIER);
+MODEL(mdl_pod, pod_v, N(pod_v), pod_f, N(pod_f), 160, O_POD);
+MODEL(mdl_medal, medal_v, N(medal_v), medal_f, N(medal_f), 210, O_MEDAL);
+MODEL(mdl_crate, crate_v, N(crate_v), crate_f, N(crate_f), 170, O_CRATE);
+MODEL(mdl_gate, gate_v, 16, gate_f, 8, 710, O_GATE);
+MODEL(mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 6000, O_BEACON);
+MODEL(mdl_boom, boom_v, N(boom_v), boom_f, N(boom_f), 260, O_BOOM);
+void models_init(void) {}
+#else
 Model mdl_car, mdl_arwing, mdl_hub, mdl_ring, mdl_rock, mdl_ped, mdl_heli;
 Model mdl_bay, mdl_raider, mdl_carrier, mdl_pod, mdl_medal, mdl_crate, mdl_gate, mdl_beacon, mdl_boom;
 
@@ -331,3 +362,4 @@ void models_init(void)
     setup(&mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 6000, &nb);
     setup(&mdl_boom, boom_v, N(boom_v), boom_f, N(boom_f), 260, &nb);
 }
+#endif

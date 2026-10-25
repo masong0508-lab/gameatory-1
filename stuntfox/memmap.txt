@@ -12,7 +12,7 @@
 # mission's answer); the queue is folded into the goal list in the tick it is pushed.
 #
 # IWRAM: the words Payback keeps or runs next to the code of its it lends us (src/merge.ld says
-# where each region ends and why). 'stay' ranges may lie under hot3 and hot6b, which are copied out
+# where each region ends and why). 'stay' ranges may lie under hot6b, which is copied out
 # as we take them and back as we leave; every other region is put back from Payback's ROM image
 # or stays ours between frames, and must keep clear.
 0x03005034-0x03005038  stay word the menus read (hot4 starts past it)

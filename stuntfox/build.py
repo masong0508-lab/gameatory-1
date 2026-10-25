@@ -332,7 +332,7 @@ def build_merge(payback, out, bps_out=None, remixes=True):
             run(['clang', '--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-c', src, '-o', obj,
                  '-Wa,-I' + GEN])
         else:
-            run(['clang'] + CFLAGS + ['-mthumb', '-DMERGE', '-I' + SRC, '-c', src, '-o', obj])
+            run(['clang'] + CFLAGS + ['-mthumb', '-DMERGE', '-I' + SRC, '-I' + GEN, '-c', src, '-o', obj])
         objs.append(obj)
     elf = os.path.join(BUILD, 'merge', 'stuntfox-merge.elf')
     run(['ld.lld', '-T', os.path.join(SRC, 'merge.ld'), '--gc-sections', '-e', 'sf_frame', '-o', elf] + s2ld + objs)

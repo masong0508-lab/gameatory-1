@@ -69,7 +69,8 @@ s32 surface_fine(V3 p);
 /* the space station and asteroids, positioned by space.c */
 typedef struct { V3 c; s32 r; } Rock;
 extern V3 station_pos;             /* units: centre of the hub */
-extern Rock rocks[];
+#define NROCK 12           /* (space.c lays them out) */
+extern Rock rocks[NROCK];
 extern int nrocks;
 #define HUB_HX 1600
 #define HUB_HY 500

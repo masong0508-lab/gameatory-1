@@ -28,7 +28,7 @@ import sys
 # hot_install): Payback's own words under them come back as they were. The other regions are put
 # back from Payback's ROM image, or stay ours between frames, so a range marked 'stay' in
 # memmap.txt is checked against those.
-SAVED = ('hot3', 'hot6b')
+SAVED = ('hot6b',)
 PER_FRAME = ('scr', 'scr2', 'poola')           # regions, and the sections that go in them, that nothing outlives a frame in
 KINDS = ('FORBID', 'RESERVE', 'SCRATCH', 'KEEP')
 

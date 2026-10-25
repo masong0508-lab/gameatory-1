@@ -7,8 +7,7 @@
           (merge.c, hot_install)
    hot2:  more of Payback's IWRAM code, some of which it runs every frame: ours only while
           sf_frame runs, then put back from Payback's ROM image
-   hot3:  the same, but kept aside in keep (hot3_save) and put back from there, as one byte of
-          it is not what the ROM image holds
+   hot3:  the same (Payback's words there are its ROM image's to the byte: it never writes them)
    hot4..hot11: more of Payback's IWRAM code, never run, read or written in play (it is only
           what its ROM image holds). hot4, hot6, hot7, hot8, hot10 and hot11 are not touched
           anywhere else either once Payback has copied its code in at power-on (watched: the

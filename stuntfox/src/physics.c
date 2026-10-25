@@ -4,7 +4,7 @@
 #include "world.h"
 
 V3 station_pos;
-Rock rocks[16];
+Rock rocks[NROCK];
 int nrocks;
 u8 water_floats, ramp_grip, ramp_pass, ship_hull;
 
