@@ -32,6 +32,7 @@
 #include "radio.h"
 #include "settings.h"
 #include "stage2.h"
+#include "spacewalk.h"
 
 /* ---- Payback (Europe), see payback-mod/docs/payback-notes.md ---- */
 
@@ -1183,6 +1184,7 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
     s32 g = world_ground(cam.pos.x, cam.pos.z) + 60;
     if (cam.pos.y < g)
         cam.pos.y = g;
+    sw_cam_clear(&cam.pos);                            /* (out of the moon and the rocks on a space walk) */
     V3 target = vadd(pos, vadd(vscale(up, aim_up), vscale(fwd, aim_fwd)));
     cam.m.f = vsub(target, cam.pos);
     cam.m.u = cam_up;
@@ -2006,10 +2008,8 @@ static void land(u8 *me)
     /* beside it, wherever Payback lets the man stand at that height: the street, a raised
        plaza (Real Park's), a deck or a roof; not the water (he would sink) */
     if (ship.gear < 2 || vlen(b->vel) > (25 << FX) || p.y - g > 160 || iabs(ga - g) > 40 || !stand_at(at.x, at.z, ga)) {
-        if (p.y < SPACE_LO)
-            bail_ship();                           /* he jumps (whether or not RAGDOLLS is on: his own body only) */
-        else
-            sg_note("Fly to Fox Station to dock.");
+        bail_ship();                               /* he jumps, at any height (whether or not RAGDOLLS is on: his own body only;
+                                                      from SPACE_LO up he is spacewalk.c's figure) */
         return;
     }
     swimming = swim_lad = 0;                           /* (called from the water, landed on the street) */
@@ -2791,13 +2791,17 @@ static void bail_ship(void)
     V3 feet = vadd(v3(p.x, p.y - 110 > g ? p.y - 110 : g, p.z), vscale(b->m.r, side * 70));
     V3 v = vadd(vscale(b->vel, 13107), vadd(vscale(b->m.r, side * (6 << FX)), v3(0, 4 << FX, 0)));
     s32 yaw = heading_of(&b->m);
-    int k = rag_throw(feet, yaw, v, vscale(b->m.r, side * 520), M_GLOW, M_GLASS, 1, 0);
+    V3 fk = p.y < SPACE_LO ? feet : v3(clamp(feet.x, 2 * CELL, (CITY - 2) * CELL), feet.y, clamp(feet.z, 2 * CELL, (CITY - 2) * CELL));
+                                                   /* (low down as ever; up there, out over the sea of space, the ragdoll's body is only a slot to draw him in) */
+    int k = rag_throw(fk, yaw, v, vscale(b->m.r, side * 520), M_GLOW, M_GLASS, 1, 0);
     if (k < 0)
         return;
     bail_start(k, yaw);
     parked = 1;                                    /* (it is drawn while it flies on) */
     if (ship.gear < 2 || vlen(b->vel) > (25 << FX))
         ghost = GH_SHIP, ghost_t = 0;              /* (landed, it waits where it is) */
+    if (p.y >= SPACE_LO)
+        sw_begin(&ship, k, feet, yaw, side);       /* up there he is a figure of his own, not the ragdoll */
 }
 
 /* how hard he came down, as fall damage (FALL DAMAGE on): Payback's own health, so a fatal fall
@@ -2860,6 +2864,51 @@ static int shore_find(V3 p)
     return best != 0x7fffffff;
 }
 
+/* a space walk (spacewalk.c) is on: Payback's man waits on the street under him, and what the walk asks of us is done: SWF_DROP, he has
+   come down under SPACE_LO and is the ragdoll again (the same fall and landing as ever); SWF_BOARD, the Arwing is by and he climbs
+   aboard; SWF_NEWSHIP, the one he called had crashed, and another comes in */
+static void bail_sw(int ticks)
+{
+    if (PB_RESPAWN > 0) {                          /* Payback is bringing him back: that ends it */
+        sw_reset();
+        bail_stop();
+        return;
+    }
+    if (!parked)
+        sw_ship_gone();
+    V3 at, v;
+    s32 yaw;
+    int a = sw_frame(ticks, &at, &v, &yaw);
+    V3 q = v3(clamp(at.x, 2 * CELL, (CITY - 2) * CELL), 0, clamp(at.z, 2 * CELL, (CITY - 2) * CELL));
+    if (hero && street_at(q.x, q.z))
+        man_put(hero, q, yaw);                     /* (as under the Arwing: the city round him goes on) */
+    if (a == SWF_DROP) {
+        Rag *r = &rags[bail - 1];
+        r->state = RAG_FREE, r->own = 0;
+        int k = rag_throw(v3(clamp(at.x, 2 * CELL + 64, (CITY - 2) * CELL - 64), at.y - 100, clamp(at.z, 2 * CELL + 64, (CITY - 2) * CELL - 64)),
+                          yaw, v, v3(0, rag_rand(-100, 100), 0), M_GLOW, M_GLASS, 1, 0);
+        if (k >= 0)
+            bail_start(k, yaw);
+        else
+            bail_stop();
+    } else if (a == SWF_BOARD) {
+        bail_stop();
+        ghost = GH_NONE;
+        ship.b.vel = vshr(ship.b.vel, 2);
+        ship.b.w = v3(0, 0, 0);
+        mode = FLY;
+        parked = 0;
+        was_flying = 0;
+        air_run = 0;
+        sg_state = SG_FLY;
+        cam_cut = 1;                               /* (a cut: the camera was on him) */
+    } else if (a == SWF_NEWSHIP) {
+        ship_reset(&ship, v3(at.x, at.y - 120, at.z), yaw);
+        parked = 1;
+        ghost = GH_SHIP, ghost_t = 0;
+    }
+}
+
 /* once a frame, after the bodies have moved */
 static void bail_frame(u8 *me, int ticks)
 {
@@ -2867,6 +2916,10 @@ static void bail_frame(u8 *me, int ticks)
         fall_calm--;
     if (!bail)
         return;
+    if (sw_on()) {
+        bail_sw(ticks);
+        return;
+    }
     Rag *r = &rags[bail - 1];
     if (!r->own || !r->state) {
         bail = 0;
@@ -2969,6 +3022,13 @@ static int bail_camera(void)
 {
     if (!bail)
         return 0;
+    if (sw_on()) {                                 /* out in space: behind him, his up above */
+        V3 p, f, u;
+        sw_view(&p, &f, &u);
+        cam_keep = 0;
+        camera_look(p, f, u, 640, 360, 150, 200, 1);
+        return 1;
+    }
     M3 m;
     myaw(&m, bail_yaw);
     /* back and up from where his feet would be (thrown, a little further than on foot, to see him
@@ -3014,6 +3074,8 @@ static void ghost_car(void)
    till it hits something */
 static void ghost_ship(void)
 {
+    if (sw_flies(&ship))
+        return;                                    /* (a space walk: it keeps on, or flies in to him) */
     Body *b = &ship.b;
     b->vel.y -= G_ACC;
     b->vel = vsub(b->vel, vshr(b->vel, 8));
@@ -3227,8 +3289,11 @@ static void choose_mode(u8 *me)
         if (mode == DRIVE)
             bail_car();
     }
-    if (bail)
-        call_req = 0;                                  /* (a body calls nothing) */
+    if (bail) {
+        if (call_req && sw_on())
+            sw_call();                                 /* (a body calls nothing, but a space walker's Arwing comes) */
+        call_req = 0;
+    }
     if (!me || (bail && me == car_ent))
         return;                                        /* (on his way out: bail_frame) */
     if (mode == FLY) {
@@ -3436,6 +3501,8 @@ static void step(u8 *me, int ticks)
             else
                 air_run = 0;                           /* (docked, or down: no flight to land from) */
         }
+        if (bail && sw_on())
+            sw_tick(keys, t ? 0 : hits);
         if (ghost == GH_CAR && mode != DRIVE)
             ghost_car();
         else if (ghost == GH_SHIP)
@@ -3513,6 +3580,7 @@ static void level_enter(int map)
     rag_clear();
     memset(rag_who, 0, sizeof rag_who);
     bail = bail_req = ghost = fall_seen = 0;
+    sw_reset();
     cam_yaw = 0, cam_zoom = cam_dflt, cam_home = 0;
     tick_acc = 0;
     sg_level_enter();
@@ -3716,7 +3784,14 @@ static APART void s2_gather(const u8 *me, int paused)
     f->me = (void *)me;
     f->airborne = 0;
     f->veh = 0;
-    if (mode == FLY) {
+    f->walk = sw_kind();
+    if (sw_on()) {                                 /* out of the Arwing in space: the figure */
+        V3 p, fw, up;
+        sw_view(&p, &fw, &up);
+        f->pos = sw_pos();
+        f->heading = fatan2(fw.x, fw.z);
+        f->speed = 0;
+    } else if (mode == FLY) {
         f->pos = vshr(ship.b.pos, FX);
         f->heading = heading_of(&ship.b.m);
         f->speed = vlen(ship.b.vel) * 15 >> 6;

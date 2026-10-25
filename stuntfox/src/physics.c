@@ -274,6 +274,10 @@ int ray_surface(V3 p, V3 up, s32 max, Hit *h)
     return 1;
 }
 
+#ifdef MERGE
+int sw_solid(V3 p, Hit *h);
+extern u8 sw_moon_near;            /* spacewalk.c: the camera is within reach of the moon's box (nothing out there else is asked) */
+#endif
 /* the station and the asteroids (far above the city: Thumb, in ROM) */
 static COLD int space_hit(V3 p, Hit *h)
 {
@@ -314,7 +318,11 @@ static COLD int space_hit(V3 p, Hit *h)
             return 1;
         }
     }
+#ifdef MERGE
+    return sw_moon_near ? sw_solid(p, h) : 0;      /* the moon and its rocks (spacewalk.c), when the camera is by them */
+#else
     return 0;
+#endif
 }
 
 /* a railing drawn along edge k (-z, +x, +z, -x) of the cell under p (fine), p's height in its

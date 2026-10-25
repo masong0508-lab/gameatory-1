@@ -79,7 +79,19 @@ Arwing (Up dives, Down climbs; the hangar's STICK line swaps them)
 | L | Missile (more at the shipyard) |
 | Hold SELECT near Fox Station | Docking: the tractor beam takes you in |
 | Hold SELECT, landed on a street | Get out; the Arwing stays parked there |
-| Hold SELECT in the air | BAIL OUT: you jump, fall and bounce as a ragdoll wherever you land (street, roof, deck, water) and are on foot there; the empty Arwing noses down and crashes (no credits or shield lost), and holding SELECT calls the next one. Not in space |
+| Hold SELECT in the air | BAIL OUT: you jump, fall and bounce as a ragdoll wherever you land (street, roof, deck, water) and are on foot there; the empty Arwing noses down and crashes (no credits or shield lost), and holding SELECT calls the next one. High up it is a space walk (below) |
+
+Space walks: the same bail-out works at any height. Below 12000 (SPACE_LO) it is the ragdoll's fall as ever. From there up
+the air thins and gravity goes with it, so the higher you jump the longer and softer the fall: from the roofs it is a
+moment, from 12000 about 5 seconds, from 20000 about 10, from 23500 about 20 (the fall is always survivable: only FALL DAMAGE can
+hurt, and it is off to begin with). Above 24000 (SPACE_HI) there is no pull at all and he floats; the Arwing waits (flying itself level)
+and the camera stays on him. Hold SELECT near it to climb aboard, far from it to call it (it flies in); if he is helpless
+(no jet pack) the Arwing comes by itself after about 8 seconds, and after about 15 if he has drifted away from it; its crash
+is no trap, a new one comes. The jet pack is bought at Fox Station's shipyard (JET PACK, 900 CR, kept with the other
+upgrades): D-pad forward / back / turn, A up, B down, L brake, no fuel, a top speed of 14 units a tick, gentle
+braking when you let go, and weaker in the thin air under 24000. Out there are a small moon (land on it, walk and jump in its
+low gravity), six rocks and four beacons, all solid, and three sample objectives the debug mailbox starts (stage2.h, 80..95). `src/spacewalk.c`;
+`tests/s2/walk*.py`.
 
 In the hangar Up / Down choose, A takes a job or buys (a second A confirms a purchase), B goes
 back. There is no barrel roll and no rudder here: L and R are the guns.
@@ -145,6 +157,7 @@ Hold SELECT + START to see the frame rate.
   act where they happen, so the car pitches, rolls, flips and falls off the loop when it is
   too slow. Nothing is scripted.
 - `src/space.c`, `src/models.c`: sky by altitude, stars, the station and asteroids.
+- `src/spacewalk.c` (merge build): the space walk: the man out of the Arwing high up (the slow fall, floating, the jet pack), the moon, rocks and beacons.
 - `tools/sim/`: runs the physics on a PC for testing (`tools/sim/run.sh loop 200`).
 - `src/stage2.h`, `src/s2core.c`, `src/pbapi.h` (stage 2, merge build only): the frame state and
   events the packages share, the hook dispatch (a weak stub for every package's entry point, so each
@@ -178,7 +191,7 @@ default, B leaves. The list scrolls.
 
 - Rampage and rules: target, time, difficulty, wanted stars, lives, damage taken, score multiplier.
 - Car: top speed, acceleration, grip, handbrake slide, steering, gravity, boost power, endless boost.
-- Arwing: speed, shield, endless missiles.
+- Arwing: speed, shield, endless missiles, jet pack strength (once bought).
 - Ragdolls: gravity, bounce. Chase camera: close to farthest.
 - Performance: speed, draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter.
   Draw distance Near is the biggest saving where the view is open (Real Park on foot goes from

@@ -31,6 +31,7 @@ void sg_sane(void);                /* each of those back in its range */
 
 void sg_crash(V3 p);               /* the empty Arwing comes down at p (bailing out): fire, pieces, smoke */
 void sg_fx_tick(void);             /* the fire and smoke go on, a tick, while the Arwing is not out */
+int sg_credit(int n);              /* credits earned (or, negative, spent) outside the shipyard: the new total */
 void sg_note(const char *s);       /* a few seconds of news on our HUD, not on Payback's ticker */
 void sg_banner(void);              /* draws it, when the Arwing is not out (sg_hud does then) */
 /* ---- stage 2 (stage2.md 7.7 and 8): what the station's walker, the shops and the missions use ----

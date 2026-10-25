@@ -6,6 +6,7 @@
 #include "render.h"
 #include "physics.h"
 #include "world.h"
+#include "spacewalk.h"
 
 #define WEAK __attribute__((weak))
 
@@ -103,7 +104,7 @@ void s2_tick(void)
     s2f.story = !PB_RAMPAGE;
     if (s2_dbg.magic == S2_DBG_MAGIC) {
         int c = s2_dbg.cmd, a = s2_dbg.arg;
-        s2_dbg.ret = c < 16 ? ms_dbg(c, a) : c < 32 ? cp_dbg(c, a) : c < 48 ? st_dbg(c, a) : c < 64 ? sg_dbg(c, a) : core_dbg(c, a);
+        s2_dbg.ret = c < 16 ? ms_dbg(c, a) : c < 32 ? cp_dbg(c, a) : c < 48 ? st_dbg(c, a) : c < 64 ? sg_dbg(c, a) : c < 80 ? core_dbg(c, a) : sw_dbg(c, a);
         s2_dbg.seq++;
         s2_dbg.magic = 0;
     }
@@ -124,6 +125,9 @@ void s2_draw3d(void)
 {
     hook_count[HK_DRAW3D]++;
     ms_draw3d();
+    sw_draw3d();
+    sw_rocks_draw();
+    sw_rings_draw();
 }
 
 void s2_hud(void)
@@ -132,7 +136,7 @@ void s2_hud(void)
     if (in_room)
         st_hud();
     else
-        hl_draw();
+        hl_draw(), sw_hud();
     cp_hud();
 }
 

@@ -13,9 +13,11 @@
 #include "stage2.h"
 #include "space.h"
 #include "sgint.h"
+#include "spacewalk.h"
 
 int sg_state;
 u8 sg_invert, sg_autoaim = 1;
+u8 sw_pack;                        /* the jet pack is bought (spacewalk.c): one bit, w[3] bit 23 */
 extern u8 ship_engine;             /* ship.c */
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
@@ -173,7 +175,7 @@ void sg_save(u32 *w)
     w[0] = credits;
     w[1] = medals | jobs_done << 16 | paint << 24;
     w[2] = laser_lv | engine_lv << 8 | rack_lv << 16 | shield_lv << 24;
-    w[3] = missiles | sg_invert << 8 | sg_autoaim << 16 | rag_on << 24 | rag_fall << 25 | rag_wacky << 26 | rag_unlock << 27;
+    w[3] = missiles | sg_invert << 8 | sg_autoaim << 16 | rag_on << 24 | rag_fall << 25 | rag_wacky << 26 | rag_unlock << 27 | sw_pack << 23;
     opt_save(w);                   /* (GAME SETTINGS, in the bits between) */
 }
 
@@ -188,12 +190,15 @@ void sg_sane(void)
     if (rack_lv > 2) rack_lv = 2;
     if (shield_lv > 2) shield_lv = 2;
     if (missiles > rack_size[rack_lv]) missiles = rack_size[rack_lv];
-    sg_invert &= 1, sg_autoaim &= 1, rag_on &= 1, rag_fall &= 1, rag_wacky &= 1;
+    sg_invert &= 1, sg_autoaim &= 1, rag_on &= 1, rag_fall &= 1, rag_wacky &= 1, sw_pack &= 1;
     rag_unlock = (rag_unlock | rag_on | rag_wacky) & 1;
     ship_engine = engine_lv;
     shield_max = shield_size[shield_lv] * (sg_shield_k > 12 ? 4 : sg_shield_k) >> 2;
     if (shield < 0 || shield > shield_max) shield = shield_max;
 }
+
+/* credits earned or spent outside the shipyard (spacewalk.c's objectives, its mailbox); the new total */
+int sg_credit(int n) { credits += n; sg_sane(); return credits; }
 
 void sg_load(const u32 *w)
 {
@@ -204,6 +209,7 @@ void sg_load(const u32 *w)
     opt_load(w);
     rag_on = w[3] >> 24, rag_fall = w[3] >> 25, rag_wacky = w[3] >> 26, rag_unlock = w[3] >> 27;   /* (a copy from
                                                                                    before these: all off) */
+    sw_pack = w[3] >> 23 & 1;
     sg_sane();
 }
 
@@ -677,6 +683,7 @@ static int yard_price(int i)
     case 1: return shield_lv == 0 ? 500 : shield_lv == 1 ? 1200 : 0;
     case 2: return engine_lv == 0 ? 400 : engine_lv == 1 ? 1000 : 0;
     case 3: return missiles < rack_size[rack_lv] ? 25 * (rack_size[rack_lv] - missiles) : 0;
+    case 5: return sw_pack ? 0 : 900;              /* (a few jobs' pay: the bounties 360 and up, the rest 400 to 900) */
     default: return rack_lv == 0 ? 300 : rack_lv == 1 ? 800 : 0;
     }
 }
@@ -686,7 +693,7 @@ static int menu_len(void)
     switch (menu) {
     case MN_MAIN: return main_n();
     case MN_JOBS: return job ? 4 : 3;
-    case MN_YARD: return 5;
+    case MN_YARD: return 6;
     case MN_PAINT: return paints_n();
     default: return 6;
     }
@@ -696,7 +703,7 @@ static int buy(int i)
 {
     int pr = yard_price(i);
     if (!pr) {
-        note(i == 3 ? "The rack is full." : "Already the best.");
+        note(i == 3 ? "The rack is full." : i == 5 ? "The jet pack is already fitted." : "Already the best.");
         return 0;
     }
     if (credits < pr) {
@@ -709,6 +716,7 @@ static int buy(int i)
     case 1: shield_lv++; sg_sane(); shield = shield_max; note("Shield upgraded!"); break;
     case 2: engine_lv++; ship_engine = engine_lv; note("Engine tuned!"); break;
     case 3: missiles = rack_size[rack_lv]; note("Missiles loaded."); break;
+    case 5: sw_pack = 1; note("JET PACK fitted! Bail out in space."); break;
     default: rack_lv++; missiles = rack_size[rack_lv]; note("Bigger missile rack!"); break;
     }
     return 1;
@@ -1888,16 +1896,17 @@ static void menu_draw(void)
     /* narrow where the Arwing should show (main menu, paint), wide for the lists (and clear of
        Payback's map) */
     int w = menu == MN_JOBS || menu == MN_YARD ? 152 : 120;
-    d_fill(x - 4, y0 - 3, w, 86, PANEL);
+    int more = menu == MN_MAIN && job && sw_pack ? 10 : 0;   /* (a job's line and the pack's: one row more) */
+    d_fill(x - 4, y0 - 3, w, menu == MN_YARD ? 90 : 86 + more, PANEL);
     d_hline(x - 4, x + w - 5, y0 + 9, DIM);
     static const char *const titles[] = {"FOX STATION HANGAR", "JOB BOARD", "SHIPYARD", "PAINT SHOP", "OPTIONS"};
     d_text(x, y0, titles[menu], TITLE);
     p = d_cat(b, "CREDITS ");
     p = d_num(p, credits);
-    d_text(x, y0 + 74, b, HI);
+    d_text(x, y0 + (menu == MN_YARD ? 78 : 74 + more), b, HI);
     int n = menu_len(), top = menu == MN_PAINT && cursor > 5 ? cursor - 5 : 0;   /* (the paints: six lines of them) */
     for (int i = top; i < n && i < top + 6; i++) {
-        int y = y0 + 12 + (i - top) * 10, c = i == cursor ? HI : INK;
+        int y = y0 + 12 + (i - top) * (menu == MN_YARD ? 9 : 10), c = i == cursor ? HI : INK;
         p = b;
         *p = 0;
         switch (menu) {
@@ -1923,14 +1932,14 @@ static void menu_draw(void)
             if (job && c == INK) c = DIM;
             break;
         case MN_YARD: {
-            static const char *const names[] = {"LASERS", "SHIELD", "ENGINE", "MISSILES", "MISSILE RACK"};
+            static const char *const names[] = {"LASERS", "SHIELD", "ENGINE", "MISSILES", "MISSILE RACK", "JET PACK"};
             static const char *const lv[3] = {" MK1", " MK2", " MK3"};
             p = d_cat(p, names[i]);
             int l = i == 0 ? laser_lv : i == 1 ? shield_lv : i == 2 ? engine_lv : i == 4 ? rack_lv : -1;
             if (l >= 0) p = d_cat(p, lv[l]);
-            else { p = d_cat(p, " "); p = d_num(p, missiles); p = d_cat(p, "/"); p = d_num(p, rack_size[rack_lv]); }
+            else if (i == 3) { p = d_cat(p, " "); p = d_num(p, missiles); p = d_cat(p, "/"); p = d_num(p, rack_size[rack_lv]); }
             int pr = yard_price(i);
-            p = d_cat(p, pr ? "  " : "  FULL");
+            p = d_cat(p, pr ? "  " : i == 5 ? "  FITTED" : "  FULL");
             if (pr) { p = d_num(p, pr); d_cat(p, "CR"); }
             break;
         }
@@ -1953,6 +1962,8 @@ static void menu_draw(void)
         d_cat(p, job_name[job]);
         d_text(x, y0 + 64, b, TITLE);
     }
+    if (menu == MN_MAIN && sw_pack)
+        d_text(x, y0 + (job ? 74 : 64), "JET PACK FITTED", HELP);
     /* what the line under the cursor does, before you pick it (24 letters at most) */
     if (menu == MN_JOBS) {
         static const char *const what[J_N] = {"", "SHOOT DOWN RAIDERS", "LAND ON A CITY ROOFTOP", "GRAB 5 PODS, THEN DOCK",
@@ -1968,11 +1979,11 @@ static void menu_draw(void)
     }
     if (menu == MN_YARD) {
         static const char *const what[] = {"MORE SHOTS, HARDER HITS", "TAKE MORE HITS", "FASTER FLYING",
-                                           "REFILL THE RACK", "CARRY MORE MISSILES"};
+                                           "REFILL THE RACK", "CARRY MORE MISSILES", "FLY FREE IN SPACE"};
         if (confirm)
-            d_text(x, y0 + 63, "A AGAIN: BUY  B: NO", HI);
+            d_text(x, y0 + 67, "A AGAIN: BUY  B: NO", HI);
         else
-            d_text(x, y0 + 63, what[cursor], HELP);
+            d_text(x, y0 + 67, what[cursor], HELP);
     }
     if (menu == MN_OPT)
         d_text(x, y0 + 64, "A CHANGES IT", HELP);

@@ -52,6 +52,9 @@ s32 rag_floor(s32 x, s32 z, s32 y);   /* the floor a body at (x, y, z) lies on: 
 void rag_rise(Rag *r, s32 yaw);
 s32 rag_yaw(const Rag *r);         /* which way it would face standing up (its chest, or its legs lying down) */
 void rag_clear(void);
+/* spacewalk.c's figure, posed (not simulated): the body turned by m with its pelvis at `at` (units),
+   the limbs spread s/16 of the way out (0 standing .. 16 floating). It stays RAG_UP, so nothing moves it */
+void rag_pose(Rag *r, const M3 *m, V3 at, int s);
 /* our car while it is driven or rolls on empty (merge.c, else 0): bodies it runs into are
    knocked on */
 extern const Body *rag_car;

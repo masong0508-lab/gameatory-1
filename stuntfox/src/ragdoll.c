@@ -23,6 +23,11 @@ static const s16 pose[RAG_P][3] = {
     {0, 100, 0}, {-34, 176, 0}, {34, 176, 0}, {0, 206, 0}, {-40, 140, -2}, {-40, 102, 4},
     {40, 140, -2}, {40, 102, 4}, {-15, 52, 3}, {-15, 6, -2}, {15, 52, 3}, {15, 6, -2},
 };
+/* ... and floating: arms out and a little forward, the legs apart and bent back (spacewalk.c) */
+static const s16 pose_float[RAG_P][3] = {
+    {0, 100, 0}, {-34, 176, 0}, {34, 176, 0}, {0, 206, 0}, {-67, 189, 7}, {-104, 197, 15},
+    {67, 189, 7}, {104, 197, 15}, {-24, 55, -5}, {-45, 16, -17}, {24, 55, -5}, {45, 16, -17},
+};
 /* how far out each point's surface is (units): what touches the ground first */
 static const u8 radius[RAG_P] = {14, 12, 12, 16, 7, 6, 7, 6, 8, 5, 8, 5};
 
@@ -62,6 +67,21 @@ s32 rag_floor(s32 x, s32 z, s32 y)
 V3 rag_pelvis(const Rag *r)
 {
     return v3(r->o[0] + (r->x[0][0] >> SH), r->o[1] + (r->x[0][1] >> SH), r->o[2] + (r->x[0][2] >> SH));
+}
+
+void rag_pose(Rag *r, const M3 *m, V3 at, int s)
+{
+    for (int i = 0; i < RAG_P; i++) {
+        V3 l = mlocal(m, v3(pose[i][0] + (pose_float[i][0] - pose[i][0]) * s / 16,
+                            pose[i][1] - pose[0][1] + (pose_float[i][1] - pose[i][1]) * s / 16,
+                            pose[i][2] + (pose_float[i][2] - pose[i][2]) * s / 16));
+        r->x[i][0] = l.x << SH, r->x[i][1] = l.y << SH, r->x[i][2] = l.z << SH;
+        r->v[i][0] = r->v[i][1] = r->v[i][2] = 0;
+    }
+    r->o[0] = at.x, r->o[1] = at.y, r->o[2] = at.z;
+    r->state = RAG_UP;
+    r->age = 1;                                    /* (RAG_UP, aged: the figure is not 'just stood up') */
+    r->quiet = r->bounces = r->land = r->held = r->due = 0;
 }
 
 void rag_clear(void)

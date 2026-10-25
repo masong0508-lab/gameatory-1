@@ -26,7 +26,8 @@ typedef struct {
     u8 map, sub, story;            /* the map whose world is loaded (not PB_MAP, which is the rampage's), PB_SUB, !PB_RAMPAGE */
     u8 airborne;                   /* car: no wheel down; ship: no gear down */
     u8 sgstate;                    /* SG_* of the space game */
-    u8 pad[2];
+    u8 walk;                       /* W: SWK_* of spacewalk.h, 0 while he is not out in space */
+    u8 pad;
     u16 veh;                       /* when driving, Payback's vehicle type (descriptor number) */
     u32 ticks;                     /* our frames since the game started (60 a second) */
     u32 clock;                     /* PB_CLOCK */
@@ -53,6 +54,8 @@ enum {
     EV_TALK,                       /* S: a crew, b node */
     EV_MENU,                       /* S: a item, b arg */
     EV_MIS_DONE, EV_MIS_FAIL,      /* E: a mission, b seconds (cp_ev) */
+    EV_WALK,                       /* W (spacewalk.c): a 1 he bailed out above SPACE_LO (b his altitude / 16), 2 he reached the moon, 3 a beacon
+                                      (b which, 0..3), 0 it ended (b 1 aboard the Arwing, 2 down under SPACE_LO: the ragdoll's) */
     EV_N
 };
 enum { STUNT_FRONT_FLIP = 1, STUNT_BACK_FLIP, STUNT_BARREL, STUNT_SPIN, STUNT_HUGE_AIR, STUNT_BIG_AIR, STUNT_LOOP };
@@ -123,7 +126,7 @@ int bigmap_enter(int arg);         /* weak: 0, so stage 2 plays the ending */
 
 /* ---- the debug mailbox (16 bytes, found by symbol s2_dbg): the harness writes cmd and arg, then
    the magic; s2_tick runs the command in the frame, puts the answer in ret, counts seq and clears
-   the magic. cmd 1..15 E, 16..31 P, 32..47 S, 48..63 K, 64..79 F: */
+   the magic. cmd 1..15 E, 16..31 P, 32..47 S, 48..63 K, 64..79 F, 80..95 W (spacewalk.c, sw_dbg): */
 typedef struct { u32 magic; u16 cmd, arg; s32 ret; u32 seq; } S2Dbg;
 extern S2Dbg s2_dbg;
 #define S2_DBG_MAGIC 0x42443253     /* 'S2DB' */

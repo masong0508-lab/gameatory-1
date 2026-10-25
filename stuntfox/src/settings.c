@@ -3,6 +3,7 @@
 #include "draw2d.h"
 #include "spacegame.h"
 #include "tex.h"
+#include "spacewalk.h"
 
 extern u16 car_vmax_k, car_grip_k;     /* car.c, 256 = as built */
 extern u16 ship_speed_k;               /* ship.c */
@@ -40,7 +41,7 @@ static u8 fps_now;
 
 enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_SCORE,
        O_CARSPD, O_ACCEL, O_GRIP, O_DRIFT, O_STEER, O_CGRAV, O_BOOSTK, O_UNLIM,
-       O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_CAMD, O_TICKER,
+       O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_JET, O_CAMD, O_TICKER,
        O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_N };
 typedef struct {
     const char *name;
@@ -139,6 +140,7 @@ static const Opt opts[O_N] = {
     [O_MISSILE] = {"Endless missiles", l_offon, 2, 0, 4, 16, 1},
     [O_GRAV] = {"Ragdoll gravity", l_grav, 5, 2, 2, 21, 3},
     [O_BOUNCE] = {"Ragdoll bounce", l_bounce, 4, 1, 2, 6, 2},
+    [O_JET] = {"Jet pack strength", l_scale, 6, 2, 4, 23, 3},
     [O_CAMD] = {"Chase camera", l_camd, 4, 1, 4, 17, 2},
     [O_TICKER] = {"Ticker hints", l_onoff, 2, 0, 3, 15, 1},
     [O_SPEED] = {"Speed", l_speed, 3, 0, 4, 23, 2},
@@ -208,6 +210,7 @@ static void apply(void)
     sg_shield_k = v_shield[pos[O_SHIELD]];
     rag_grav_k = v_grav[pos[O_GRAV]];
     rag_bounce = v_bounce[pos[O_BOUNCE]];
+    sw_pack_k = v_scale[pos[O_JET]];
     opt_ticker = !pos[O_TICKER];
     sp_dk = v_draw[pos[O_DRAW]], sp_pk = v_props[pos[O_PROPS]], sp_tr = v_traffic[pos[O_TRAFFIC]];
     sp_cap = pos[O_SPEED] ? pos[O_SPEED] == 1 ? SP_FAST : SP_N - 1 : 0;

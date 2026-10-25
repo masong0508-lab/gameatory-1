@@ -21,9 +21,9 @@ ROOT = os.path.dirname(HERE)
 SRC = os.path.join(ROOT, 'src')
 GBA = 0x08000000
 
-# E: mission.c hudline.c msn_draw.c; P: campaign.c save.c; S: station.c stationdraw.c; K: sgx.c (F: s2core.c)
+# E: mission.c hudline.c msn_draw.c; P: campaign.c save.c; S: station.c stationdraw.c; K: sgx.c; W: spacewalk.c (F: s2core.c)
 S2_SOURCES = ['s2core.c', 'mission.c', 'hudline.c', 'msn_draw.c', 'campaign.c', 'save.c', 'station.c',
-              'stationdraw.c', 'sgx.c']
+              'stationdraw.c', 'sgx.c', 'spacewalk.c']
 
 # (symbol the link defines, builders in the order tried: a path under stuntfox/, and the function in it)
 BLOBS = (('s2_blob', ('tools/content/sfc.py', 'tests/vm/mkdemo.py')),
