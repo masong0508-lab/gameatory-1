@@ -21,25 +21,36 @@
 #define WHEEL_F(b) F6(M_ROAD, MF_TWO, b, b + 1, b + 2, b + 3, b + 4, b + 5)
 #define WHEEL_FACES(b) WHEEL_F(b), WHEEL_F(b + 6), WHEEL_F(b + 12), WHEEL_F(b + 18)
 
-/* A saloon: body, bonnet and boot, a glass cabin with a roof. L: half length, cf/cb: where
-   the cabin meets the body, rf/rb: its roof, w: half width. */
-#define SALOON_V(L, cf, cb, rf, rb, w)                                                          \
-    {-(w), G + 22, L}, {w, G + 22, L}, {w, G + 22, -(L)}, {-(w), G + 22, -(L)},                 \
-    {-(w), G + 82, (L) - 10}, {w, G + 82, (L) - 10}, {w, G + 86, 5 - (L)}, {-(w), G + 86, 5 - (L)}, \
-    {-(w), G + 82, cf}, {w, G + 82, cf}, {w, G + 84, cb}, {-(w), G + 84, cb},                 \
-    {20 - (w), G + 150, rf}, {(w) - 20, G + 150, rf}, {(w) - 20, G + 150, rb}, {20 - (w), G + 150, rb}
+/* A saloon, sealed: four stations along the body (nose, cowl, deck, tail), each a ring of
+   bottom and belt-line corners, a greenhouse of glass under a roof, a bar of headlights and
+   one of tail lights. L: half length, cf/cb: the cowl and the deck (where the glass starts and
+   ends), rf/rb: the roof's front and back, w: half width, hh/hd/ht: the belt line's height at
+   the cowl, the deck and the tail. */
+#define SALOON_V(L, cf, cb, rf, rb, w, hh, hd, ht)                                              \
+    {-((w) - 6), G + 26, L}, {(w) - 6, G + 26, L}, {(w) - 6, G + 62, L}, {-((w) - 6), G + 62, L}, \
+    {-(w), G + 22, cf}, {w, G + 22, cf}, {w, G + (hh), cf}, {-(w), G + (hh), cf},               \
+    {-(w), G + 22, cb}, {w, G + 22, cb}, {w, G + (hd), cb}, {-(w), G + (hd), cb},               \
+    {-((w) - 6), G + 24, -(L)}, {(w) - 6, G + 24, -(L)}, {(w) - 6, G + (ht), -(L)}, {-((w) - 6), G + (ht), -(L)}, \
+    {20 - (w), G + 150, rf}, {(w) - 20, G + 150, rf}, {(w) - 20, G + 150, rb}, {20 - (w), G + 150, rb}, \
+    {-((w) - 24), G + 38, (L) + 3}, {(w) - 24, G + 38, (L) + 3}, {(w) - 24, G + 52, (L) + 3}, {-((w) - 24), G + 52, (L) + 3}, \
+    {-((w) - 14), G + (ht) - 20, -(L) - 3}, {(w) - 14, G + (ht) - 20, -(L) - 3}, {(w) - 14, G + (ht) - 6, -(L) - 3}, {-((w) - 14), G + (ht) - 6, -(L) - 3}
+#define SALOON_NV 28
 static const MFace saloon_f[] = {
-    F4(M_CAR, 0, 0, 1, 5, 4), F4(M_CAR, 0, 2, 3, 7, 6), F6(M_CAR, 0, 3, 0, 4, 8, 11, 7),
-    F6(M_CAR, 0, 1, 2, 6, 10, 9, 5), F4(M_CAR, 0, 4, 5, 9, 8), F4(M_CAR, 0, 11, 10, 6, 7),
-    F4(M_GLASS, 0, 8, 9, 13, 12), F4(M_GLASS, 0, 10, 11, 15, 14), F4(M_GLASS, 0, 11, 8, 12, 15),
-    F4(M_GLASS, 0, 9, 10, 14, 13), F4(M_CAR, 0, 12, 13, 14, 15),
-    WHEEL_FACES(16),
+    F4(M_STEEL, 0, 0, 1, 2, 3), F4(M_CREAM, 0, 20, 21, 22, 23),                    /* the nose, its lights */
+    F4(M_CAR, 0, 3, 2, 6, 7), F4(M_CAR, 0, 0, 4, 7, 3), F4(M_CAR, 0, 1, 5, 6, 2),   /* the bonnet and its sides */
+    F4(M_CAR, 0, 4, 8, 11, 7), F4(M_CAR, 0, 5, 9, 10, 6),                          /* the doors */
+    F4(M_CAR, 0, 8, 12, 15, 11), F4(M_CAR, 0, 9, 13, 14, 10), F4(M_CAR, 0, 11, 10, 14, 15),   /* the boot */
+    F4(M_CAR, 0, 12, 13, 14, 15), F4(M_BRICK, 0, 24, 25, 26, 27),                  /* the tail, its lights */
+    F4(M_STEEL, 0, 0, 1, 13, 12),                                                  /* the underside */
+    F4(M_GLASS, 0, 7, 6, 17, 16), F4(M_GLASS, 0, 11, 10, 18, 19),                  /* the windscreen, the back window */
+    F4(M_GLASS, 0, 7, 11, 19, 16), F4(M_GLASS, 0, 6, 10, 18, 17), F4(M_CAR, 0, 16, 17, 18, 19),
+    WHEEL_FACES(SALOON_NV),
 };
-static const MVert saloon_v[] = {SALOON_V(235, 70, -120, 30, -95, 112), WHEELS(114, 150, -150)};
-static const MVert limo_v[] = {SALOON_V(340, 120, -230, 80, -205, 112), WHEELS(114, 250, -250)};
-static const MVert pickup_v[] = {SALOON_V(245, 150, -20, 110, 0, 118), WHEELS(120, 160, -160)};
+static const MVert saloon_v[] = {SALOON_V(235, 70, -120, 30, -95, 112, 84, 86, 78), WHEELS(114, 150, -150)};
+static const MVert limo_v[] = {SALOON_V(340, 120, -230, 80, -205, 112, 84, 86, 78), WHEELS(114, 250, -250)};
+static const MVert pickup_v[] = {SALOON_V(245, 150, -20, 110, -10, 118, 84, 82, 82), WHEELS(120, 160, -160)};
 
-/* the Blue Falcon wedge (sports cars), with wheels */
+/* the Blue Falcon wedge (sports cars), with wheels, a bar of tail lights and a floor */
 static const MVert sport_v[] = {
     {-115, -38, 235}, {115, -38, 235}, {125, -38, -225}, {-125, -38, -225},
     {-105, 12, 140}, {105, 12, 140}, {118, 32, -225}, {-118, 32, -225},
@@ -47,6 +58,7 @@ static const MVert sport_v[] = {
     {-55, 16, 95}, {55, 16, 95}, {0, 64, -40}, {-62, 28, -150}, {62, 28, -150},
     {100, 32, -165}, {100, 98, -245}, {100, 32, -235},
     {-100, 32, -165}, {-100, 98, -245}, {-100, 32, -235},
+    {-100, -4, -228}, {100, -4, -228}, {100, 18, -228}, {-100, 18, -228},
     WHEELS(127, 160, -150),
 };
 static const MFace sport_f[] = {
@@ -55,7 +67,8 @@ static const MFace sport_f[] = {
     F4(M_STEEL, 0, 3, 2, 6, 7),
     F3(M_GLASS, 0, 12, 13, 14), F3(M_GLASS, 0, 13, 16, 14), F3(M_CAR, 0, 16, 15, 14), F3(M_GLASS, 0, 15, 12, 14),
     F3(M_ACCENT, MF_TWO, 17, 18, 19), F3(M_ACCENT, MF_TWO, 20, 21, 22),
-    WHEEL_FACES(23),
+    F4(M_STEEL, 0, 0, 1, 2, 3), F4(M_BRICK, 0, 23, 24, 25, 26),
+    WHEEL_FACES(27),
 };
 
 /* a van: a tall box with a sloping windscreen */
@@ -68,6 +81,7 @@ static const MVert van_v[] = {
 static const MFace van_f[] = {
     F4(M_CAR, 0, 0, 1, 5, 4), F4(M_GLASS, 0, 4, 5, 9, 8), F4(M_CAR, 0, 8, 9, 6, 7),
     F4(M_CAR, 0, 3, 2, 6, 7), F5(M_CAR, 0, 3, 0, 4, 8, 7), F5(M_CAR, 0, 1, 2, 6, 9, 5),
+    F4(M_STEEL, 0, 0, 1, 2, 3),
     WHEEL_FACES(10),
 };
 
@@ -81,7 +95,7 @@ static const MFace bus_f[] = {
     F4(M_CAR, 0, 0, 4, 5, 1), F4(M_GLASS, 0, 1, 5, 6, 2), F4(M_CAR, 0, 2, 6, 7, 3),
     F4(M_CAR, 0, 8, 12, 13, 9), F4(M_GLASS, 0, 9, 13, 14, 10), F4(M_CAR, 0, 10, 14, 15, 11),
     F4(M_CAR, 0, 0, 8, 9, 1), F4(M_GLASS, 0, 1, 9, 11, 3), F4(M_CAR, 0, 4, 12, 15, 7),
-    F4(M_CAR, 0, 3, 11, 15, 7),
+    F4(M_CAR, 0, 3, 11, 15, 7), F4(M_STEEL, 0, 0, 8, 12, 4),
     WHEEL_FACES(16),
 };
 
@@ -103,6 +117,7 @@ static const MFace tank_f[] = {
     F4(M_CAR, 0, 8, 9, 13, 12), F4(M_CAR, 0, 10, 11, 15, 14), F4(M_CAR, 0, 11, 8, 12, 15),
     F4(M_CAR, 0, 9, 10, 14, 13), F4(M_CAR, 0, 12, 13, 14, 15),
     F4(M_STEEL, MF_TWO, 24, 25, 26, 27), F4(M_STEEL, MF_TWO, 28, 29, 30, 31),
+    F4(M_STEEL, 0, 0, 1, 2, 3),
 };
 
 /* A person: legs (model_legs), body and arms (model_body), head and hair. s: how far each
@@ -174,7 +189,7 @@ extern const N3 gen_hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)], gen_tnbuf[];
 #define model_init(md)
 #else
 static N3 hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)] EWRAM_BSS;
-static N3 tnbuf[200] EWRAM_BSS;
+static N3 tnbuf[400] EWRAM_BSS;
 #endif
 /* The player swimming, as much of him as is over the water (at 0): the top of his back, then
    his head and hair (two models, so each box's faces turn the right way); merge.c draws his
