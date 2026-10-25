@@ -41,6 +41,16 @@ static inline int first_visit(int i)
 #endif
 #define FAR_CELLS 72
 u16 draw_k = 256;                  /* GAME SETTINGS: the reach, 256 = as above */
+u8 view_cut, far_fs = FAR_CELLS / 8;   /* GAME SETTINGS' speed: the reach goes by building, not by 8-cell sector; far patches' sectors */
+
+/* is the rectangle of cells (the first four bytes of a box, lot or ramp) wholly past the reach? */
+static int item_out(const u8 *r, s32 reach)
+{
+    s32 cx = (r[0] + r[2]) * (CELL / 2) - cam.pos.x, cz = (r[1] + r[3]) * (CELL / 2) - cam.pos.z;
+    s32 half = ((r[2] - r[0] > r[3] - r[1] ? r[2] - r[0] : r[3] - r[1]) * CELL) >> 1;
+    cx = cx < 0 ? -cx : cx, cz = cz < 0 ? -cz : cz;
+    return (cx > cz ? cx : cz) - half > reach;
+}
 
 /* camera-space images of the world axes, scaled by 1/16384 per unit */
 static V3 ax, ay, az;
@@ -108,7 +118,7 @@ static void wall(V3 a, V3 dir, s32 len, s32 h, s32 cut, int m, int l, int f, con
            far behind it, and their average put it in front of everything beside it (the man,
            the Arwing's wing, a car) */
         key = cut ? r_key((V3[4]){a, b, bt, at}, 4) : -1;
-        if (nz < TEX_WALL_FAR) {
+        if (nz < tex_wall_far) {
             TexWall t;
             tex_wall_setup(&t, at, dir, v3(-ay.x, -ay.y, -ay.z));
             for (int i = 0; i < 4; i++)                /* (a chain-link mesh: flat, not a checkerboard) */
@@ -742,7 +752,9 @@ void world_draw(void)
     view = vg_view;
     if (alt > 30000) view = 0;
     vg_drawn = view;
-    int vs = (view >> 13) + 1, fs = FAR_CELLS / 8;
+    /* (a sector is drawn when its middle is within view - 4096, so whole: with view_cut, when its near edge is within
+       view, and each building then goes by its own distance) */
+    int slack = view_cut ? 4096 : -4096, vs = ((view + slack + 4096) >> 13) + 1, fs = far_fs;
     /* flat patches for distant sectors: only worth it from the air */
     if (vg_far) {
         /* each sector's centre (and corner) in camera space, as r_cam_far gives them (>> 3 and
@@ -765,7 +777,7 @@ void world_draw(void)
                     continue;                   /* the island polygon already looks like road */
                 s32 ddx = sx * 8192 + 4096 - cam.pos.x, ddz = sz * 8192 + 4096 - cam.pos.z;
                 s32 adx = ddx < 0 ? -ddx : ddx, adz = ddz < 0 ? -ddz : ddz;
-                if ((adx > adz ? adx : adz) <= view - 4096)
+                if ((adx > adz ? adx : adz) <= view + slack)
                     continue;
                 s32 cx = c.x >> 14, cy = c.y >> 14, cz = c.z >> 14;
                 const s32 rad = 750;                    /* sector half diagonal / 8 */
@@ -784,7 +796,7 @@ void world_draw(void)
                 continue;
             s32 dx = sx * 8192 + 4096 - cam.pos.x, dz = sz * 8192 + 4096 - cam.pos.z;
             s32 adx = dx < 0 ? -dx : dx, adz = dz < 0 ? -dz : dz;
-            if ((adx > adz ? adx : adz) > view - 4096)
+            if ((adx > adz ? adx : adz) > view + slack)
                 continue;
             V3 c = r_cam(v3(sx * 8192 + 4096, 1500, sz * 8192 + 4096));
             const s32 rad = 7000;
@@ -797,13 +809,13 @@ void world_draw(void)
                 int kind = *it >> 13, i = *it & 0x1fff;
                 switch (kind) {
                 case 0:
-                    if (first_visit(i)) draw_box(&world.box[i]);
+                    if (!(view_cut && item_out((const u8 *)&world.box[i], view)) && first_visit(i)) draw_box(&world.box[i]);
                     break;
                 case 1:
-                    if (first_visit(SEEN_LOT + i)) draw_lot(&world.lot[i]);
+                    if (!(view_cut && item_out((const u8 *)&world.lot[i], view)) && first_visit(SEEN_LOT + i)) draw_lot(&world.lot[i]);
                     break;
                 case 2:
-                    if (first_visit(SEEN_RAMP + i)) draw_ramp(&world.ramp[i]);
+                    if (!(view_cut && item_out((const u8 *)&world.ramp[i], view)) && first_visit(SEEN_RAMP + i)) draw_ramp(&world.ramp[i]);
                     break;
                 case 4:
                     if (first_visit(SEEN_LINE + i)) draw_line(&world.line[i]);

@@ -2376,6 +2376,8 @@ static void dress(const u8 *e, u8 *body, u8 *legs)
 }
 
 /* everyone Payback is running: traffic, parked cars, helicopters, people and their shots */
+u16 ent_far = 20000;                               /* GAME SETTINGS' speed: people and cars past this are not drawn */
+
 static void draw_entities(const u8 *me)
 {
     int n = PB_NENTITY;                                /* (the last index: the man just out of a car is there too) */
@@ -2401,7 +2403,7 @@ static void draw_entities(const u8 *me)
         if (p.x < 1024 && p.z < 1024)
             continue;                                  /* unused records wait in the corner */
         V3 d = vsub(p, cam.pos);
-        if (iabs(d.x) > 20000 || iabs(d.z) > 20000)
+        if (iabs(d.x) > ent_far || iabs(d.z) > ent_far)
             continue;
         M3 m;
         myaw(&m, entity_heading(e));
@@ -3848,7 +3850,7 @@ int sf_draw(int view)
         goto tail;
     }
     s32 alt = cam.pos.y;
-    tex_on = opt_tex;              /* Payback's tiles (they fade out with height, see tex.c) */
+    tex_on = opt_tex && tex_far > 1;   /* Payback's tiles (they fade out with height, see tex.c; GAME SETTINGS' speed ends them at its last two steps) */
     r_nofog = alt > 16000;         /* (our fog colours are the sky's; in space there is none) */
     r_begin();
     tex_frame();

@@ -54,6 +54,7 @@ static union {
 static int rolled;
 static const u16 *tex_tab;         /* the floor being drawn: its cells' tile ids (its TexFloor's) */
 int tex_on;
+s32 tex_wall_far = TEX_WALL_FAR, tex_floor_far = 1 << 30, tex_far = TEX_FAR;
 /* what nearer walls hide (see tex_occlude) */
 static u32 cov[110] SCRATCH;
 #define cov_top ((u8 *)cov)
@@ -320,7 +321,7 @@ HOT6 static void tex_hspan_rolled(u8 *row, int j, int p0, int n, const TexFloor 
                 if (a > far) far = a;
             }
         }
-        if (!far || ((far * fl->k) >> 16) >= TEX_FAR) {
+        if (!far || ((far * fl->k) >> 16) >= tex_far) {
             flat_pairs(row + 2 * p0, m, color, row2);
         } else {
             /* a pair: 256 / 20 of the piece's ends' difference (as 26215 / 2^11: no division,
@@ -387,10 +388,10 @@ HOT3 void tex_rows(u8 *back, int y, int rows, s32 xl, s32 sl, s32 xr, s32 sr, in
     const TexFloor *fl = type == PT_FLOOR ? (const TexFloor *)info : &ground;
     while (rows > 0) {
         s32 far = gfar[y >> 1];
-        if (!far || ((far * fl->k) >> 16) >= TEX_FAR) {
+        if (!far || ((far * fl->k) >> 16) >= tex_far) {
             /* too far for tiles: flat, these rows and the next ones as far */
             int n = 1;
-            while (n < rows && (!gfar[(y + n) >> 1] || ((gfar[(y + n) >> 1] * fl->k) >> 16) >= TEX_FAR))
+            while (n < rows && (!gfar[(y + n) >> 1] || ((gfar[(y + n) >> 1] * fl->k) >> 16) >= tex_far))
                 n++;
             fill_trap(back + y * 240, n, xl, sl, xr, sr, color * 0x01010101u);
             y += n, rows -= n, xl += n * sl, xr += n * sr;
@@ -424,11 +425,14 @@ void tex_wall_setup(TexWall *t, V3 o, V3 s, V3 d)
     t->a[0] = a.z * FOCAL - 120 * a.x + 80 * a.y, t->a[1] = a.x, t->a[2] = -a.y;
     t->b[0] = b.z * FOCAL - 120 * b.x + 80 * b.y, t->b[1] = b.x, t->b[2] = -b.y;
     /* w is n . (the ray through the pixel), so a column's depth is FOCAL * (n . o) / w: past
-       TEX_WALL_FAR where |w| < FOCAL * |n . o| / TEX_WALL_FAR (each column switches on its
+       tex_wall_far where |w| < FOCAL * |n . o| / tex_wall_far (each column switches on its
        own, at one distance, rather than a whole wall at once) */
     s64 no = (s64)n.x * o.x + (s64)n.y * o.y + (s64)n.z * o.z;
     if (no < 0) no = -no;
-    t->wlim = (s32)((no * (FOCAL * 65536 / TEX_WALL_FAR)) >> 16);
+    static s32 far_was, far_k;
+    if (far_was != tex_wall_far)
+        far_was = tex_wall_far, far_k = FOCAL * 65536 / (tex_wall_far > 0 ? tex_wall_far : 1);   /* (a division: only when it changes; never by 0) */
+    t->wlim = (s32)((no * far_k) >> 16);
     t->skip[0] = t->skip[1] = t->skip[2] = t->skip[3] = 0;
 }
 

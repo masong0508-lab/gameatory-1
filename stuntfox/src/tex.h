@@ -32,7 +32,7 @@ typedef struct {
     s32 w[3], a[3], b[3];          /* at screen (x, y): w0 + x * w1 + y * w2, and so a and b */
     const u8 *tile[4];             /* a tile for each 1024 units along the wall */
     const u8 *lut;                 /* darker colours, or 0 */
-    s32 wlim;                      /* columns with |w| below this are past TEX_WALL_FAR: flat */
+    s32 wlim;                      /* columns with |w| below this are past tex_wall_far: flat */
     u32 skip[4];                   /* columns (two pixels each) nearer walls hide: not drawn */
 } TexWall;
 
@@ -41,6 +41,7 @@ extern const u32 pb_mesh[(TEX_IDS + 31) / 32];   /* a bit per tile: a fine mesh 
 extern u8 pb_shade[3][256];          /* (in RAM: read for every wall texel) */
 
 void tex_frame(void);              /* per frame, after the camera is set: ground for every row */
+extern s32 tex_wall_far, tex_floor_far, tex_far;   /* GAME SETTINGS' speed: tiles on walls and on distant roofs end here */
 extern int tex_on;                 /* Payback's tiles and colours this frame (its palette is up) */
 const u8 *tex_tile(int id);        /* Payback's tile id -> its texels, or 0 */
 /* a wall's mapping from camera space: o its origin (units), along the wall and down (1.14) */

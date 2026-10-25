@@ -5,6 +5,7 @@ $OUT; run on the old and the new ROM and diff the two outputs: they must be equa
 
     SP=.. OUT=dir TAG=name ROM=x.gba ELF=x.elf python3 tests/s2/menus.py      (from stuntfox/)
 """
+import subprocess
 import h
 from h import *
 
@@ -16,8 +17,12 @@ def shot(name):
     e.frame.save('%s/menus_%s_%s.png' % (OUT, TAG, name))
 
 
+# (the slider count of the build under test, from its ELF: the Speed line makes it one more)
+NPOS = next(int(l.split()[1], 16) for l in subprocess.check_output(['nm', '-S', ELF], text=True).splitlines() if l.split()[-1] == 'pos')
+
+
 def pos():
-    return list(e.read(S['pos'], 26))
+    return list(e.read(S['pos'], NPOS))
 
 
 def snapshot(what):
@@ -136,7 +141,7 @@ for k in ('RIGHT', 'DOWN', 'RIGHT', 'DOWN', 'DOWN', 'RIGHT'):
 shot('hangar_changed')
 htap('B', after=30)
 h1 = snapshot('hangar: left')
-ck(pos() != [0] * 26 and (h1['mirror'] != h0['mirror'] or h1['extras'] != h0['extras']), 'the hangar page saved what was changed')
+ck(pos() != [0] * NPOS and (h1['mirror'] != h0['mirror'] or h1['extras'] != h0['extras']), 'the hangar page saved what was changed')
 run(60)
 h2 = snapshot('hangar: a second on')
 ck(h2['mirror'] == h1['mirror'] and h2['extras'] == h1['extras'], 'and it stays saved (the progress check puts nothing back)')

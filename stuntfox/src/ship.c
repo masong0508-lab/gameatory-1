@@ -24,12 +24,15 @@ static const V3 hull[] = {
 u16 ship_speed_k = 256;            /* GAME SETTINGS: the speeds flown, 256 = as above */
 u8 ship_engine;                    /* 0..2: the shipyard's engine upgrades */
 
+static u8 rest;                    /* ticks the ship has lain still (see ship_update) */
+
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 void ship_reset(Ship *s, V3 p, s32 heading)
 {
     memset(s, 0, sizeof *s);
+    rest = 0;                                      /* (a new ship is never held) */
     s->b.pos = v3(p.x << FX, (p.y + 120) << FX, p.z << FX);
     myaw(&s->b.m, heading);
     s->b.inv_i[0] = (1 << 24) / 40000;
@@ -87,10 +90,30 @@ static int way(const Body *b, s32 *dx, s32 *dz)
     return 0;
 }
 
+/* parked with the hands off, the gear's springs chatter by a hair for ever, and every tick of it costs the
+   city's collision tests; after a second at rest the ship is held still, till a key, a push or a move */
+#define REST_N 60
+#define REST_V 160                                 /* the creep and spin that count as still */
+static V3 rest_pos, rest_f;
+
+static int rest_held(const Body *b)
+{
+    return !(b->vel.x | b->vel.y | b->vel.z | b->w.x | b->w.y | b->w.z | b->acc.x | b->acc.y | b->acc.z | b->alpha.x | b->alpha.y | b->alpha.z) &&
+           !((b->pos.x ^ rest_pos.x) | (b->pos.y ^ rest_pos.y) | (b->pos.z ^ rest_pos.z) |
+             (b->m.f.x ^ rest_f.x) | (b->m.f.y ^ rest_f.y) | (b->m.f.z ^ rest_f.z));
+}
+
 void ship_update(Ship *s, u16 keys)
 {
     Body *b = &s->b;
     M3 *m = &b->m;
+    if (rest >= REST_N) {
+        if (!keys && rest_held(b)) {
+            s->impact = 0;
+            return;
+        }
+        rest = 0;
+    }
     s32 space = space_factor(b->pos.y >> FX), air = ONE - space;
     b->acc.y -= (G_ACC * air) >> 14;
 
@@ -296,6 +319,12 @@ void ship_update(Ship *s, u16 keys)
     body_integrate(b);
 
     ship_settle(s);
+    if (keys || s->gear < 3 || iabs(b->vel.x) + iabs(b->vel.y) + iabs(b->vel.z) > REST_V || iabs(b->w.x) + iabs(b->w.y) + iabs(b->w.z) > REST_V)
+        rest = 0;
+    else if (++rest >= REST_N) {                           /* (still: held as it lies) */
+        b->vel = b->w = b->acc = b->alpha = v3(0, 0, 0);
+        rest_pos = b->pos, rest_f = m->f;
+    }
 }
 
 /* the hull against the city: pushed out of what it is in, bouncing and rubbing */

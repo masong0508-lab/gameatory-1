@@ -180,10 +180,27 @@ default, B leaves. The list scrolls.
 - Car: top speed, acceleration, grip, handbrake slide, steering, gravity, boost power, endless boost.
 - Arwing: speed, shield, endless missiles.
 - Ragdolls: gravity, bounce. Chase camera: close to farthest.
-- Performance: draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter.
+- Performance: speed, draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter.
   Draw distance Near is the biggest saving where the view is open (Real Park on foot goes from
   about 14 to 30 frames a second), Textures off the next (2 to 4 frames in the heavy places); both
   together take the Big Track with the Arwing parked from 13 to 24.
+  Speed (Normal, Fast, Fastest) is for the places that stay under 24 frames a second even then. Normal
+  is the game as it was (the 3D picture is the same to the pixel). With Fast or Fastest the game times
+  its own frames: while they come at 25 a second or less it gives up one step (two when far off) of a
+  list of ten, and when they all come at 30 it takes one back, waiting longer each time it had to
+  undo that (the step that gives the tiles back waits at least 48 looks of 8 frames, twice that after
+  each undo, so the tiles do not come and go). A step is, all at once: fewer trees, people and cars drawn
+  nearer in, fewer added, Payback's tiles on walls, roofs and the ground ending sooner, and the city's
+  reach shorter (each building by its own distance, not its block's). Fast stops at the seventh step (the
+  reach 80/256 of the usual, no trees, tiles only within 400 units on walls, 250 on the ground); Fastest
+  goes on to the tenth (no tiles at all from the eighth, the reach 40/256 at the ninth: a few streets, and
+  28/256 at the tenth, which only Real Park and the like ever reach). The page says so under the line.
+  Measured on the 44 test scenes (11 maps, each on foot, walking, the Arwing parked, the Arwing climbing
+  out; one run each, a scene moves by 2 frames a second between runs, the climbing ones by more): Normal
+  12.4 to 30 (mean 21.9, 29 of 44 under 24), Fast 20.6 to 30 (mean 28.1; 40 of 44 at 24 or more, Real Park
+  and the Arwing parked at Isla Nublar stay under), Fastest 26.8 to 30 (mean 29.3, all 44 at 24 or more).
+  A parked Arwing is also let go still once nothing
+  has touched it for a second (its physics stop until a key or a push).
 
 They are kept in spare bits of the progress words (settings.c); the extra ones live in a word of
 their own at 0x0203ff90 (just under the progress copy), checked and put back the same way.

@@ -2,12 +2,15 @@
 #include "settings.h"
 #include "draw2d.h"
 #include "spacegame.h"
+#include "tex.h"
 
 extern u16 car_vmax_k, car_grip_k;     /* car.c, 256 = as built */
 extern u16 ship_speed_k;               /* ship.c */
 extern u8 sg_shield_k;                 /* spacegame.c: quarters, 255 nothing hurts it */
 extern u8 rag_grav_k, rag_bounce;      /* ragdoll.c */
 extern u16 draw_k;                     /* citydraw.c: the city's reach, 256 = as built */
+extern u8 view_cut, far_fs;           /* citydraw.c: the reach goes by building, not by sector; sectors of flat patches seen from the air */
+extern u16 ent_far;                    /* merge.c: how far people and cars are drawn */
 u8 traffic_add = 8;                    /* keyhook.s: Payback's cap on the people and cars it adds, + this - 8 */
 extern u16 car_accel_k, car_steer_k, car_boost_k;   /* car.c, 256 = as built */
 extern u16 car_drift_mu;               /* car.c: the rear grip at the full slide (175 as built) */
@@ -38,7 +41,7 @@ static u8 fps_now;
 enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_SCORE,
        O_CARSPD, O_ACCEL, O_GRIP, O_DRIFT, O_STEER, O_CGRAV, O_BOOSTK, O_UNLIM,
        O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_CAMD, O_TICKER,
-       O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_N };
+       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_N };
 typedef struct {
     const char *name;
     const char *const *label;
@@ -67,6 +70,31 @@ static const u8 v_grav[] = {1, 2, 4, 6, 8};                            /* quarte
 static const char *const l_bounce[] = {"Dead", "Normal", "Bouncy", "Superball"};
 static const u8 v_bounce[] = {4, 0, 12, 15};                           /* sixteenths, 0 as it was */
 static const char *const l_onoff[] = {"On", "Off"};
+static const char *const l_speed[] = {"Normal", "Fast", "Fastest"};
+/* Speed: Fast and Fastest give up, a step at a time and only while frames come at 25 a second or less (and back once they
+   come fast again), what each row lists: the city's reach in 256ths, the trees' (of the Trees setting's), how far people
+   and cars are drawn, how many fewer of them Payback adds, how far its tiles go on walls, on roofs and on the ground,
+   and how many 8-cell sectors of flat patches are seen from the air. Row 0 is the game as it was. */
+typedef struct { u16 view, prop, ent; s16 wall, roof, far; u8 cars, fs; } SpLv;
+#define SP_FAST 7                  /* the last row Fast goes down to */
+static const SpLv sp_tab[] = {
+    {256, 256, 20000, TEX_WALL_FAR, 0x7fff, TEX_FAR, 0, 9},
+    {256, 160, 14000, 3600, 5200, 4800, 2, 8},
+    {220, 100, 11000, 2800, 3800, 3600, 3, 7},
+    {185, 64, 9000, 2200, 3000, 2600, 4, 6},
+    {155, 32, 7000, 1700, 2300, 1800, 4, 5},
+    {130, 0, 5500, 1300, 1700, 1000, 4, 4},
+    {105, 0, 4500, 900, 1200, 500, 4, 3},
+    {80, 0, 3500, 400, 600, 250, 4, 2},
+    {55, 0, 3000, 0, 0, 1, 4, 0},
+    {40, 0, 3000, 0, 0, 1, 4, 0},
+    {28, 0, 2000, 0, 0, 1, 4, 0},
+};
+#define SP_N (int)(sizeof sp_tab / sizeof *sp_tab)
+static u8 sp_cap, sp_lv;           /* the deepest row allowed (0: Normal), the row in use */
+static u16 sp_dk = 256, sp_pk = 256, sp_tr = 8;    /* the reach, trees and traffic the other settings ask for */
+static u8 sp_n, sp_sum, sp_good, sp_wait = 3, sp_up;   /* frames and ticks in this look, calm looks, those to wait, raised lately */
+static u8 sp_tw = 48;              /* the looks to wait before row 8 gives its tiles back (they come and go over the whole city) */
 static const char *const l_draw[] = {"Near", "Normal", "Far", "Max"};
 static const u16 v_draw[] = {180, 256, 332, 410};
 static const char *const l_traffic[] = {"None", "Low", "Normal", "High", "Very high"};
@@ -113,6 +141,7 @@ static const Opt opts[O_N] = {
     [O_BOUNCE] = {"Ragdoll bounce", l_bounce, 4, 1, 2, 6, 2},
     [O_CAMD] = {"Chase camera", l_camd, 4, 1, 4, 17, 2},
     [O_TICKER] = {"Ticker hints", l_onoff, 2, 0, 3, 15, 1},
+    [O_SPEED] = {"Speed", l_speed, 3, 0, 4, 23, 2},
     [O_DRAW] = {"Draw distance", l_draw, 4, 1, 2, 14, 2},
     [O_TEX] = {"Textures", l_onoff, 2, 0, 4, 20, 1},
     [O_PROPS] = {"Trees and lamps", l_props, 3, 2, 4, 21, 2},
@@ -130,6 +159,47 @@ static u16 fps_t, fps_f;           /* game ticks and frames since the counter la
 static s16 hp_last = -1;           /* the man's health as we left it */
 static u8 row, top, rep, hid;      /* hid: we took Payback's sprites (its HUD, its map) off for the page */
 
+static void speed_set(int lv)
+{
+    const SpLv *l = &sp_tab[sp_lv = lv];
+    int t = sp_tr - l->cars;
+    draw_k = sp_dk * l->view >> 8;
+    prop_k = sp_pk * l->prop >> 8;
+    traffic_add = t < 0 ? 0 : t;
+    tex_wall_far = l->wall;
+    tex_floor_far = lv ? l->roof : 1 << 30;
+    tex_far = l->far;
+    view_cut = lv > 1;
+    far_fs = l->fs;
+    ent_far = l->ent;
+}
+
+/* each frame: eight of them, and their ticks (4 at most, a slow one is a load, not the scene) */
+static void speed_tick(int ticks)
+{
+    if (!sp_cap || !ticks)
+        return;
+    sp_sum += ticks < 4 ? ticks : 4;
+    if (++sp_n < 8)
+        return;
+    int sum = sp_sum, lv = sp_lv, bounced = sp_up;
+    sp_n = sp_sum = sp_up = 0;
+    if (sum >= 19) {                                   /* 25 a second or less: down a row, two when it is far off */
+        if (lv < sp_cap)
+            speed_set(lv + 1 + (sum >= 24 && lv + 1 < sp_cap));
+        if (bounced && sp_wait < 96)
+            sp_wait *= 2;                              /* (back down soon after a raise: wait longer for the next) */
+        if (bounced && lv == 7 && sp_tw < 96)
+            sp_tw *= 2;
+        sp_good = 0;
+    } else if (sum <= 16 && lv) {                      /* 30 a second (no frame over 2 ticks): one row back, once it has been so a while */
+        if (++sp_good >= (lv == 8 && sp_tw > sp_wait ? sp_tw : sp_wait))
+            speed_set(lv - 1), sp_good = 0, sp_up = 1;
+    } else {
+        sp_good = 0;
+    }
+}
+
 static void apply(void)
 {
     car_vmax_k = v_scale[pos[O_CARSPD]];
@@ -139,8 +209,9 @@ static void apply(void)
     rag_grav_k = v_grav[pos[O_GRAV]];
     rag_bounce = v_bounce[pos[O_BOUNCE]];
     opt_ticker = !pos[O_TICKER];
-    draw_k = v_draw[pos[O_DRAW]];
-    traffic_add = v_traffic[pos[O_TRAFFIC]];
+    sp_dk = v_draw[pos[O_DRAW]], sp_pk = v_props[pos[O_PROPS]], sp_tr = v_traffic[pos[O_TRAFFIC]];
+    sp_cap = pos[O_SPEED] ? pos[O_SPEED] == 1 ? SP_FAST : SP_N - 1 : 0;
+    speed_set(sp_lv < sp_cap ? sp_lv : sp_cap);
     car_accel_k = v_scale[pos[O_ACCEL]];
     car_drift_mu = v_drift[pos[O_DRIFT]];
     car_steer_k = v_steer[pos[O_STEER]];
@@ -150,7 +221,6 @@ static void apply(void)
     sg_inf_missiles = pos[O_MISSILE];
     cam_dflt = v_camd[pos[O_CAMD]];
     opt_tex = !pos[O_TEX];
-    prop_k = v_props[pos[O_PROPS]];
     fps_show = pos[O_FPS];
 }
 
@@ -216,6 +286,8 @@ void opt_level_enter(void)
     hp_last = -1;
     score_last = -1;
     fps_t = fps_f = 0;
+    sp_n = sp_sum = sp_good = sp_up = 0, sp_wait = 3, sp_tw = 48;
+    speed_set(0);
     if (pos[O_LIVES])
         PB_LIVES = v_lives[pos[O_LIVES]];
 }
@@ -227,6 +299,7 @@ static s32 target_now(void)
 
 void opt_frame(u8 *me, int ticks)
 {
+    speed_tick(ticks);
     if (pos[O_DIFF])
         PB_DIFF = pos[O_DIFF] - 1;
     if (pos[O_WANTED] < 6 && PB_WANTED > pos[O_WANTED])
@@ -392,5 +465,8 @@ void opt_draw(void)
         d_rect(dx, 135, 1, 3, 0x100 | 193);
         d_rect(kx - 2, 128, 5, 9, 0x100 | 193);
     }
-    pb_text(120 - pb_text_w("<> change  A default  B back", PBF_WHITE) / 2, 146, "<> change  A default  B back", PBF_WHITE);
+    {
+        const char *h = row == O_SPEED && pos[O_SPEED] ? "Less reach and tiles when slow" : "<> change  A default  B back";
+        pb_text(120 - pb_text_w(h, PBF_WHITE) / 2, 146, h, PBF_WHITE);
+    }
 }

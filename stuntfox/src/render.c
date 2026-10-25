@@ -335,6 +335,14 @@ void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const 
                             || (cam.pos.y < 16 && (type == PT_GROUND || ((const TexFloor *)info)->k == 65536))))
         type = 0;                  /* (no tiles on floors from up there: flat, see tex_frame; from under
                                       the street, only on the floors down there) */
+    if (type == PT_FLOOR && tex_floor_far < 1 << 30) {   /* (GAME SETTINGS' speed: roofs wholly past it are flat) */
+        s32 z = v[0].z;
+        for (int i = 1; i < n; i++)
+            if (v[i].z < z)
+                z = v[i].z;
+        if (z > tex_floor_far)
+            type = 0;
+    }
     poly(v, n, color, key, bg, type, info, type == PT_WALL ? sizeof(TexWall) : type ? sizeof(TexFloor) : 0);
 }
 #endif
