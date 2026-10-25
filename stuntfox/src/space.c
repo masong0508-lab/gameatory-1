@@ -40,23 +40,48 @@ static s32 rnd(s32 lo, s32 hi)
 }
 #endif
 
-void space_init(void)
+/* Where the station hangs, by map (stage2.md 7.1): cells x 2, so a half cell fits; 34000 up. Map 0 is where it always was. */
+static const u8 hang[11][2] = {
+    {124, 60}, {224, 200}, {60, 60}, {139, 149}, {192, 204}, {90, 40}, {120, 140}, {226, 112}, {128, 128}, {128, 132}, {180, 104},
+};
+V3 station_at(int map)
 {
-    station_pos = v3(62 * 1024, 34000, 30 * 1024);
-#ifndef CONST_TABLES
-    for (int i = 0; i < NSTARS; i++)
-        stars[i] = vnorm(v3(rnd(-1000, 1000), rnd(60, 1000), rnd(-1000, 1000)));
-#endif
-    static const s16 spots[12][4] = {
-        {-9000, 2500, 7000, 900}, {8000, -1500, 9000, 1300}, {14000, 3000, -6000, 700},
-        {-15000, -2000, -9000, 1500}, {3000, 5000, -15000, 1000}, {-4000, -4000, 16000, 800},
-        {20000, 1000, 12000, 1600}, {-21000, 4000, 3000, 1100}, {11000, 6000, 21000, 900},
-        {-12000, 7000, -20000, 1400}, {24000, -3000, -18000, 1200}, {0, 9000, 26000, 1500},
-    };
+    if ((unsigned)map >= 11)
+        map = 0;
+    return v3(hang[map][0] * (CELL / 2), 34000, hang[map][1] * (CELL / 2));
+}
+
+/* the asteroids' places round the station */
+static const s16 spots[12][4] = {
+    {-9000, 2500, 7000, 900}, {8000, -1500, 9000, 1300}, {14000, 3000, -6000, 700},
+    {-15000, -2000, -9000, 1500}, {3000, 5000, -15000, 1000}, {-4000, -4000, 16000, 800},
+    {20000, 1000, 12000, 1600}, {-21000, 4000, 3000, 1100}, {11000, 6000, 21000, 900},
+    {-12000, 7000, -20000, 1400}, {24000, -3000, -18000, 1200}, {0, 9000, 26000, 1500},
+};
+
+/* the station, and the asteroids with it, over this map */
+void space_station(int map)
+{
+    station_pos = station_at(map);
     nrocks = NROCK;
     for (int i = 0; i < nrocks; i++) {
         rocks[i].c = vadd(station_pos, v3(spots[i][0], spots[i][1], spots[i][2]));
         rocks[i].r = spots[i][3];
+    }
+}
+
+void space_init(void)
+{
+#if defined(MERGE) && !defined(NORMALS_HOST)
+    space_station(world_grid);
+#else
+    space_station(0);
+#endif
+#ifndef CONST_TABLES
+    for (int i = 0; i < NSTARS; i++)
+        stars[i] = vnorm(v3(rnd(-1000, 1000), rnd(60, 1000), rnd(-1000, 1000)));
+#endif
+    for (int i = 0; i < nrocks; i++) {
 #ifdef CONST_TABLES
         myaw(&rock_m[i], gen_rock_yaw[i]);
 #else

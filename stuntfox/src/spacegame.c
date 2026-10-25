@@ -11,6 +11,8 @@
 #include "radio.h"
 #include "settings.h"
 #include "stage2.h"
+#include "space.h"
+#include "sgint.h"
 
 int sg_state;
 u8 sg_invert, sg_autoaim = 1;
@@ -34,6 +36,28 @@ static s32 dist(V3 d)
     while (iabs(d.x) > 30000 || iabs(d.y) > 30000 || iabs(d.z) > 30000)
         d = vshr(d, 1), s++;
     return vlen(d) << s;
+}
+
+/* a length to within a few percent, with no square root (the size of a bracket is no more exact than that) */
+static s32 rlen(V3 d)
+{
+    s32 a = iabs(d.x), b = iabs(d.y), c = iabs(d.z), t;
+    if (a < b) t = a, a = b, b = t;
+    if (b < c) t = b, b = c, c = t;
+    if (a < b) t = a, a = b, b = t;
+    return a + (b * 11 >> 5) + (c >> 3);
+}
+
+/* a direction along d, ONE long to within a few percent, with one division */
+static V3 rdir(V3 d)
+{
+    while (iabs(d.x) > 60000 || iabs(d.y) > 60000 || iabs(d.z) > 60000)
+        d = vshr(d, 1);
+    s32 l = rlen(d);
+    if (l < 2)
+        return v3(0, ONE, 0);
+    s32 k = (1 << 28) / l;
+    return v3(d.x * k >> 14, d.y * k >> 14, d.z * k >> 14);
 }
 
 /* a unit vector along any offset */
@@ -74,12 +98,17 @@ static const s16 shield_size[3] = {100, 150, 200};
 u8 sg_shield_k = 4;                /* GAME SETTINGS: the shield as quarters of its size, 255 nothing hurts it */
 static u8 shield_lv;
 
-typedef struct { const char *name; u8 hull, tips; } Paint;
+static const char *const paint_name[] = {
+    "FOX BLUE", "STUNT RED", "GOLD", "STEALTH", "SEA TEAL", "FLYBACK",
+    "JUNGLE", "ARCTIC", "ASH", "EMBER", "SOLAR", "ACE BLACK",     /* (the campaign's rewards: locked until a mission unlocks one) */
+};
+typedef struct { u8 hull, tips; } Paint;
 static const Paint paints[] = {
-    {"FOX BLUE", M_SHIP, M_CAR},  {"STUNT RED", M_STUNT, M_ACCENT}, {"GOLD", M_ACCENT, M_GLOW},
-    {"STEALTH", M_ROAD, M_STUNT}, {"SEA TEAL", M_TEAL, M_CREAM},    {"FLYBACK", M_BRICK, M_STEEL},
+    {M_SHIP, M_CAR}, {M_STUNT, M_ACCENT}, {M_ACCENT, M_GLOW}, {M_ROAD, M_STUNT}, {M_TEAL, M_CREAM}, {M_BRICK, M_STEEL},
+    {M_GRASS, M_STEEL}, {M_CREAM, M_TEAL}, {M_CONCRETE, M_ACCENT}, {M_KERB, M_STUNT}, {M_GLOW, M_ACCENT}, {M_ROAD, M_GLOW},
 };
 #define NPAINT (sizeof paints / sizeof paints[0])
+static u16 paints_got = 0x3f;      /* one bit each: the six to begin with */
 
 void sg_paint(void)
 {
@@ -89,24 +118,10 @@ void sg_paint(void)
 
 /* ---- pirates, shots, explosions ---- */
 
-enum { F_NONE, F_RAIDER, F_CARRIER };
-typedef struct {
-    V3 p, v, home;
-    s16 hp;
-    u8 kind, cool, ai, pad;
-} Foe;
-#define NFOE 8
-static Foe foes[NFOE];
-
-enum { S_LASER, S_MISSILE, S_ENEMY };
-typedef struct {
-    V3 p;
-    s16 vx, vy, vz;
-    u8 life, who;
-    s8 tgt, pad;
-} Shot;
-#define NSHOT 16
-static Shot shots[NSHOT];
+#define foes sg_foes               /* (the types are in sgint.h: sgx.c has the newer kinds of foe) */
+#define shots sg_shots
+Foe sg_foes[NFOE];
+Shot sg_shots[NSHOT];
 
 typedef struct { V3 p; u8 t, big, pad[2]; } Boom;   /* big: 0-3 fireballs (2: the Arwing's), 4-5 smoke, 6 a spark */
 #define NBOOM 8
@@ -142,6 +157,15 @@ static Shot *shoot(V3 p, V3 v, int who, int tgt)
     return 0;
 }
 
+void sgi_enemy_shot(V3 p, V3 v, int harm, int life)
+{
+    Shot *s = shoot(p, v, S_ENEMY, -1);
+    if (s) {
+        s->pad = harm;
+        s->life = life;                /* (a shot that has gone past its target is only cost) */
+    }
+}
+
 /* ---- the player's progress, for merge.c's checked copy ---- */
 
 void sg_save(u32 *w)
@@ -157,7 +181,8 @@ void sg_sane(void)
 {
     credits = credits < 0 ? 0 : credits > 9999999 ? 9999999 : credits;
     medals &= (1 << 12) - 1;
-    if (paint >= NPAINT) paint = 0;
+    if (paint >= NPAINT || !(paints_got >> paint & 1)) paint = 0;
+    paints_got = (paints_got | 0x3f) & ((1 << NPAINT) - 1);
     if (laser_lv > 2) laser_lv = 2;
     if (engine_lv > 2) engine_lv = 2;
     if (rack_lv > 2) rack_lv = 2;
@@ -186,7 +211,7 @@ static int foe_count(void)
 {
     int n = 0;
     for (int i = 0; i < NFOE; i++)
-        n += foes[i].kind != F_NONE;
+        n += foes[i].kind != F_NONE && !foes[i].tag;     /* (the job board's: a mission's foes have tags) */
     return n;
 }
 
@@ -201,7 +226,9 @@ static int spawn(int kind, V3 p, V3 home)
             f->v = v3(0, 0, 0);
             f->hp = kind == F_CARRIER ? 50 : 4 + jobs_done / 3;
             f->cool = rnd(40, 120);
-            f->ai = 0;
+            f->ai = f->fl = 0;
+            f->tag = 0;
+            f->flo = -32768;
             return i;
         }
     return -1;
@@ -373,7 +400,8 @@ static void job_end(int ok)
     job = J_NONE;
     if (!ok)
         for (int i = 0; i < NFOE; i++)
-            foes[i].kind = F_NONE;
+            if (!foes[i].tag)
+                foes[i].kind = F_NONE;
 }
 
 /* ---- fox medals: six in space, six above the city's tallest towers ---- */
@@ -451,6 +479,7 @@ void sg_dock_now(Ship *s)
     if (job == J_SALVAGE && pods_got == 0xff)
         job_end(1);
     make_offers();
+    s2_ev(EV_DOCK, 0, 0);
 }
 
 /* a new level (maybe on another map, with world.c on its world): what was out there goes, the
@@ -464,12 +493,14 @@ void sg_level_enter(void)
         booms[i].t = 0;
     for (int i = 0; i < NFOE; i++)
         foes[i].kind = F_NONE;
+    sgx_reset();
     job = J_NONE;
     pods_got = 0;
     sg_state = SG_FLY;
     menu = cursor = confirm = 0;
     banner_end = 0;
     shield = shield_max;
+    space_station(world_grid);      /* (it hangs over this map) */
     medals_init();
     make_offers();
 }
@@ -606,13 +637,39 @@ static void launching(Ship *s)
         s->b.pos.y += 60 << FX;
         sg_state = SG_FLY;
         s->gear = 0;
+        s2_ev(EV_LAUNCH, 0, 0);
     }
 }
 
 /* ---- the hangar's menus ---- */
 
 enum { MN_MAIN, MN_JOBS, MN_YARD, MN_PAINT, MN_OPT, MN_SET };
-static const char *const main_items[] = {"JOB BOARD", "SHIPYARD", "PAINT SHOP", "OPTIONS", "LAUNCH"};
+static const char *const main_items[] = {"JOB BOARD", "SHIPYARD", "PAINT SHOP", "OPTIONS", "STATION", "LAUNCH"};
+/* S's walker, if it is built in (weak, with no stub: absent they are 0): a STATION line before LAUNCH, and its hold on the keys */
+extern int st_enter(void) __attribute__((weak));
+extern int st_tick(u16 hit, u16 keys) __attribute__((weak));
+static int main_n(void) { return st_enter ? 6 : 5; }
+static int paints_n(void)
+{
+    int n = 0;
+    for (int i = 0; i < (int)NPAINT; i++)
+        n += paints_got >> i & 1;
+    return n;
+}
+static int paint_at(int k)           /* the k-th paint that is unlocked */
+{
+    for (int i = 0; i < (int)NPAINT; i++)
+        if ((paints_got >> i & 1) && !k--)
+            return i;
+    return 0;
+}
+static int paint_pos(int p)
+{
+    int k = 0;
+    for (int i = 0; i < p; i++)
+        k += paints_got >> i & 1;
+    return k;
+}
 static int yard_price(int i)
 {
     switch (i) {
@@ -627,24 +684,24 @@ static int yard_price(int i)
 static int menu_len(void)
 {
     switch (menu) {
-    case MN_MAIN: return 5;
+    case MN_MAIN: return main_n();
     case MN_JOBS: return job ? 4 : 3;
     case MN_YARD: return 5;
-    case MN_PAINT: return NPAINT;
+    case MN_PAINT: return paints_n();
     default: return 6;
     }
 }
 
-static void buy(int i)
+static int buy(int i)
 {
     int pr = yard_price(i);
     if (!pr) {
         note(i == 3 ? "The rack is full." : "Already the best.");
-        return;
+        return 0;
     }
     if (credits < pr) {
         note("Not enough credits!");
-        return;
+        return 0;
     }
     credits -= pr;
     switch (i) {
@@ -654,6 +711,7 @@ static void buy(int i)
     case 3: missiles = rack_size[rack_lv]; note("Missiles loaded."); break;
     default: rack_lv++; missiles = rack_size[rack_lv]; note("Bigger missile rack!"); break;
     }
+    return 1;
 }
 
 static void menu_input(Ship *s, u16 hit, u16 keys)
@@ -674,23 +732,25 @@ static void menu_input(Ship *s, u16 hit, u16 keys)
     if (hit & KEY_UP) cursor = cursor ? cursor - 1 : n - 1;
     if (hit & KEY_DOWN) cursor = cursor + 1 < n ? cursor + 1 : 0;
     if (menu == MN_PAINT)
-        paint = cursor;                          /* see it on the Arwing as you choose */
+        paint = paint_at(cursor);                /* see it on the Arwing as you choose */
     if (hit & KEY_B) {
         if (menu != MN_MAIN)
             cursor = menu - 1, menu = MN_MAIN;
+        else if (st_enter)
+            st_enter();                          /* (B on the main menu: out of the hangar into the station) */
         return;
     }
     if (!(hit & KEY_A))
         return;
     switch (menu) {
     case MN_MAIN:
-        if (cursor == 4) {
-            sg_state = SG_LAUNCH;
-            st_t = 0;
-            note(job ? "LAUNCH! Good hunting." : "LAUNCH! Jobs on the board pay credits.");
+        if (cursor == main_n() - 1) {
+            sg_launch();
+        } else if (cursor == 4) {
+            st_enter();
         } else {
             menu = cursor + 1;
-            cursor = menu == MN_PAINT ? paint : 0;
+            cursor = menu == MN_PAINT ? paint_pos(paint) : 0;
         }
         break;
     case MN_JOBS:
@@ -917,10 +977,12 @@ static int target_in_front(const Ship *s, s32 lim, s32 range, s32 *at)
         if (foes[i].kind == F_NONE)
             continue;
         V3 d = vsub(foes[i].p, p);
-        s32 len = dist(d);
+        if (iabs(d.x) > bd || iabs(d.y) > bd || iabs(d.z) > bd)
+            continue;                    /* (farther than that on one axis: no length to find) */
+        s32 len = foes[i].tag || foes[i].kind > F_CARRIER ? rlen(d) : dist(d);    /* (a mission's foe to within a few percent) */
         if (len > bd || len < 100)
             continue;
-        if (vdot(dir_of(d), s->b.m.f) < lim)
+        if (vdot(d, s->b.m.f) < lim * len >> 14)   /* (the cosine to the nose, as a dot with a unit vector would give it, with no square root) */
             continue;
         best = i;
         bd = len;
@@ -1042,6 +1104,7 @@ static void die(Ship *s)
     boom(ship_at(s), 5);
     sg_state = SG_DEAD;
     st_t = 0;
+    s2_ev(EV_ARWING_DOWN, 0, 0);
     s32 loss = credits / 10;
     credits -= loss;
     if (job)
@@ -1079,9 +1142,14 @@ static void crash(Ship *s)
 static void foe_killed(int i)
 {
     Foe *f = &foes[i];
+    if (f->tag || f->kind > F_CARRIER) {         /* a mission's, or a newer kind: sgx.c */
+        sgx_killed(i);
+        return;
+    }
     boom(f->p, f->kind == F_CARRIER ? 3 : 1);
     int pay = f->kind == F_CARRIER ? 300 : 40;
     credits += pay;
+    s2_ev(EV_FOE_DOWN, 0, f->kind);
     f->kind = F_NONE;
     if (job == J_BOUNTY || job == J_RAID) {
         job_step++;
@@ -1109,64 +1177,118 @@ static void foe_killed(int i)
     }
 }
 
+/* a mission's foes take their lengths and directions to within a few percent (no square root: sgx.c's way), the board's exact */
+#define DIST(v) (f->tag ? rlen(v) : dist(v))
+#define DIR(v) (f->tag ? rdir(v) : dir_of(v))
 static void foes_tick(Ship *s)
 {
     V3 me = ship_at(s);
     int alive = sg_state == SG_FLY;
     for (int i = 0; i < NFOE; i++) {
         Foe *f = &foes[i];
-        if (f->kind == F_NONE)
+        if (f->kind == F_NONE || (f->fl & FL_HOLD) || ((f->tag || f->kind > F_CARRIER) && !SGX_WORK(f, i)))
+            continue;                            /* (a mission's foe is worked on every other tick, two ticks' worth) */
+        if (f->kind > F_CARRIER) {
+            sgx_tick_foe(i, s);
             continue;
+        }
+        int dt = f->tag ? 2 : 1;
         V3 to = vsub(me, f->p);
-        s32 d = dist(to);
+        /* a mission's foe thinks one tick in four and when its gun is ready (sgx_steer), and flies on in between: the
+           board's own think every tick, as ever */
+        int turn = !f->tag || !f->cool || sgx_steer(i), sl = f->tag ? 2 : 4;
+        s32 d = turn ? DIST(to) : 0;
         int chase = alive && d < 16000;
         V3 want;
-        if (f->kind == F_CARRIER) {
+        if (!turn) {
+            f->cool -= f->cool < dt ? f->cool : dt;
+        } else if (f->kind == F_CARRIER) {
             V3 aim = chase ? vsub(vadd(me, v3(0, 2000, 0)), f->p) : vsub(f->home, f->p);
-            want = dist(aim) > 6000 || !chase ? vscale(dir_of(aim), 22 << 0) : v3(0, 0, 0);
-            f->v = vadd(f->v, vshr(vsub(want, f->v), 5));
-            if (f->cool) f->cool--;
+            want = DIST(aim) > 6000 || !chase ? vscale(DIR(aim), 22 << 0) : v3(0, 0, 0);
+            f->v = vadd(f->v, vshr(vsub(want, f->v), sl + 1));
+            f->cool -= f->cool < dt ? f->cool : dt;
             if (!f->cool && chase) {
                 f->cool = 45;
                 for (int k = -1; k <= 1; k += 2) {
                     V3 gun = vadd(f->p, v3(k * 600, 500, 0));
-                    shoot(gun, vscale(dir_of(vsub(me, gun)), 150), S_ENEMY, -1);
+                    shoot(gun, vscale(DIR(vsub(me, gun)), 150), S_ENEMY, -1);
                 }
-                if (!(rnd(0, 4)) && foe_count() < 6)
-                    spawn(F_RAIDER, vadd(f->p, v3(0, -400, 900)), f->home);
+                if (!(rnd(0, 4)) && (f->tag ? sgx_foes() < NFOE - 1 : foe_count() < 6)) {
+                    int k = spawn(F_RAIDER, vadd(f->p, v3(0, -400, 900)), f->home);
+                    if (k >= 0)
+                        foes[k].tag = f->tag;    /* (a mission's carrier brings its raiders into the mission) */
+                }
             }
         } else {
             s32 speed = 60 + 6 * job_lv;
             if (f->ai) {
-                f->ai--;                         /* breaking off: keep going, then come round */
-                want = vscale(dir_of(f->v), speed);
+                f->ai -= f->tag ? (f->ai > 3 ? 4 : f->ai) : 1;                /* breaking off: keep going, then come round */
+                want = vscale(DIR(f->v), speed);
             } else if (chase) {
-                want = vscale(dir_of(to), speed);
+                want = vscale(DIR(to), speed);
                 if (d < 1300)
                     f->ai = 40 + rnd(0, 30);
             } else {
                 V3 h = vsub(f->home, f->p);      /* circle the place they guard */
-                if (dist(h) > 3500)
-                    want = vscale(dir_of(h), speed);
+                if (DIST(h) > 3500)
+                    want = vscale(DIR(h), speed);
                 else
-                    want = vscale(dir_of(vadd(f->v, vcross(v3(0, ONE, 0), f->v))), speed);
+                    want = vscale(DIR(vadd(f->v, vcross(v3(0, ONE, 0), f->v))), speed);
             }
-            f->v = vadd(f->v, vshr(vsub(want, f->v), 4));
-            if (f->cool) f->cool--;
+            f->v = vadd(f->v, vshr(vsub(want, f->v), sl));
+            f->cool -= f->cool < dt ? f->cool : dt;
             if (!f->cool) {
                 f->cool = 70 + rnd(0, 60) - 6 * job_lv;
-                if (chase && d < 9000 && vdot(dir_of(f->v), dir_of(to)) > 13000)
-                    shoot(f->p, vscale(dir_of(vadd(to, v3(s->b.vel.x >> 4, s->b.vel.y >> 4, s->b.vel.z >> 4))), 170),
+                if (chase && d < 9000 && vdot(DIR(f->v), DIR(to)) > 13000)
+                    shoot(f->p, vscale(DIR(vadd(to, v3(s->b.vel.x >> 4, s->b.vel.y >> 4, s->b.vel.z >> 4))), 170),
                           S_ENEMY, -1);
                 else if (job == J_RAID && !chase)    /* strafing Payback's streets */
-                    shoot(f->p, vadd(vscale(dir_of(f->v), 120), v3(0, -110, 0)), S_ENEMY, -1);
+                    shoot(f->p, vadd(vscale(DIR(f->v), 120), v3(0, -110, 0)), S_ENEMY, -1);
             }
         }
+        if (f->tag && !f->cool)
+            f->cool = chase ? 3 : 12;            /* (ready, but with nothing to shoot at: it thinks again in four ticks, or twelve when the Arwing is far) */
         f->p = vadd(f->p, f->v);
-        s32 g = world_ground(f->p.x, f->p.z) + 700;
+        if (f->tag)
+            f->p = vadd(f->p, f->v);
+        s32 g = f->tag ? sgx_floor(f) : world_ground(f->p.x, f->p.z) + 700;     /* (a mission's foes stay over the roofs ahead) */
         if (f->p.y < g) {
             f->p.y = g;
             if (f->v.y < 0) f->v.y = -f->v.y >> 1;
+        }
+    }
+}
+#undef DIST
+#undef DIR
+
+static int near_cam(V3 p, s32 r);
+/* a mission's foes' shots (they carry their harm in pad): every other tick, two ticks' worth in one step, the city looked at
+   once and the Arwing at the half and at the end (the street objects are no cover from them: that look is a shot's dearest) */
+static void enemy_step(Ship *s, Shot *sh, int idx, V3 me)
+{
+    if (!SGX_DUE(idx))
+        return;
+    sh->life = sh->life > 2 ? sh->life - 2 : 0;
+    if (!sh->life)
+        return;
+    V3 v = v3(sh->vx, sh->vy, sh->vz), was = sh->p, mid = vadd(was, v);
+    sh->p = vadd(mid, v);
+    if (shot_blocked(was, sh->p)) {
+        if (near_cam(sh->p, 16000))
+            boom(sh->p, SPARK);
+        sh->life = 0;
+        return;
+    }
+    if (sg_state != SG_FLY)
+        return;
+    for (int k = 0; k < 2; k++) {
+        V3 at = k ? sh->p : mid, d = vsub(at, me);
+        if (iabs(d.x) < 330 && iabs(d.y) < 200 && iabs(d.z) < 330) {
+            sh->life = 0;
+            if (sgx_shed < 2)
+                boom(at, SPARK);                 /* (a short one: it is a boom a frame draws for every hit) */
+            hurt(s, sh->pad);
+            return;
         }
     }
 }
@@ -1193,11 +1315,15 @@ static void shots_tick(Ship *s)
         hi = v3(imax(hi.x, imax(a.x, b.x) + r), imax(hi.y, imax(a.y, b.y) + r), imax(hi.z, imax(a.z, b.z) + r));
     }
     if (nl)
-        nfoe = foe_count();            /* (none over the city: no half-step looks for them there) */
+        nfoe = sgx_foes();             /* (none over the city: no half-step looks for them there) */
     if (lo.x <= hi.x)
         city_near(lo, hi, near);
     for (int j = 0; j < nl; j++) {
         Shot *sh = &shots[live[j]];
+        if (sh->who == S_ENEMY && sh->pad) {
+            enemy_step(s, sh, live[j], me);
+            continue;
+        }
         sh->life--;
         if (sh->who == S_MISSILE) {
             /* a missile steers at its lock (a pirate, or Payback's person or vehicle, read each
@@ -1243,7 +1369,7 @@ static void shots_tick(Ship *s)
                 if (sg_state == SG_FLY && iabs(d.x) < 330 && iabs(d.y) < 200 && iabs(d.z) < 330) {
                     sh->life = 0;
                     boom(sh->p, 0);
-                    hurt(s, 6 + 2 * job_lv);
+                    hurt(s, sh->pad ? sh->pad : 6 + 2 * job_lv);
                 } else if (prop) {
                     sh->p = q;           /* (the street objects are cover) */
                     sh->life = 0;
@@ -1263,18 +1389,24 @@ static void shots_tick(Ship *s)
                 Foe *f = &foes[k];
                 if (!f->kind)
                     continue;
-                s32 r = f->kind == F_CARRIER ? 1300 : 380;
+                s32 r = sgx_radius(f);
                 V3 d = vsub(sh->p, f->p);
                 if (iabs(d.x) > r || iabs(d.y) > r || iabs(d.z) > r)
                     continue;
+                if (f->tag && sgx_shielded(k))
+                    continue;            /* (a shield: the shot goes through to the guns inside it) */
                 if (prop && met < (f->p.x - p0.x) * half.x + (f->p.y - p0.y) * half.y + (f->p.z - p0.z) * half.z)
                     continue;            /* (the street object stands before it) */
                 sh->life = 0;
-                f->hp -= sh->who == S_MISSILE ? 12 : laser_lv == 2 ? 3 : 2;
-                if (f->hp <= 0)
+                int dm = sh->who == S_MISSILE ? 12 : laser_lv == 2 ? 3 : 2, dead;
+                if (f->tag || f->kind > F_CARRIER)
+                    dead = sgx_damage(k, dm);    /* (a mission's, or a part, or a boss still shielded: -1) */
+                else
+                    dead = (f->hp -= dm) <= 0;
+                if (dead > 0)
                     foe_killed(k);
                 else
-                    boom(sh->p, 0);
+                    boom(sh->p, dead < 0 ? SPARK : 0);
                 break;
             }
             if (prop && sh->life) {
@@ -1353,6 +1485,7 @@ static void pickups(Ship *s)
                 for (int k = 0; k < NPOD; k++)
                     n += (pods_got >> k) & 1;
                 job_step = n;
+                s2_ev(EV_PICKUP, 1 + i, n);       /* (a pod's tag: 1 + its place; a boss's pod has the boss's tag) */
                 if (n >= NPOD) {
                     pods_got = 0xff;
                     note("All pods aboard! Dock to cash in.");
@@ -1375,6 +1508,7 @@ static void pickups(Ship *s)
             }
         }
     }
+    sgx_pickups(p);
     if (job == J_COURIER && s->gear >= 2 && vlen(s->b.vel) < (25 << FX)) {
         V3 d = vsub(job_at, p);
         if (iabs(d.x) < 900 && iabs(d.z) < 900 && iabs(d.y) < 400)
@@ -1388,10 +1522,14 @@ void sg_tick(Ship *s, u16 keys, u16 hit)
     case SG_DOCKING:
         docking(s);
         break;
-    case SG_DOCKED:
-        menu_input(s, hit, (keys & ~(KEY_LEFT | KEY_RIGHT)) | (keys & KEY_LEFT ? KEY_RIGHT : 0) | (keys & KEY_RIGHT ? KEY_LEFT : 0));   /* (the D-pad's own sides: keys came mirrored) */
+    case SG_DOCKED: {
+        u16 own = (keys & ~(KEY_LEFT | KEY_RIGHT)) | (keys & KEY_LEFT ? KEY_RIGHT : 0) | (keys & KEY_RIGHT ? KEY_LEFT : 0);   /* (the D-pad's own sides: keys came mirrored) */
+        if (st_tick && st_tick(hit, own))       /* (the station's walker has them: it is outside the hangar) */
+            break;
+        menu_input(s, hit, own);
         cheat_input(hit);
         break;
+    }
     case SG_LAUNCH:
         launching(s);
         break;
@@ -1417,12 +1555,25 @@ void sg_tick(Ship *s, u16 keys, u16 hit)
     if (sg_state != SG_DOCKED) {
         foes_tick(s);
         shots_tick(s);
+        sgx_tick();
     }
     if (job_time && sg_state == SG_FLY && !--job_time)
         job_end(0);
 }
 
 /* ---- drawing, 3D ---- */
+
+/* a mission's foes' shot: a thick line along the nearer axis of the screen, with no division (they are a few of them, every frame,
+   and from afar a pixel or two) */
+static void bolt_fast(V3 a, V3 b, int color, s32 w)
+{
+    V3 c0 = r_cam(a), c1 = r_cam(b);
+    if (c0.z < NEAR && c1.z < NEAR)
+        return;
+    V3 o = iabs(c1.x - c0.x) > iabs(c1.y - c0.y) ? v3(0, w, 0) : v3(w, 0, 0);
+    V3 q[4] = {vadd(c0, o), vadd(c1, o), vsub(c1, o), vsub(c0, o)};
+    r_poly(q, 4, color, -1, 0);
+}
 
 static void bolt(V3 a, V3 b, int color, s32 w)
 {
@@ -1471,7 +1622,7 @@ static const N3 smoke_n[] = {{K, K, K}, {-K, K, K}, {-K, K, -K}, {K, K, -K}, {K,
 static const Model mdl_smoke = {smoke_v, smoke_f, 6, 8, 260, (N3 *)smoke_n};
 
 /* pieces of the Arwing flying off, tumbling and falling */
-static void debris(const Boom *b)
+static __attribute__((noinline)) void debris(const Boom *b)
 {
     static const s8 out[6][3] = {{4, 3, 1}, {-4, 2, 2}, {1, 4, -4}, {-2, 1, 4}, {3, 2, -3}, {-3, 4, -1}};
     static const MVert shard[3] = {{-70, -30, -40}, {70, 20, -50}, {0, 40, 80}};
@@ -1486,7 +1637,7 @@ static void debris(const Boom *b)
     }
 }
 
-static void hangar_draw(void)
+static __attribute__((noinline)) void hangar_draw(void)
 {
     static const s16 crate_at[4][2] = {{-640, -760}, {-420, -760}, {-640, -540}, {620, -780}};
     V3 deck = vadd(station_pos, v3(0, BAY_Y0, 0));
@@ -1515,32 +1666,28 @@ static void hangar_draw(void)
     model_legs = M_ROAD;
 }
 
-void sg_draw(const Ship *s)
+/* (each part of the frame in a function of its own: what a part keeps on the stack is not kept while the models of the others are drawn,
+   and the polygon routines are the deepest thing in the game) */
+static __attribute__((noinline)) void draw_shots(void)
 {
-    M3 m;
-    (void)s;
-    if (near_cam(station_pos, 9000))
-        hangar_draw();
-    for (int i = 0; i < NFOE; i++) {
-        const Foe *f = &foes[i];
-        if (!f->kind || !near_cam(f->p, 60000))
-            continue;
-        m.f = f->v.x || f->v.y || f->v.z ? dir_of(f->v) : v3(0, 0, ONE);
-        m.u = v3(0, ONE, 0);
-        morth(&m);
-        place_draw(f->kind == F_CARRIER ? &mdl_carrier : &mdl_raider, f->p, &m, 256);
-    }
     for (int i = 0; i < NSHOT; i++) {
         const Shot *sh = &shots[i];
-        if (!sh->life || !near_cam(sh->p, 20000))
+        if (!sh->life || !near_cam(sh->p, sh->who == S_ENEMY && sh->pad ? (sgx_shed ? 3500 : 6000) : 20000))
             continue;
         V3 v = v3(sh->vx, sh->vy, sh->vz);
-        if (sh->who == S_MISSILE)
+        if (sh->who == S_ENEMY && sh->pad)
+            bolt_fast(sh->p, vsub(sh->p, vshr(v, 1)), COLOR(M_STUNT, 3, 0), 20);
+        else if (sh->who == S_MISSILE)
             bolt(sh->p, vsub(sh->p, vshr(v, 0)), COLOR(M_ACCENT, 3, 0), 22);
         else
             bolt(sh->p, vsub(sh->p, vshr(v, 1)), sh->who == S_LASER ? COLOR(M_GRASS, 3, 0) : COLOR(M_STUNT, 3, 0),
                  sh->who == S_LASER ? 14 : 20);
     }
+}
+
+static __attribute__((noinline)) void draw_booms(void)
+{
+    M3 m;
     for (int i = 0; i < NBOOM; i++) {
         const Boom *b = &booms[i];
         if (!b->t || !near_cam(b->p, 30000))
@@ -1565,6 +1712,11 @@ void sg_draw(const Ship *s)
         s32 grow = b->t < 8 ? b->t * 32 : 256 + (b->t - 8) * 8;
         place_draw(&mdl_boom, b->p, &m, boom_cap(b->p, (grow * (b->big == 3 ? 1024 : b->big == 2 ? 640 : b->big ? 360 : 140)) >> 8));
     }
+}
+
+static __attribute__((noinline)) void draw_marks(void)
+{
+    M3 m;
     myaw(&m, frame_count * 700);
     for (int i = 0; i < NMEDAL; i++)
         if (!(medals & (1 << i)) && near_cam(medal_at[i], 26000))
@@ -1588,6 +1740,17 @@ void sg_draw(const Ship *s)
         model_body = M_ACCENT;
         place_draw(&mdl_beacon, job_at, &m, 256);
     }
+}
+
+void sg_draw(const Ship *s)
+{
+    (void)s;
+    if (near_cam(station_pos, 9000))
+        hangar_draw();
+    sgx_draw();                                  /* (the foes the frame can draw, and the escape pods) */
+    draw_shots();
+    draw_booms();
+    draw_marks();
     model_body = M_CAR;
 }
 
@@ -1614,13 +1777,7 @@ static int project(V3 w, int *sx, int *sy)
     return 1;
 }
 
-static void brackets(int x, int y, int r, int c)
-{
-    d_hline(x - r, x - r + 3, y - r, c), d_vline(x - r, y - r, y - r + 3, c);
-    d_hline(x + r - 3, x + r, y - r, c), d_vline(x + r, y - r, y - r + 3, c);
-    d_hline(x - r, x - r + 3, y + r, c), d_vline(x - r, y + r - 3, y + r, c);
-    d_hline(x + r - 3, x + r, y + r, c), d_vline(x + r, y + r - 3, y + r, c);
-}
+static void brackets(int x, int y, int r, int c) { d_corners(x, y, r, c); }
 
 static void marker(V3 w, int c)
 {
@@ -1643,12 +1800,16 @@ static void marker(V3 w, int c)
     d_hline(x - 1, x + 1, y + 2, c);
 }
 
-static void radar(const Ship *s)
+static void radar(const Ship *s, int clear)    /* clear: no panel behind it (filling it is most of its cost) */
 {
     const int cx = 28, cy = 88, R = 22;
-    d_fill(cx - R - 2, cy - R - 2, 2 * R + 6, 2 * R + 5, PANEL);
-    d_hline(cx - R, cx + R, cy, DIM);
-    d_vline(cx, cy - R, cy + R, DIM);
+    if (!clear)
+        d_fill(cx - R - 2, cy - R - 2, 2 * R + 6, 2 * R + 5, PANEL);
+    int bare = clear && sgx_tagged();            /* (over the streets, a mission's foes on it: its blips and no cross, the cross is half of it) */
+    if (!bare) {
+        d_hline(cx - R, cx + R, cy, DIM);
+        d_vline(cx, cy - R, cy + R, DIM);
+    }
     V3 p = ship_at(s), f = s->b.m.f, r = s->b.m.r;
     V3 fl = vnorm(v3(f.x, 0, f.z)), rl = vnorm(v3(r.x, 0, r.z));
     for (int i = -1; i < NFOE + 1; i++) {
@@ -1658,7 +1819,7 @@ static void radar(const Ship *s)
         else if (i == NFOE) {
             if (job == J_COURIER || job == J_RACE) w = job_at, c = HI;
             else continue;
-        } else if (foes[i].kind) w = foes[i].p, c = COLOR(M_STUNT, 3, 0);
+        } else if (foes[i].kind && foes[i].kind != F_TURRET && foes[i].kind != F_BAY) w = foes[i].p, c = COLOR(M_STUNT, 3, 0);   /* (a boss's guns are on its body) */
         else continue;
         V3 d = vsub(w, p);
         while (iabs(d.x) > 30000 || iabs(d.z) > 30000)
@@ -1667,7 +1828,7 @@ static void radar(const Ship *s)
         s32 len = iabs(fx) + iabs(fz);
         s32 range = 24000;
         if (len > range) fx = fx * range / len, fz = fz * range / len;
-        int x = cx - fx * R / range, y = cy - fz * R / range;     /* (the screen shows the world mirrored) */
+        int x = cx - (fx * 60 >> 16), y = cy - (fz * 60 >> 16);   /* (the screen shows the world mirrored; 60 / 65536 is R / range) */
         d_rect(x - 1, y - 1, 2 + (c == INK), 2 + (c == INK), c);
     }
     d_pixel(cx, cy - 1, TITLE);
@@ -1732,14 +1893,17 @@ static void menu_draw(void)
     p = d_cat(b, "CREDITS ");
     p = d_num(p, credits);
     d_text(x, y0 + 74, b, HI);
-    int n = menu_len();
-    for (int i = 0; i < n; i++) {
-        int y = y0 + 12 + i * 10, c = i == cursor ? HI : INK;
+    int n = menu_len(), top = menu == MN_PAINT && cursor > 5 ? cursor - 5 : 0;   /* (the paints: six lines of them) */
+    for (int i = top; i < n && i < top + 6; i++) {
+        int y = y0 + 12 + (i - top) * 10, c = i == cursor ? HI : INK;
         p = b;
         *p = 0;
         switch (menu) {
         case MN_MAIN:
-            d_cat(b, main_items[i]);
+            if (i == 0 && job && n > 5)          /* (a sixth line takes the place of the job's line below) */
+                p = d_cat(d_cat(b, "JOB: "), job_name[job]);
+            else
+                d_cat(b, main_items[i == n - 1 ? 5 : i]);
             break;
         case MN_JOBS:
             if (i == 3) {
@@ -1769,7 +1933,7 @@ static void menu_draw(void)
             break;
         }
         case MN_PAINT:
-            d_cat(b, paints[i].name);
+            d_cat(b, paint_name[paint_at(i)]);
             break;
         default:
             d_cat(b, i == 0 ? (sg_invert ? "STICK: UP CLIMBS" : "STICK: UP DIVES") : i == 1 ? (sg_autoaim ? "AIM: AUTO" : "AIM: MANUAL")
@@ -1782,7 +1946,7 @@ static void menu_draw(void)
             d_text(x - 2, y, ">", HI);
         d_text(x + 6, y, b, c);
     }
-    if (menu == MN_MAIN && job) {
+    if (menu == MN_MAIN && job && n < 6) {
         p = d_cat(b, "JOB: ");
         d_cat(p, job_name[job]);
         d_text(x, y0 + 64, b, TITLE);
@@ -1836,8 +2000,8 @@ void sg_hud(const Ship *s)
     p = d_cat(p, " MSL ");
     d_num(p, missiles);
     d_text(16, 29, b, INK);
-    if ((s->b.pos.y >> FX) > SPACE_LO || job || foe_count())
-        radar(s);                                /* (not over the streets: Payback has its map) */
+    if ((s->b.pos.y >> FX) > SPACE_LO || job || sgx_foes())
+        radar(s, !job && (s->b.pos.y >> FX) <= SPACE_LO);     /* (not over the streets: Payback has its map; over them a mission's pirates get it bare) */
     /* the gunsight: on the first thing the nose line meets (the street, a roof, a deck, a
        person, a car), so what is under it is what the bolts reach; SIGHT out over nothing (the
        camera sits above and behind, so a fixed sight was over the bolts' line at every nearer
@@ -1867,17 +2031,28 @@ void sg_hud(const Ship *s)
     if (!sg_autoaim)
         lock = -1;
     last_target = lock;
+    s32 near_[NFOE], size_[NFOE];
     for (int i = 0; i < NFOE; i++) {
-        if (!foes[i].kind || !project(foes[i].p, &x, &y))
+        size_[i] = foes[i].kind ? sgx_size(&foes[i]) : 0;      /* (one with no bracket to draw is no nearer than the rest) */
+        near_[i] = size_[i] ? rlen(vsub(foes[i].p, cam.pos)) : 0x7fffffff;
+    }
+    for (int i = 0; i < NFOE; i++) {
+        s32 sz = size_[i];
+        if (!sz)
             continue;
-        s32 dd = dist(vsub(foes[i].p, cam.pos));
-        int r = (foes[i].kind == F_CARRIER ? 1200 : 400) * FOCAL / (dd ? dd : 1) + 4;
+        int rank = 0;                    /* (the three nearest have brackets, and the one locked: more is more to draw than to read) */
+        for (int k = 0; k < NFOE; k++)
+            rank += near_[k] < near_[i] || (near_[k] == near_[i] && k < i);
+        if ((rank > (sgx_shed ? 0 : 2) && i != lock) || !project(foes[i].p, &x, &y))
+            continue;
+        s32 dd = near_[i];
+        int r = sz * FOCAL / (dd ? dd : 1) + 4;
         if (r > 40) r = 40;
         brackets(x, y, r, i == lock ? HI : COLOR(M_STUNT, 3, 0));
     }
     V3 tp, tv;
     if (lock >= NFOE && lock_at(lock, last_tag, &tp, &tv) && project(tp, &x, &y)) {
-        s32 dd = dist(vsub(tp, cam.pos));
+        s32 dd = rlen(vsub(tp, cam.pos));
         int r = 300 * FOCAL / (dd ? dd : 1) + 4;
         if (r > 40) r = 40;
         brackets(x, y, r, HI);
@@ -1919,6 +2094,8 @@ void sg_hud(const Ship *s)
         marker(job_at, HI);
         break;
     default:
+        if (sgx_boss_text(b))
+            break;
         if (s->b.pos.y >> FX > SPACE_LO) {
             d_cat(p, "HOLD SELECT NEAR STATION");
             if (!near_cam(station_pos, 12000))
@@ -1932,4 +2109,115 @@ void sg_hud(const Ship *s)
         d_fill(0, 115, n * TEXT_W + 8, 11, PANEL);
         d_text(4, 117, b, HI);
     }
+    sgx_boss_bar();
+}
+
+/* ---- stage 2: for sgx.c, the station's walker, the shops and the missions (spacegame.h, sgint.h) ---- */
+
+int sg_job_active(void) { return job != J_NONE; }
+
+void sgi_boom(V3 p, int big) { boom(p, big); }
+s32 sgi_dist(V3 d) { return dist(d); }
+V3 sgi_dir(V3 d) { return dir_of(d); }
+s32 sgi_rnd(s32 lo, s32 hi) { return rnd(lo, hi); }
+s32 sgi_rand(void) { seed = seed * 1664525 + 1013904223; return seed >> 16; }
+s32 sgi_roof(s32 x, s32 z) { return roof_y(x, z); }
+int sgi_seen(V3 a, V3 b) { return seen(a, b); }
+void sgi_place(const Model *md, V3 p, const M3 *m, s32 scale) { place_draw(md, p, m, scale); }
+int sgi_near(V3 p, s32 r) { return near_cam(p, r); }
+void sgi_note(const char *s) { note(s); }
+int sgi_tier(void) { return jobs_done >= 6 ? 3 : jobs_done >= 3 ? 2 : 1; }
+
+int sgi_free_foe(void)
+{
+    for (int i = 0; i < NFOE; i++)
+        if (foes[i].kind == F_NONE)
+            return i;
+    return -1;
+}
+
+void sgi_foe_killed(int i) { foe_killed(i); }
+
+int sg_credits(void) { return credits; }
+
+void sg_give(int n)
+{
+    credits += n;
+    credits = credits < 0 ? 0 : credits > 9999999 ? 9999999 : credits;
+}
+void sgi_pay(int n) { sg_give(n); }
+
+void sg_get_progress(void *out)
+{
+    SgProgress *p = out;
+    p->credits = credits;
+    p->medals = medals;
+    p->paints = paints_got;
+    p->laser = laser_lv, p->engine = engine_lv, p->rack = rack_lv, p->shield = shield_lv;
+    p->missiles = missiles, p->paint = paint, p->jobs = jobs_done;
+    p->flags = sg_invert | sg_autoaim << 1;
+    for (int i = 0; i < 16; i++)
+        p->spare[i] = 0;
+}
+
+void sg_set_progress(const void *in)
+{
+    const SgProgress *p = in;
+    credits = p->credits;
+    medals = p->medals;
+    paints_got = p->paints;
+    laser_lv = p->laser, engine_lv = p->engine, rack_lv = p->rack, shield_lv = p->shield;
+    missiles = p->missiles, paint = p->paint, jobs_done = p->jobs;
+    sg_invert = p->flags & 1, sg_autoaim = p->flags >> 1 & 1;
+    sg_sane();
+}
+
+int sg_price(int item)
+{
+    if (item >= SGB_PAINT)
+        return item - SGB_PAINT < (int)NPAINT && (paints_got >> (item - SGB_PAINT) & 1) ? 0 : -1;
+    return item >= 0 && item < 5 ? yard_price(item) : -1;
+}
+
+int sg_buy(int item)
+{
+    if (sg_price(item) < 0)
+        return 0;
+    if (item >= SGB_PAINT) {
+        paint = item - SGB_PAINT;
+        return 1;
+    }
+    return buy(item);
+}
+
+int sg_paints(const char *const **names)
+{
+    *names = paint_name;
+    return NPAINT;
+}
+
+int sg_paint_unlocked(int i) { return (unsigned)i < NPAINT && (paints_got >> i & 1); }
+
+void sg_unlock_paint(int i)
+{
+    if ((unsigned)i < NPAINT)
+        paints_got |= 1 << i;
+}
+
+/* what the docked menu shows, as one word: the same word, and nothing about the hangar's view has changed (but its crew) */
+u32 sg_menu_sig(void)
+{
+    u32 h = menu | cursor << 4 | dock_stage << 9 | confirm << 11 | paint << 15 | sg_state << 20 | (frame_count < banner_end) << 24;
+    h = (h * 0x01000193) ^ banner_end ^ credits ^ missiles << 24 ^ 0;
+    return menu == MN_SET ? h ^ frame_count : h;      /* (the settings page has its own cursor and values: always redrawn) */
+}
+
+int sg_launch(void)
+{
+    if (sg_state != SG_DOCKED)
+        return 0;
+    sg_state = SG_LAUNCH;
+    st_t = 0;
+    note(job ? "LAUNCH! Good hunting." : "LAUNCH! Jobs on the board pay credits.");
+    return 1;
 }

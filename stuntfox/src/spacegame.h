@@ -33,6 +33,32 @@ void sg_crash(V3 p);               /* the empty Arwing comes down at p (bailing 
 void sg_fx_tick(void);             /* the fire and smoke go on, a tick, while the Arwing is not out */
 void sg_note(const char *s);       /* a few seconds of news on our HUD, not on Payback's ticker */
 void sg_banner(void);              /* draws it, when the Arwing is not out (sg_hud does then) */
+/* ---- stage 2 (stage2.md 7.7 and 8): what the station's walker, the shops and the missions use ----
+   The foe, boss and job calls (sg_foe_spawn, sg_boss_spawn ...) are declared in stage2.h. */
+typedef struct {                   /* the progress the campaign saves with its own: 32 bytes */
+    s32 credits;
+    u16 medals, paints;            /* the fox medals found; the paints unlocked (bit 6..11 are the new ones) */
+    u8 laser, engine, rack, shield;
+    u8 missiles, paint, jobs, flags;   /* flags: 1 the stick climbs, 2 aim is auto */
+    u8 spare[16];
+} SgProgress;
+void sg_get_progress(void *out32);
+void sg_set_progress(const void *in32);
+enum { SGB_LASER, SGB_SHIELD, SGB_ENGINE, SGB_MISSILES, SGB_RACK, SGB_PAINT = 8 };   /* sg_price / sg_buy: the shipyard's
+                                      lines, and SGB_PAINT + i to put paint i on (free, if it is unlocked) */
+int sg_price(int item);            /* credits; 0 for nothing to buy (full, best, a free paint); -1 no such item or locked */
+int sg_buy(int item);              /* 1 if it was bought (or put on), else 0 and a word on the HUD */
+int sg_paints(const char *const **names);   /* how many paints there are; their names */
+int sg_paint_unlocked(int i);
+void sg_unlock_paint(int i);
+int sg_credits(void);
+void sg_give(int credits);         /* a mission's pay (or a fine, if negative); never below 0 */
+u32 sg_menu_sig(void);             /* changes whenever the docked menu would look different (the hangar view can be reused while it holds) */
+int sg_launch(void);               /* from the hangar: launch (1), or 0 if not docked */
+int sg_foe_escaped(int tag);       /* a foe with this tag (a courier) got away into space */
+/* the station's walker (S) answers for the hangar menu: st_enter() (a menu line, only if S is built in) and st_tick(keys, hit),
+   whose result, when not 0, says the walker has the keys. Both are weak: absent, the hangar is as it was. */
+
 /* merge.c: the Arwing's shots into Payback's city */
 int city_near(V3 lo, V3 hi, u32 *near);   /* who stands where shots fly this tick (lo..hi): bits of near[2] */
 int city_hit(V3 p, int dmg, const u32 *near);   /* a shot at p into those of them: the person it is in,

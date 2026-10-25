@@ -4,6 +4,8 @@
 #include "fx.h"
 
 void space_init(void);
+V3 station_at(int map);            /* where the station hangs over a map (units, 34000 up) */
+void space_station(int map);       /* ... and put it, and the asteroids round it, there */
 void space_tick(void);
 void sky_draw(s32 alt);            /* sky and sea bands (background); sets the palette */
 void stars_draw(s32 alt);          /* after the background is drawn */

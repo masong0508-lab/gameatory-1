@@ -163,6 +163,25 @@ void d_vline(int x, int y0, int y1, int color)
         put(page, x, y, c);
 }
 
+/* the corners of a square, a pixel at a time with no calls: a target's brackets, eight lines drawn by d_hline and d_vline cost
+   four times as much */
+void d_corners(int x, int y, int r, int color)
+{
+    u8 *page = r_target();
+    int c = pal_of(color);
+    for (int k = 0; k < 4; k++) {
+        int sx = k & 1 ? -1 : 1, sy = k & 2 ? -1 : 1;
+        int cx = x + (k & 1 ? r : -r), cy = y + (k & 2 ? r : -r);
+        for (int i = 0; i < 3; i++) {
+            int px = cx + sx * i, py = cy + sy * i;
+            if ((unsigned)px < 240 && (unsigned)cy < 160)
+                put(page, px, cy, c);
+            if ((unsigned)cx < 240 && (unsigned)py < 160 && i)
+                put(page, cx, py, c);
+        }
+    }
+}
+
 /* n / 10 and its remainder by shifts and adds (a division would be a BIOS call) */
 static u32 div10(u32 n, u32 *rem)
 {

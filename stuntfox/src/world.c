@@ -39,9 +39,11 @@ static void world_load(const u32 *h)
 /* every map's world, placed above Payback's own 8 MiB by build.py (gen/merge_sig.c) */
 extern const u32 *const world_table[NWORLD];
 
+u8 world_grid;                     /* the grid whose world is loaded (the station hangs over it: space.c) */
+
 void world_select(int grid)
 {
-    world_load(world_table[grid]);
+    world_load(world_table[world_grid = grid]);
 }
 #else
 extern const u32 world_data[];

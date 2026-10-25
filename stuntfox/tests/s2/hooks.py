@@ -135,7 +135,7 @@ ck(hk['LEVEL'] - l0 == 1 and s2f()['map'] == 1, 'HK_LEVEL: once, for the new map
    'level calls %d, s2f.map %d' % (hk['LEVEL'] - l0, s2f()['map']))
 ck(hk['BANNER'] >= 1, 'HK_BANNER: Payback\'s own banner (the level start) went through the veneer', 'banners %d' % hk['BANNER'])
 t = hooks()['TICK']
-run(120)
-ck(hooks()['TICK'] - t > 20 and modename() == 'FOOT' and s2f()['ticks'] > 0, 'the new level runs: hooks keep firing, on foot', status()[:80])
+run(120)                                                 # (the man starts where the clock puts him: at some starts of map 1 the base itself runs 9 frames a second, 19 ticks here)
+ck(hooks()['TICK'] - t > 10 and modename() == 'FOOT' and s2f()['ticks'] > 0, 'the new level runs: hooks keep firing, on foot', status()[:80])
 
 ck.done()

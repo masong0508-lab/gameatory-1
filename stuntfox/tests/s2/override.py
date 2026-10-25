@@ -34,8 +34,8 @@ for ev in range(1, len(EV)):
     mb(D_RAISE, ev)
 a = [dv(k, 16) for k in ('dummy_ms_ev', 'dummy_cp_ev', 'dummy_st_ev')]
 ck(all(a[j][ev] - b[j][ev] == 1 for j in range(3) for ev in range(1, len(EV))), 'every event reaches ms_ev, cp_ev and st_ev, once each')
-ck([mb(1, 5), mb(16, 2), mb(32, 1), mb(48, 3), mb(64 + 1, 0) == hooks()['TICK']] == [1000 + 16 + 5, 2000 + 256 + 2, 3000 + 512 + 1, 4000 + 768 + 3, True],
-   'the mailbox ranges go to ms_dbg, cp_dbg, st_dbg, sg_dbg and F', str([mb(1, 5), mb(16, 2), mb(32, 1), mb(48, 3)]))
+ck([mb(1, 5), mb(16, 2), mb(32, 1), mb(50, 0), mb(64 + 1, 0) == hooks()['TICK']] == [1000 + 16 + 5, 2000 + 256 + 2, 3000 + 512 + 1, 0, True],
+   'the mailbox ranges go to ms_dbg, cp_dbg, st_dbg, sg_dbg (sgx.c\'s: no foes) and F', str([mb(1, 5), mb(16, 2), mb(32, 1), mb(50, 0)]))
 
 base = e.save_state()
 

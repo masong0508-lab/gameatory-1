@@ -26,7 +26,6 @@ u32 cp_keys(void) { dummy_keys++; return dummy_keys_mask; }
 int cp_dbg(int cmd, int arg) { return 2000 + cmd * 16 + arg; }
 void st_ev(int ev, int a, int b) { (void)a; (void)b; dummy_st_ev[ev & 15]++; }
 int st_dbg(int cmd, int arg) { return 3000 + cmd * 16 + arg; }
-int sg_dbg(int cmd, int arg) { return 4000 + cmd * 16 + arg; }
 
 /* the station's room view: dummy_room_mode is what st_view answers (0 the usual frame, 1 a room, 2 the last picture again) */
 u32 dummy_room_mode, dummy_room_draws, dummy_room_huds;

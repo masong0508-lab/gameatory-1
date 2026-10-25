@@ -64,6 +64,7 @@ extern u16 prop_k;            /* GAME SETTINGS' trees and lamps: out to this muc
 #define TREE_FAR (6000 * prop_k >> 8)         /* citydraw.c draws trees nearer than this (units, each way and deep), */
 #define PROP_FAR (4500 * prop_k >> 8)         /* ... benches and lamps nearer than this (each way) */
 void world_select(int grid);
+extern u8 world_grid;         /* ... and the one loaded now */
 /* props.c: is one of the street objects it draws still in the cell under (x, z) (units) on
    Payback's live map (a crate opened, a pickup taken: not) */
 int prop_live(s32 x, s32 z);
