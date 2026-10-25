@@ -8,6 +8,7 @@
 #include "gba.h"
 
 extern u8 opt_tex;                 /* Payback's tiles on */
+extern u8 opt_planet;              /* the planet from up high (planet.c) */
 extern u16 cam_dflt;               /* the chase camera settles at this distance (256 as built) */
 extern u8 opt_ticker;              /* 0: our hint lines stay off Payback's ticker */
 

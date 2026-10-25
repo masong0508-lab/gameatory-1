@@ -4,6 +4,9 @@
 #include "palette.h"
 #include "model.h"
 #include "world.h"
+#ifdef MERGE
+#include "planet.h"
+#endif
 
 #define NSTARS 40
 /* The stars, and each asteroid's first turn and spin, come from a small random series. Inside Payback (RAM is
@@ -48,6 +51,13 @@ V3 station_at(int map)
     if ((unsigned)map >= 11)
         map = 0;
     return v3(hang[map][0] * (CELL / 2), 34000, hang[map][1] * (CELL / 2));
+}
+
+u8 sp_map;                                 /* the level's map (planet.c's pl_set) */
+/* the one place the station is set, for the planet too (map -1: this level's) */
+V3 pl_station(int map)
+{
+    return station_at(map < 0 ? sp_map : map);
 }
 
 /* the asteroids' places round the station */
@@ -134,6 +144,14 @@ void sky_draw(s32 alt)
     /* All of the bands, every frame, also the ones the city should cover: wherever it does not
        (past the draw distance, a gap between two faces) the page would otherwise still show
        what was drawn there two frames ago, smeared copies of old frames */
+#ifdef MERGE
+    /* from a few thousand units up the planet takes over below the horizon: the sky above it, the
+       planet's rings (planet.c) over that, the whole screen covered by one or the other */
+    if (pl_begin(alt)) {
+        pl_draw(cols, bounds);
+        return;
+    }
+#endif
     r_sky(cols, bounds, 9, 9);
 }
 

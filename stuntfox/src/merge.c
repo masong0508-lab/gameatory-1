@@ -28,6 +28,7 @@
 #include "traffic.h"
 #include "model.h"
 #include "space.h"
+#include "planet.h"
 #include "ragdoll.h"
 #include "radio.h"
 #include "settings.h"
@@ -318,6 +319,7 @@ static void start(int map)
         *p = 0;
     r_init();
     world_select(map_now = map);
+    pl_set(map);
     ramp_grip = 1;
     models_init();
     traffic_init();
@@ -3565,6 +3567,8 @@ void s2_dock_start(void)
 static void level_enter(int map)
 {
     world_select(map_now = map);
+    pl_set(map);
+    space_init();                  /* (the station hangs over this map's planet) */
     mode = FOOT;
     parked = 0;
     car_ent = hero = 0;
@@ -3945,8 +3949,9 @@ int sf_draw(int view)
     r_nofog = alt > 16000;         /* (our fog colours are the sky's; in space there is none) */
     r_begin();
     tex_frame();
-    sky_draw(alt);
     int hangar = mode == FLY && sg_state == SG_DOCKED;   /* inside: the city far below is out of sight */
+    pl_hide = hangar;              /* (and the planet: the hangar's walls are all there is to see) */
+    sky_draw(alt);
     /* your own car or Arwing first: with the pool full (a high look-down over a dense district,
        in Freedom City's second story level, where Payback's cell copies take 3 KB of it) what
        comes later is left out, never you */

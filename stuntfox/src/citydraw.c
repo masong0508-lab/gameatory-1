@@ -4,8 +4,14 @@
 #include "render.h"
 #include "palette.h"
 #include "loops.h"
+#ifndef MERGE
+#define pl_cover 0
+#define pl_on 0
+#define PL_CITY_OFF 1
+#endif
 #ifdef MERGE
 #include "tex.h"
+#include "planet.h"
 static TexFloor ground = {65536, 65536, 0};      /* (the tiles: this map's, world_draw) */
 /* Payback's own colour for a tile seen from afar (light 0..3), as a raw palette index */
 static int tile_color(int id, int l, int fallback)
@@ -726,7 +732,7 @@ void world_draw(void)
 
     /* the island the city stands on, as one big background polygon (from above it: under the
        street, down a road beneath a bridge, it would hang over the sky) */
-    if (cam.pos.y > 0) {
+    if (cam.pos.y > 0 && !pl_cover) {
         const s32 e = CITY * CELL;
         V3 q[4] = {r_cam_far(v3(0, 0, 0), 3), r_cam_far(v3(e, 0, 0), 3), r_cam_far(v3(e, 0, e), 3),
                    r_cam_far(v3(0, 0, e), 3)};
@@ -751,12 +757,14 @@ void world_draw(void)
         vg_view = view;                                 /* (a sector's worth of hair: no flicker) */
     view = vg_view;
     if (alt > 30000) view = 0;
+    else if (pl_cover && alt > pl_on)
+        view = alt >= PL_CITY_OFF ? 0 : view * (PL_CITY_OFF - alt) / (PL_CITY_OFF - pl_on);   /* (the patch is the city from up here: both are not drawn at once) */
     vg_drawn = view;
     /* (a sector is drawn when its middle is within view - 4096, so whole: with view_cut, when its near edge is within
        view, and each building then goes by its own distance) */
     int slack = view_cut ? 4096 : -4096, vs = ((view + slack + 4096) >> 13) + 1, fs = far_fs;
     /* flat patches for distant sectors: only worth it from the air */
-    if (vg_far) {
+    if (vg_far && !pl_cover) {
         /* each sector's centre (and corner) in camera space, as r_cam_far gives them (>> 3 and
            >> 2), stepped by adds: (point - camera) >> shift moves 8192 >> shift a sector, and the
            dot products are summed before their >> 14 */

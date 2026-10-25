@@ -20,6 +20,7 @@ extern u8 sg_inf_missiles;             /* spacegame.c */
 u16 cam_dflt = 256;                    /* merge.c: the chase camera's distance it settles at */
 u16 prop_k = 256;                      /* world.h: trees, lamps and benches drawn out to this much of their reach */
 u8 opt_tex = 1;                        /* merge.c: Payback's tiles on (tex_on) */
+u8 opt_planet = 1;                     /* planet.c: the world a planet from up high (off: the flat slab and sky as ever) */
 static u8 fps_show;
 static u8 fps_now;
 
@@ -42,7 +43,7 @@ static u8 fps_now;
 enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_SCORE,
        O_CARSPD, O_ACCEL, O_GRIP, O_DRIFT, O_STEER, O_CGRAV, O_BOOSTK, O_UNLIM,
        O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_JET, O_CAMD, O_TICKER,
-       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_N };
+       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_PLANET, O_N };
 typedef struct {
     const char *name;
     const char *const *label;
@@ -140,7 +141,7 @@ static const Opt opts[O_N] = {
     [O_MISSILE] = {"Endless missiles", l_offon, 2, 0, 4, 16, 1},
     [O_GRAV] = {"Ragdoll gravity", l_grav, 5, 2, 2, 21, 3},
     [O_BOUNCE] = {"Ragdoll bounce", l_bounce, 4, 1, 2, 6, 2},
-    [O_JET] = {"Jet pack strength", l_scale, 6, 2, 4, 23, 3},
+    [O_JET] = {"Jet pack strength", l_scale, 6, 2, 4, 25, 3},
     [O_CAMD] = {"Chase camera", l_camd, 4, 1, 4, 17, 2},
     [O_TICKER] = {"Ticker hints", l_onoff, 2, 0, 3, 15, 1},
     [O_SPEED] = {"Speed", l_speed, 3, 0, 4, 23, 2},
@@ -149,6 +150,7 @@ static const Opt opts[O_N] = {
     [O_PROPS] = {"Trees and lamps", l_props, 3, 2, 4, 21, 2},
     [O_TRAFFIC] = {"Traffic", l_traffic, 5, 2, 2, 29, 3},
     [O_FPS] = {"Frame counter", l_offon, 2, 0, 4, 19, 1},
+    [O_PLANET] = {"Planet view", l_offon, 2, 1, 4, 28, 1},
 };
 #define ROWS (O_N + 2)             /* then RESET ALL and BACK */
 
@@ -224,6 +226,8 @@ static void apply(void)
     sg_inf_missiles = pos[O_MISSILE];
     cam_dflt = v_camd[pos[O_CAMD]];
     opt_tex = !pos[O_TEX];
+    opt_planet = pos[O_PLANET];
+    prop_k = v_props[pos[O_PROPS]];
     fps_show = pos[O_FPS];
 }
 

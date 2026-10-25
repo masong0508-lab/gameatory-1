@@ -193,7 +193,10 @@ default, B leaves. The list scrolls.
 - Car: top speed, acceleration, grip, handbrake slide, steering, gravity, boost power, endless boost.
 - Arwing: speed, shield, endless missiles, jet pack strength (once bought).
 - Ragdolls: gravity, bounce. Chase camera: close to farthest.
-- Performance: speed, draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter.
+- Performance: speed, draw distance, textures on/off, trees and lamps (none, fewer, normal), traffic, frame counter, planet view
+  (on: from high up the map is a patch on a round planet; off: the flat sky and slab as before, which is a little quicker in orbit beside
+  Fox Station and slower in the climb, where the city is drawn for longer). The setting does not move Fox Station, which hangs over a
+  different spot of each map (`pl_station` in `src/space.c`), over that map's patch of the planet.
   Draw distance Near is the biggest saving where the view is open (Real Park on foot goes from
   about 14 to 30 frames a second), Textures off the next (2 to 4 frames in the heavy places); both
   together take the Big Track with the Arwing parked from 13 to 24.

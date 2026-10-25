@@ -34,6 +34,17 @@ V3 r_cam_far(V3 world, int shift);/* same, with the offset scaled down by 2^shif
    ground, lots) */
 void r_poly(const V3 *v, int n, int color, int key, int bg);
 #ifdef MERGE
+/* a convex polygon of up to 26 vertices (a planet's limb); background only, no sort key. Its corners come with their sides
+   (r_ocode: bit 0 the near plane, 1 .. 4 the view's right, left, top and bottom; fl: the projection's scale), in buffers of
+   NPOLYN of each that are used up in the cutting */
+static inline u8 r_ocode(const V3 *p, s32 fl)
+{
+    s32 zx = p->z * 121, zy = p->z * 81, x = p->x * fl, y = p->y * fl;
+    return ((p->z - NEAR) >> 31 & 1) | ((zx - x) >> 31 & 2) | ((zx + x) >> 31 & 4) | ((zy - y) >> 31 & 8) | ((zy + y) >> 31 & 16);
+}
+#define NPOLYN 32
+void r_polyn(V3 *v, u8 *oc, int n, int color, int bg);
+void *r_scratch(int bytes);
 /* a polygon with Payback's tiles on it (type PT_*, info its TexFloor or TexWall, copied) */
 void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const void *info);
 void r_reset(void);              /* the next frame clears the buckets whole (they carry over between frames) */

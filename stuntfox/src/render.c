@@ -82,6 +82,17 @@ static int nwl;
 static u8 *back;
 #ifdef MERGE
 void r_reset(void) { bage = 0; }
+/* bytes for a frame's own tables (planet.c's lattice) from the pool's start, where r_end gives the slots back with the rest;
+   0 if the pool is too full for them. (The stack is a poor place for them: the deepest of it is just above a level load's writes) */
+void *r_scratch(int bytes)
+{
+    u8 *p = pool_at;
+    bytes = (bytes + 3) & ~3;
+    if (p + bytes + 1024 > POOL_END)
+        return 0;
+    pool_at += bytes;
+    return p;
+}
 void r_end(void)
 {
     for (u8 *f = PB_SLOT + 8 + 64 * ((pool_lo - PB_SLOT + 55) >> 6); f < pool_at; f += 64)
@@ -327,6 +338,107 @@ HOT4 void r_poly(const V3 *v, int n, int color, int key, int bg)
 {
     poly(v, n, color, key, bg, 0, 0, 0);
 }
+
+#ifdef MERGE
+/* A convex polygon of up to NPOLYN - 6 vertices, for a planet's limb, which a 12-gon draws in
+   facets (r_poly's lists hold MAXV): clipped, projected and queued as poly does, from Thumb in
+   ROM (no 64-bit variable shift there, so the divide-by-depth shift is done on 32 bits). */
+/* One plane's cut of a convex corner list: its corners' sides are in oi (bit K set: outside, as r_ocode gives them), and the
+   ones inside are one run, from the edge that comes in to the one that goes out, which are all that is worked out (a distance
+   to the plane for each end, and the new corner's own sides). */
+#define XPT(w, p, q, K)                                                                \
+    {                                                                                  \
+        s32 na = PLANE(p, K), nb = PLANE(q, K), m = (na < 0 ? -na : na) | (nb < 0 ? -nb : nb);   \
+        for (; m > 262143; m >>= 1)                                                    \
+            na >>= 1, nb >>= 1;                                                        \
+        s32 t = CUT(na, nb);                                                           \
+        (w)->x = (p)->x + ((((q)->x - (p)->x) * t) >> 12);                             \
+        (w)->y = (p)->y + ((((q)->y - (p)->y) * t) >> 12);                             \
+        (w)->z = (p)->z + ((((q)->z - (p)->z) * t) >> 12);                             \
+    }
+#define CLIPFN(name, K)                                                                \
+    static int name(const V3 *in, const u8 *oi, int n, V3 *out, u8 *oo)                 \
+    {                                                                                  \
+        const s32 fl = focal;                                                          \
+        int s = 0, e, cnt = 1, pv = oi[n - 1] >> K & 1;                                \
+        for (; s < n; s++) {                                                           \
+            int cu = oi[s] >> K & 1;                                                   \
+            if (pv && !cu)                                                             \
+                break;                                                                 \
+            pv = cu;                                                                   \
+        }                                                                              \
+        if (s == n)                                                                    \
+            return 0;                                                                  \
+        for (e = s; cnt < NPOLYN - 3;) {                                                 \
+            int j = e + 1 == n ? 0 : e + 1;                                            \
+            if (oi[j] >> K & 1)                                                        \
+                break;                                                                 \
+            e = j, cnt++;                                                              \
+        }                                                                              \
+        const V3 *p = &in[s ? s - 1 : n - 1], *q = &in[s];                             \
+        XPT(&out[0], p, q, K)                                                          \
+        oo[0] = r_ocode(&out[0], fl);                                                  \
+        for (int i = 1, j = s; i <= cnt; i++, j = j + 1 == n ? 0 : j + 1) {            \
+            out[i] = in[j];                                                            \
+            oo[i] = oi[j];                                                             \
+        }                                                                              \
+        p = &in[e], q = &in[e + 1 == n ? 0 : e + 1];                                   \
+        XPT(&out[cnt + 1], p, q, K)                                                    \
+        oo[cnt + 1] = r_ocode(&out[cnt + 1], fl);                                      \
+        return cnt + 2;                                                                \
+    }
+CLIPFN(clip0, 0)
+CLIPFN(clip1, 1)
+CLIPFN(clip2, 2)
+CLIPFN(clip3, 3)
+CLIPFN(clip4, 4)
+static int (*const clipf[5])(const V3 *, const u8 *, int, V3 *, u8 *) = {clip0, clip1, clip2, clip3, clip4};
+
+void r_polyn(V3 *v, u8 *oc, int n, int color, int bg)
+{
+    V3 a[NPOLYN];
+    u8 ca[NPOLYN];
+    V3 *buf[2] = {a, v};                        /* (the cuts go to a and back to v: the corners given are used up) */
+    u8 *obuf[2] = {ca, oc};
+    int any = 0, w = 0;
+    for (int i = 0; i < n; i++)
+        any |= oc[i];
+    const V3 *cur = v;
+    const u8 *co = oc;
+    for (int k = 0; k < 5 && n >= 3; k++) {
+        if (!(any & (1 << k)))
+            continue;
+        n = clipf[k](cur, co, n, buf[w], obuf[w]);
+        cur = buf[w], co = obuf[w], w ^= 1;
+    }
+    if (n < 3)
+        return;
+    Poly *p = alloc(0, bg, n, 0);
+    if (!p)
+        return;
+    p->n = n;
+    p->color = MAPC(color);
+    for (int i = 0; i < n; i++) {
+        s32 z = cur[i].z, s = 0;
+        u32 zn = (u32)z;
+        while (zn < 2048) zn <<= 1, s++;
+        while (zn >= 4096) zn >>= 1, s--;
+        /* x * F16 * (2^31 / zn) >> (31 - s), kept in 32 bits: 15 bits of each factor (a limb's points are far from the
+           camera, a few px of rounding at the near plane are clamped away anyway) */
+        s32 inv = (s32)(rtab[zn - 2048] >> 5);
+        int sh = 15 - s;
+        s32 tx = (((cur[i].x * (FOCAL * 16)) >> 11) * inv) >> sh, ty = (((cur[i].y * (FOCAL * 16)) >> 11) * inv) >> sh;
+        s32 sx = 1920 + tx;
+        s32 sy = 1280 - ty;
+        if (sx < 0) sx = 0;
+        if (sx > 3840) sx = 3840;
+        if (sy < 0) sy = 0;
+        if (sy > 2560) sy = 2560;
+        p->xy[2 * i] = sx;
+        p->xy[2 * i + 1] = sy;
+    }
+}
+#endif
 
 #ifdef MERGE
 void r_poly_tex(const V3 *v, int n, int color, int key, int bg, int type, const void *info)
