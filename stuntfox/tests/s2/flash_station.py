@@ -99,6 +99,16 @@ for i in range(120):
     run(4, ['A'])
     run(4)
 res.append(fm_report())
+fm_start('st_mash_tabs')                       # the second pages (city board, Kestrel's board) flipped as fast as the keys go
+mb(34, G.OPS), run(20), mb(44, 3), mb(45, 3), mb(39, 2), fm_break(), run(8)
+for i in range(150):
+    run(3, ['RIGHT'] if i % 2 == 0 else ['LEFT'])
+    run(0)
+mb(34, G.QUARTERS), run(20), mb(44, 6), mb(39, 11), fm_break(), run(8)
+for i in range(150):
+    run(3, ['RIGHT'] if i % 2 == 0 else ['LEFT'])
+    run(0)
+res.append(fm_report())
 bad = [r for r in res if r[0] > 3 or r[1] > 3]
 print('ALL OK' if not bad else 'FAIL')
 sys.exit(1 if bad else 0)

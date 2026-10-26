@@ -40,6 +40,7 @@ FLAG = lambda f: 0x50 + f                           # campaign flag f (campaign.
 UNLOCK = lambda u: 0x58 + u                         # unlock u (CP_UNLOCK_*)
 ACE = 0x60
 NOT = lambda c: 0x80 | c
+SET = lambda f: A_SET | f << 3                       # an act: campaign flag f
 KESTREL_FLAG, FINALE_FLAG = 1, 2                    # content/campaign.sfc's FLAG_*
 
 R, P, N, D, Q, J, K, S = (G.CREW[n] for n in ('ROOK', 'PIP', 'NOVA', 'DUSTY', 'QUILL', 'JUNO', 'KESTREL', 'SABLE'))
@@ -107,6 +108,22 @@ TALK = [
     (Q, FLAG(FINALE_FLAG), 0, ["THE HALL HAS A NEW PLAQUE. IT SAYS YOUR\nNAME. I SPELLED IT RIGHT."]),
     (K, FLAG(FINALE_FLAG), 0, ["YOU WON. I HATE THAT. I ALSO LIKE IT.",
                                "ACE MODE IS YOURS. COME FIND ME IN\nIT. I WILL BE FASTER."]),
+    # the station's own story (a chapter done): each sets a campaign flag (3..7) that opens the next option
+    (R, DONE(2), 0, ["LOS FRANCOS IS QUIET AND THE ROOFS ARE OURS.",
+                     "THE CITIES KEEP ASKING FOR HELP. SO I WROTE THEM A BOARD.",
+                     ("IT IS ON THE CONTRACTS SCREEN: PRESS RIGHT. ONE JOB A CITY, AND A BONUS ON TOP.", SET(3))]),
+    (P, DONE(4), 0, ["WOODS FOLK PAID IN TIMBER AND TIPS. I TURNED\nTHE TIPS INTO A JAR.",
+                     ("THE JAR ADDS FIFTY CREDITS TO EVERY CITY BONUS. SAY THANKS TO THE TREES.", SET(4))]),
+    (N, DONE(6), 0, ["BIG TRACK LOOPS BACK ON ITSELF. SO DOES MONEY.",
+                     ("I FOUND ROUTE FEES IN THE TABLE. FIFTY MORE ON EVERY CITY BONUS.", SET(5))]),
+    (K, DONE(7), 0, ["THE DESERT IS DONE. I HUNG A BOARD BY THE DESK.",
+                     "THREE LAPS I STILL OWN. TWO ARE OPEN TO YOU NOW.",
+                     ("PRESS RIGHT ON MY LOG. BEAT THEM AND I PAY. WIN THE FINALE AND I PAY MORE.", SET(6))]),
+    (R, DONE(8), 0, ["THE TANKS ARE QUIET. KESTREL ASKED ME TO PASS ON ONE THING.",
+                     ("SHE HUNG A THIRD LAP ON HER BOARD. THE HARD ONE. GOOD LUCK.", SET(7))]),
+    (S, CH(2), 0, ["I LEARNED THE ROOFS IN LOS FRANCOS.",
+                   "I RAN THEM AS A KIT. THE CITY WAS KIND TO A FAST FOX.",
+                   "NOW I RUN ERRANDS FOR THE CREW. THE ROOFS DO NOT MIND."]),
     # chatter: said in turn once the rest is heard
     (R, 0, E_REPEAT, ["CHECK THE BOARD. CONTRACTS PAY WELL."]),
     (R, 0, E_REPEAT, ["FLY LOW OVER A CITY, HIGH IN SPACE.\nNEVER THE OTHER WAY ROUND."]),

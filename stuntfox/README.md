@@ -109,6 +109,13 @@ Rooms are drawn in flat shades with no Payback tiles (the world renderer's look 
 docked view as ever. The words and rooms are ROM data, built by `tools/content/station.py` from `tools/content/stgeo.py` (nothing from
 Payback is in the repo). `src/station.c`, `src/stationdraw.c`; `tests/s2/station.py`, `fps_station.py`, `flash_station.py`.
 
+The station's story and jobs: after Los Francos Rook opens the CITY BOARD (Ops, the contracts screen, RIGHT): one contract a city,
+rotating as they are done, and a one-time bonus per city once one is done there (Pip's talk after chapter 4 and Nova's after chapter 6 add
+50 each). Kestrel's talk after chapter 7 (and Rook's after chapter 8) puts three challenges on her board (Quarters, the log, RIGHT): 150
+credits for the first time each is done, 300 more for the first time in Ace mode. The five story talks set campaign flags 3 to 7; what the
+crew have said is kept in the saved progress (spare bytes 1..8); the city bonuses and Kestrel's boards in its story bytes 2..4 (a typed
+code carries the flags but not these, as it does not carry best times). SAVE... in the station saves at once. `tests/s2/station_sx3.py`.
+
 How it fits: `src/merge.c` (the glue), `src/merge.ld` (which of Payback's memory it borrows),
 `src/keyhook.s`, and `build_merge()` in `build.py`, which redirects Payback's calls to its world
 renderer, keypad reader and palette fade. The title is STAR-FLYBACK: `tools/mklogo.py` draws it at build

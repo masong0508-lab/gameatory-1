@@ -128,5 +128,5 @@ for g in MAPS:
         cycles += 1
         frames = (r32(S['frame_count']) - fc0) & 0xffffffff
     ck(bad == 0 and cycles >= 3, 'map %d: %d cycles over %d frames, nothing wrong' % (g, cycles, frames), 'bad %d' % bad)
-    ck(r32(S['key_calls']) > kc0 and mb(33, 17) == 60, 'map %d: the frame hook still runs, the state is as big as it was' % g)
+    ck(r32(S['key_calls']) > kc0 and mb(33, 17) == 52, 'map %d: the frame hook still runs, the state is as big as it was' % g)
 ck.done()

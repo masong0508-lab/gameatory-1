@@ -228,7 +228,8 @@ int st_enter(void)
 int st_active(void) { return stw.room != R_HANGAR; }
 
 /* ---- the talk ---- */
-static int heard(int id) { return id < 64 && (stw.heard[id >> 5] >> (id & 31) & 1); }
+/* what the crew have said is kept in Prog's spare bytes 1..8 (one bit an entry id, under 64): saved with the campaign */
+static int heard(int id) { return id < 64 && (cp_prog.spare[1 + (id >> 3)] >> (id & 7) & 1); }
 
 static int pick_entry(int crew)
 {
@@ -286,14 +287,99 @@ static int contract_n(int c)
     return n;
 }
 
-static void take_contract(int m)
+static void term_close(void);
+static void take_mis(int m, const char *ok)
 {
     if (ms_state() == MS_RUN || ms_state() == MS_PAUSED) {
         news("FINISH YOUR MISSION FIRST");
         return;
     }
     ms_start(m);
-    news("CONTRACT TAKEN. LAUNCH WHEN READY");
+    news(ok);
+}
+static void take_contract(int m) { take_mis(m, "CONTRACT TAKEN. LAUNCH WHEN READY"); }
+
+/* ---- the city board (Ops, the contracts screen's second page): one contract a city, and a bonus once one is done there. Rook opens it
+   after chapter 2 (campaign flag 3); Pip's (4) and Nova's (5) talks add 50 each to every bonus. Claimed bonuses are Prog.story[3..4] ---- */
+static int open_chaps(void)
+{
+    int n = cp_prog.chap_unlocked + 1;
+    return n > ms_nchap() ? ms_nchap() : n;
+}
+static int bonus_got(int c) { return c < 16 && (cp_prog.story[3 + (c >> 3)] >> (c & 7) & 1); }
+static int bonus_of(int c) { return 100 + 20 * c + 50 * cp_flag(4) + 50 * cp_flag(5); }
+static int rot_contract(int c)                           /* the contract this city offers now: they rotate as one is done */
+{
+    int n = contract_n(c);
+    return n ? contract_at(c, cp_prog.contracts[c] % n) : 0;
+}
+static void city_pick(int c)
+{
+    if (cp_prog.contracts[c] && !bonus_got(c)) {
+        cp_prog.story[3 + (c >> 3)] |= 1 << (c & 7);
+        sg_give(bonus_of(c));
+        news("BONUS PAID");
+    } else if (!cp_active()) {
+        news("START THE CAMPAIGN FIRST");
+    } else if (c == cur_chap()) {
+        int m = rot_contract(c);
+        if (m)
+            take_contract(m - 1);
+        else
+            news("NO CONTRACT HERE");
+    } else {
+        int r = cp_travel(c);
+        news(r == 1 ? "TRAVELLING..." : r == 2 ? "BOOKED: GO WHEN THIS LEVEL ENDS" : "NOT YET OPEN");
+        if (r == 1)
+            term_close();
+    }
+}
+
+/* ---- Kestrel's board (Quarters, the log's second page): three challenges of the cities, chapter and challenge number. Her talks open
+   them (flags 6: the first two, 7: the third). The first time each is done pays 150, in Ace mode 300 more (Prog.story[2]: bits 0..2
+   done, 3..5 done in Ace mode); campaign.c's mis_done calls st_chal_done ---- */
+static const u8 ace_tab[3][2] = {{0, 2}, {3, 6}, {6, 2}};
+static int ace_open(int i) { return cp_flag(i < 2 ? 6 : 7); }
+static int chal_at(int c, int o)
+{
+    if (c >= ms_nchap())
+        return 0;
+    const Chapter *ch = ms_chap(c);
+    for (int m = ch->mis0; m < ch->mis0 + ch->nmis; m++) {
+        const MisDef *d = ms_def(m);
+        if (d && d->kind == MK_CHAL && !o--)
+            return m + 1;
+    }
+    return 0;
+}
+void st_chal_done(int c, int o)
+{
+    for (int i = 0; i < 3; i++) {
+        if (ace_tab[i][0] != c || ace_tab[i][1] != o || !ace_open(i))
+            continue;
+        if (!(cp_prog.story[2] >> i & 1))
+            cp_prog.story[2] |= 1 << i, sg_give(150);
+        if (cp_ace() && !(cp_prog.story[2] >> (3 + i) & 1))
+            cp_prog.story[2] |= 1 << (3 + i), sg_give(300);
+    }
+}
+static void ace_pick(int i)
+{
+    int c = ace_tab[i][0], m = chal_at(c, ace_tab[i][1]);
+    if (!ace_open(i))
+        news("KESTREL OPENS IT LATER");
+    else if (!cp_active())
+        news("START THE CAMPAIGN FIRST");
+    else if (!m)
+        news("NOT IN THIS ROM");
+    else if (c == cur_chap())
+        take_mis(m - 1, "CHALLENGE SET. LAUNCH WHEN READY");
+    else {
+        int r = cp_travel(c);
+        news(r == 1 ? "TRAVELLING..." : r == 2 ? "BOOKED: GO WHEN THIS LEVEL ENDS" : "NOT YET OPEN");
+        if (r == 1)
+            term_close();
+    }
 }
 
 static void do_act(int act)
@@ -310,7 +396,7 @@ static void do_act(int act)
     }
     case A_OPEN:
         stw.term = a;
-        stw.cur = stw.top = stw.page = stw.confirm = 0;
+        stw.cur = stw.top = stw.page = stw.confirm = stw.tab = 0;
         break;
     }
 }
@@ -333,7 +419,7 @@ static void talk_key(u16 hit)
     int id = stw.dent, crew = stw.dcrew;
     stw.dent = 0;
     if (id < 64)
-        stw.heard[id >> 5] |= 1u << (id & 31);
+        cp_prog.spare[1 + (id >> 3)] |= 1 << (id & 7);
     s2_ev(EV_TALK, crew, id);
     do_act(act);
 }
@@ -343,7 +429,7 @@ static int list_n(void)
 {
     int c = cur_chap(), n = 0;
     switch (stw.term) {
-    case T_CONTRACT: return contract_n(c);
+    case T_CONTRACT: return stw.tab ? (cp_flag(3) ? open_chaps() : 0) : contract_n(c);
     case T_TRAVEL: case T_MAP: case T_RECAP: n = cp_prog.chap_unlocked + 1; return n > ms_nchap() ? ms_nchap() : n;
     case T_SHOP: return 5;
     case T_PAINT: { const char *const *nm; return sg_paints(&nm); }
@@ -351,6 +437,8 @@ static int list_n(void)
     case T_QUICK: return 6;
     case T_MSGS: case T_LOG: {
         int f = stw.term == T_MSGS ? E_MSG : E_LOG;
+        if (stw.tab)
+            return 3;
         for (int i = 0; i < hd()->nent; i++)
             n += (ent(i)->flags & f) && cond_ok(ent(i)->cond);
         return n;
@@ -369,13 +457,13 @@ static int nth_ent(int flag, int k)                      /* the k-th entry of th
 
 static void term_close(void)
 {
-    stw.term = stw.cur = stw.top = stw.page = stw.confirm = 0;
+    stw.term = stw.cur = stw.top = stw.page = stw.confirm = stw.tab = 0;
 }
 
 static void term_enter(int t)
 {
     stw.term = t;
-    stw.cur = stw.top = stw.page = stw.confirm = 0;
+    stw.cur = stw.top = stw.page = stw.confirm = stw.tab = 0;
     if (t == T_MAP || t == T_TRAVEL)
         stw.cur = cur_chap() >= 0 && cur_chap() < list_n() ? cur_chap() : 0;
 }
@@ -417,6 +505,8 @@ static void term_key(u16 hit, u16 keys)
             stw.cur = stw.cur + 1 < n ? stw.cur + 1 : 0, stw.confirm = 0;
         stw.top = stw.cur < stw.top ? stw.cur : stw.cur >= stw.top + ROWS ? stw.cur - ROWS + 1 : stw.top;
     }
+    if ((t == T_CONTRACT || t == T_LOG) && !stw.page && hit & (KEY_LEFT | KEY_RIGHT))
+        stw.tab ^= 1, stw.cur = stw.top = stw.confirm = 0;      /* (this city's contracts / the city board; the log / Kestrel's board) */
     if (t == T_TROPHY) {
         if (hit & KEY_RIGHT) stw.page = stw.page < 2 ? stw.page + 1 : 0;
         if (hit & KEY_LEFT) stw.page = stw.page ? stw.page - 1 : 2;
@@ -428,6 +518,11 @@ static void term_key(u16 hit, u16 keys)
         quick_pick(stw.cur);
         break;
     case T_CONTRACT: {
+        if (stw.tab) {
+            if (n)
+                city_pick(stw.cur);
+            break;
+        }
         int m = contract_at(cur_chap(), stw.cur);
         if (m)
             take_contract(m - 1);
@@ -469,7 +564,10 @@ static void term_key(u16 hit, u16 keys)
             term_close(), cp_open_at(2 + stw.cur);
         break;
     case T_MSGS: case T_LOG:
-        stw.page = !stw.page;
+        if (t == T_LOG && stw.tab)
+            ace_pick(stw.cur);
+        else
+            stw.page = !stw.page;
         break;
     case T_RECAP: case T_BRIEF:
         stw.page = !stw.page;
@@ -673,7 +771,7 @@ u32 st_sig(void)
     h = h * 0x01000193 ^ (u16)stw.bx ^ (u32)(u16)stw.by << 16;
     h = h * 0x01000193 ^ (u16)stw.bz ^ (u32)(u16)stw.bty << 16;
     h = h * 0x01000193 ^ (u16)stw.btz ^ (u32)(stw.moving ? 1 + (stw.phase >> 3 & 1) : 0) << 16 ^ (u32)(stw.yaw >> 11) << 20;
-    h = h * 0x01000193 ^ stw.dnode ^ (u32)stw.dent << 16;
+    h = h * 0x01000193 ^ stw.dnode ^ (u32)stw.dent << 16 ^ (u32)stw.tab << 31;
     h = h * 0x01000193 ^ (u32)sg_credits() ^ cp_sig() << 3 ^ (u32)news_up() << 30 ^ ((u32)stw.msg & 0xffff);
     return h;
 }
@@ -829,7 +927,29 @@ static void screen(void)
         break;
     }
     case T_CONTRACT:
-        screen_list("CONTRACTS", n);
+        screen_list(stw.tab ? "CITY BOARD" : "CONTRACTS", n);
+        if (stw.tab) {
+            if (!cp_flag(3))
+                d_text(14, 40, "ROOK OPENS IT AFTER LOS FRANCOS", INK);
+            for (int i = stw.top; i < n && i < stw.top + ROWS; i++) {
+                int y = 34 + (i - stw.top) * 10, m = rot_contract(i), cl = cp_prog.contracts[i] && !bonus_got(i);
+                p = num(b, i + 1);
+                p = d_cat(p, " ");
+                d_cat(p, ms_text(ms_chap(i)->title));
+                b[19] = 0;
+                line(24, y, i == stw.cur, b);
+                if (cl)
+                    p = d_cat(b, "CLAIM +"), num(p, bonus_of(i));
+                else if (bonus_got(i))
+                    d_cat(b, "BONUS DONE");
+                else
+                    p = num(b, m ? ms_def(m - 1)->pay : 0), d_cat(p, " CR");
+                d_text(158, y, b, cl ? HI : bonus_got(i) ? HELP : GOOD);
+            }
+            help(n && cp_prog.contracts[stw.cur] && !bonus_got(stw.cur) ? "A: CLAIM   < >: THIS CITY   B: BACK" :
+                 n && stw.cur != c ? "A: TRAVEL   < >: THIS CITY   B: BACK" : "A: TAKE   < >: THIS CITY   B: BACK");
+            break;
+        }
         if (!n)
             d_text(14, 40, "NO CONTRACTS ON THIS MAP", INK);
         for (int i = stw.top; i < n && i < stw.top + ROWS; i++) {
@@ -845,7 +965,7 @@ static void screen(void)
             p = num(p, cp_prog.contracts[c]);
             d_text(150, 18, b, HELP);
         }
-        help("A: TAKE   B: BACK");
+        help("A: TAKE   < >: CITY BOARD   B: BACK");
         break;
     case T_TRAVEL:
     case T_MAP:
@@ -959,7 +1079,19 @@ static void screen(void)
     case T_MSGS:
     case T_LOG: {
         int f = stw.term == T_MSGS ? E_MSG : E_LOG;
-        screen_list(stw.term == T_MSGS ? "MESSAGES" : "KESTREL'S LOG", n);
+        screen_list(stw.term == T_MSGS ? "MESSAGES" : stw.tab ? "KESTREL'S BOARD" : "KESTREL'S LOG", n);
+        if (stw.tab) {
+            for (int i = 0; i < 3; i++) {
+                int y = 34 + i * 22, m = chal_at(ace_tab[i][0], ace_tab[i][1]), dn = cp_prog.story[2] >> i & 1, ad = cp_prog.story[2] >> (3 + i) & 1;
+                p = d_cat(b, m ? ms_text(ms_def(m - 1)->title) : "-");
+                line(24, y, i == stw.cur, b);
+                d_text(24, y + 10, ms_text(ms_chap(ace_tab[i][0])->title), DIM);
+                d_text(150, y, !ace_open(i) ? "LOCKED" : ad ? "ACE DONE" : dn && !cp_ace() ? "DONE" : dn ? "ACE +300" : "+150 CR", !ace_open(i) ? DIM : ad || dn ? GOOD : HI);
+            }
+            d_text(14, 104, cp_ace() ? "ACE MODE: ON. BONUS FOR ACE FLIGHTS" : "ACE MODE: OFF (WIN THE FINALE)", cp_ace() ? GOOD : HELP);
+            help("A: GO   < >: LOG   B: BACK");
+            break;
+        }
         if (stw.page) {
             int i = nth_ent(f, stw.cur);
             if (i >= 0) {
@@ -1083,12 +1215,14 @@ int st_dbg(int cmd, int arg)
         case 11: return stw.bx;
         case 12: return stw.by;
         case 13: return stw.bz;
-        case 14: return (int)stw.heard[0];
-        case 15: return (int)stw.heard[1];
+        case 14: return cp_prog.spare[1] | cp_prog.spare[2] << 8 | cp_prog.spare[3] << 16 | cp_prog.spare[4] << 24;
+        case 15: return cp_prog.spare[5] | cp_prog.spare[6] << 8 | cp_prog.spare[7] << 16 | cp_prog.spare[8] << 24;
         case 16: return stw.chat;
         case 17: return sizeof(StState);
         case 18: return stw.cd | stw.dwell << 8;
         case 19: return stw.sway | stw.idle << 8;
+        case 20: return stw.tab;
+        case 21: return cp_prog.story[2] | cp_prog.story[3] << 8 | cp_prog.story[4] << 16;
         }
         return -1;
     case 34:
@@ -1099,12 +1233,16 @@ int st_dbg(int cmd, int arg)
     case 35: stw.x = arg; return stw.x;
     case 36: stw.z = arg; return stw.z;
     case 37: start_talk(arg); return stw.dent;
-    case 38: stw.heard[0] = stw.heard[1] = 0; stw.chat = 0; return 0;
+    case 38: for (int i = 1; i < 9; i++) cp_prog.spare[i] = 0; stw.chat = 0; return 0;
     case 39: term_enter(arg); return stw.term;
     case 40: return st_ok() ? hd()->nent | hd()->nnode << 8 | hd()->nroom << 16 : -1;
     case 41: return arg >= 0 && arg < hd()->nent ? ent(arg)->id | ent(arg)->node << 16 : -1;
     case 42: return pick_entry(arg);
     case 43: return cond_ok(arg);
+    case 44: cp_set(arg, 1); return cp_flag(arg);
+    case 45: cp_prog.chap_unlocked = arg & 15; for (int k = 0; k <= (arg & 15); k++) cp_prog.acts[k] = 0xff; return cp_prog.chap_unlocked;
+    case 46: st_chal_done(arg & 255, arg >> 8); return cp_prog.story[2];
+    case 47: cp_prog.contracts[arg & 15] = arg >> 8; return cp_prog.contracts[arg & 15];
     }
     return -1;
 }

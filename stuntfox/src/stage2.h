@@ -113,6 +113,7 @@ void st_ev(int ev, int a, int b);
 int st_dbg(int cmd, int arg);
 int st_active(void);
 int st_sway(void);
+void st_chal_done(int c, int o);
 /* K: combat */
 int sg_dbg(int cmd, int arg);
 int sg_job_active(void);

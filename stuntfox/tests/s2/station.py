@@ -100,7 +100,7 @@ if __name__ == '__main__':
     ck(mb(40) not in (None, -1), 'blob good', str(mb(40)))
     n = mb(40)
     ck(n >> 16 == 9 and (n & 255) >= 60, 'nine rooms (hangar included), entries', '%d entries' % (n & 255))
-    ck(mb(33, 17) == 60, 'the walker state is 60 bytes', str(mb(33, 17)))
+    ck(mb(33, 17) == 52, 'the walker state is 52 bytes', str(mb(33, 17)))
 
     # the STATION line on the hangar menu
     for _ in range(4):
@@ -157,7 +157,7 @@ if __name__ == '__main__':
     mb(35, -2500), mb(36, 700), run(10)
     run(60, ['LEFT'])
     ck(st(1) > -2800 + 100, 'the left wall holds', 'x %d' % st(1))
-    ck(mb(33, 17) == 60, 'still alive and ticking')
+    ck(mb(33, 17) == 52, 'still alive and ticking')
 
     # R runs
     mb(35, -1000), mb(36, 0), run(10)
@@ -186,7 +186,7 @@ if __name__ == '__main__':
         if r >= 2:
             ck(st(6) == 0 or st(6) >> 5 != 1, 'spawned clear of the exit pad', hex(st(6)))
             mb(34, 1) if False else None
-    ck(mb(33, 17) == 60, 'rooms survived')
+    ck(mb(33, 17) == 52, 'rooms survived')
     ck(mb(34, 1) == 1, 'back to the hub')
     run(30)
 
@@ -248,7 +248,7 @@ if __name__ == '__main__':
             if t == G.T_MSGS and st(4) & 255:
                 htap('B', after=14)                  # (messages sit under comms: B goes up one)
             ck(st(4) & 255 == 0, '%s: B closes %s' % (r.name, u[7]), 'term %d' % (st(4) & 255))
-    ck(mb(33, 17) == 60, 'terminals survived')
+    ck(mb(33, 17) == 52, 'terminals survived')
 
     # the quick menu
     mb(34, 1), run(10)

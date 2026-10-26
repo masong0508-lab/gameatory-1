@@ -329,6 +329,7 @@ static void mis_done(int mis, int secs)
                 sg_give(25 - d->pay);          /* (Payback paid the full price; a second time is 25) */
             p->chal[c] |= 1 << o;
         }
+        st_chal_done(c, o);
         if (o < 5) {
             u16 *b = &p->best[c * 5 + o];
             u32 t = secs > 6000 ? 60000 : secs * 10;
@@ -589,6 +590,17 @@ void cp_open(void)
 void cp_open_at(int line)
 {
     C.q = Q_MAIN, C.cur = line, C.top = C.confirm = 0;
+    if (line == 2) {                   /* (the station's SAVE...: one press does it, the menu stays up to show how it went) */
+        if (!on())
+            note("START THE CAMPAIGN FIRST");
+        else if (!prove())
+            note("NO SAVE CHIP: USE THE CODE");
+        else if (!sw.busy)
+            save_start(), note("SAVING...");
+    } else if (line == 3 && on())
+        C.q = Q_CODE;
+    else if (line == 4 && !on())
+        C.q = Q_ENTER, C.at = 0;
 }
 
 int cp_dock_keys(u16 hit, u16 keys, int main_ok)

@@ -55,8 +55,7 @@ typedef struct {
     u8 dcrew, chat;                /* who is speaking; the chatter's turn */
     u8 hid, same;                  /* Payback's sprites are off; frames drawn alike (2: both pages hold the picture) */
     u8 sway, idle;                 /* the hangar camera's sway (0..256 >> 1) and the frames its menu has been as it is */
-    u8 pan, pad2;                  /* ticks a full-screen page is held as it is (no flashing); spare */
-    u32 heard[2];                  /* the entries (ids under 64) the crew have said */
+    u8 pan, tab;                   /* ticks a full-screen page is held as it is (no flashing); the terminal's second page (city board, Kestrel's board) */
     u32 sig;                       /* the picture as last drawn (a hash); in the hangar, the menu's */
     const char *msg;               /* a line of news (ROM text) and when it goes */
     u32 msg_end;
