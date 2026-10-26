@@ -33,7 +33,7 @@ typedef struct {                   /* 48 bytes: room 0 (the hangar) is all zeros
 typedef struct { u8 nv, nf; u16 pad; u32 off_v, off_f, off_n; } StPart;       /* a part: at most 56 points (model_draw's stack) */
 typedef struct { s16 px, py, pz, ty, tz, x0, x1, z0, z1, pad; } StCam;        /* a camera node: it looks along +z from (px, py, pz) at height ty, depth tz; the walker's region */
 typedef struct { s16 x, z, sx, sz; u8 r4, kind, arg, flags; s16 ly; u16 label; } StUse;   /* a door, a place to use: r4 a quarter of its reach; where one arrives (sx, sz); the label's height */
-typedef struct { s16 x, z; u16 yaw; u8 crew, model, body, legs; u8 pad[2]; } StCrew;
+typedef struct { s16 x, z; u16 yaw; u8 crew, model, body, legs; u8 fur, fpart; } StCrew;   /* fur: bit 0 ears, 1 tail, 2 muzzle; fpart: 1 + the part (after the room's own) that is the fur, 0 none */
 typedef struct { u8 speaker, flags; u16 text, next; u8 cond, act; } StNode;
 typedef struct { u8 crew, cond, flags, pad; u16 node, id; } StEnt;
 #ifdef __arm__
@@ -72,7 +72,7 @@ const StCam *st_cams(const StRoom *rm);
 const StUse *st_uses(const StRoom *rm);
 const StCrew *st_crews(const StRoom *rm);
 const char *st_text(int id);
-extern const char *const st_crew_name[8];                /* ROOK PIP NOVA DUSTY QUILL JUNO KESTREL, by crew number */
+extern const char *const st_crew_name[9];                /* ROOK PIP NOVA DUSTY QUILL JUNO KESTREL SABLE, by crew number */
 u32 st_sig(void);                                       /* a hash of everything the picture of a room shows */
 
 /* ---- stationdraw.c ---- */

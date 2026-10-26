@@ -702,7 +702,7 @@ static char *num(char *p, int v) { return d_num(p, v); }
 static const char *const shop_name[5] = {"LASERS", "SHIELD", "ENGINE", "MISSILES", "MISSILE RACK"};
 static const char *const quick_name[6] = {"LAUNCH", "CONTRACTS", "TRAVEL", "SAVE...", "MAP", "BACK"};
 static const char *const comms_name[5] = {"SAVE...", "SHOW CODE", "ENTER CODE", "MESSAGES", "BACK"};
-const char *const st_crew_name[8] = {"", "ROOK", "PIP", "NOVA", "DUSTY", "QUILL", "JUNO", "KESTREL"};
+const char *const st_crew_name[9] = {"", "ROOK", "PIP", "NOVA", "DUSTY", "QUILL", "JUNO", "KESTREL", "SABLE"};
 #define crew_name st_crew_name
 
 static void screen_list(const char *title, int n)

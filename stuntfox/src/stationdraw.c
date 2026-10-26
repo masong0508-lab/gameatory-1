@@ -25,7 +25,7 @@ static void part_draw(const StRoom *rm, const StPart *pt, const M3 *m)
         model_draw(&md, &pl);
 }
 
-static void person(const Model *a, const Model *b, V3 at, u16 yaw, int body, int legs)
+static void person(const Model *a, const Model *b, const Model *f, V3 at, u16 yaw, int body, int legs)
 {
     M3 m;
     Place pl;
@@ -36,6 +36,8 @@ static void person(const Model *a, const Model *b, V3 at, u16 yaw, int body, int
         model_draw(a, &pl);
         if (b)
             model_draw(b, &pl);
+        if (f)
+            model_draw(f, &pl);                  /* (the fur: ears, tail, muzzle, in its own colours) */
     }
 }
 
@@ -56,10 +58,22 @@ void st_draw_room(void)
     const StCrew *c = st_crews(rm);
     for (int i = 0; i < rm->ncrew; i++) {
         static const Model *const pose[3] = {&mdl_stand, &mdl_stride_a, &mdl_stride_b};
-        person(pose[c[i].model % 3], 0, v3(c[i].x, 0, c[i].z), c[i].yaw, c[i].body, c[i].legs);
+        Model fur;
+        const Model *fp = 0;
+        if (c[i].fpart) {
+            const StPart *fq = &pt[rm->nparts + c[i].fpart - 1];
+            fur.v = (const MVert *)(st_blob + fq->off_v);
+            fur.f = (const MFace *)(st_blob + fq->off_f);
+            fur.nv = fq->nv;
+            fur.nf = fq->nf;
+            fur.radius = 300;                       /* (the ears reach 266 above the crew) */
+            fur.normal = (N3 *)(st_blob + fq->off_n);
+            fp = &fur;
+        }
+        person(pose[c[i].model % 3], 0, fp, v3(c[i].x, 0, c[i].z), c[i].yaw, c[i].body, c[i].legs);
     }
     int p = stw.moving ? 1 + (stw.phase >> 3 & 1) : 0;
-    person(&mdl_hero[p][0], &mdl_hero[p][1], v3(stw.x, 0, stw.z), stw.yaw, M_GLOW, M_GLASS);   /* (the stunt fox: orange jacket, jeans) */
+    person(&mdl_hero[p][0], &mdl_hero[p][1], 0, v3(stw.x, 0, stw.z), stw.yaw, M_GLOW, M_GLASS);   /* (the stunt fox: orange jacket, jeans) */
     model_body = M_CAR;
     model_legs = M_ROAD;
 }
@@ -89,5 +103,5 @@ void st_draw_labels(void)
             tag(v3(u[i].x, u[i].ly, u[i].z), st_text(u[i].label), i == near ? COLOR(M_ACCENT, 3, 0) : COLOR(M_CREAM, 3, 0));
     const StCrew *c = st_crews(rm);
     for (int i = 0; i < rm->ncrew; i++)
-        tag(v3(c[i].x, 450, c[i].z), st_crew_name[c[i].crew & 7], stw.near >> 5 == U_TALK && (stw.near & 31) == i + 1 ? COLOR(M_ACCENT, 3, 0) : COLOR(M_STEEL, 3, 0));
+        tag(v3(c[i].x, 450, c[i].z), st_crew_name[c[i].crew], stw.near >> 5 == U_TALK && (stw.near & 31) == i + 1 ? COLOR(M_ACCENT, 3, 0) : COLOR(M_STEEL, 3, 0));
 }

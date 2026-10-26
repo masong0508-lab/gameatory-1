@@ -13,7 +13,7 @@ import sys
 
 # palette.h
 M_ROAD, M_KERB, M_GRASS, M_PLAZA, M_CONCRETE, M_GLASS, M_BRICK, M_TEAL, M_CREAM, M_STEEL = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
-M_ACCENT, M_GLOW, M_STUNT = 12, 14, 15
+M_SKY, M_CAR, M_ACCENT, M_SHIP, M_GLOW, M_STUNT = 0, 11, 12, 13, 14, 15
 MF_TWO, MF_GLOW, MF_IN, MF_BACK = 1, 2, 4, 8
 MAX_V, MAX_F, MAX_BOX = 56, 90, 8
 STRIP = 1200                           # the widest a wall, a floor or a stripe is drawn in one piece     # a part's points; faces in a room (the frame's polygons); boxes the walker bumps
@@ -103,7 +103,7 @@ class Room:
         self.mesh = Mesh(name, sx)
         self.cams = []      # (px, py, pz, ty, tz, x0, x1, z0, z1)
         self.uses = []      # (kind, arg, x, z, r, sx, sz, label, ly, flags)
-        self.crew = []      # (crew, x, z, yaw, model, body, legs)
+        self.crew = []      # (crew, x, z, yaw, model, body, legs, fur)
         self.ceil_c, self.floor_c = M_ROAD, M_ROAD
         self.zmin = ZMIN
 
@@ -114,8 +114,8 @@ class Room:
         k = self.sx
         self.uses.append((kind, arg, int(x * k), z, r, int(sx * k), sz, label, ly, flags))
 
-    def person(self, crew, x, z, yaw=0, model=0, body=M_TEAL, legs=M_ROAD):
-        self.crew.append((crew, int(x * self.sx), z, yaw, model, body, legs))
+    def person(self, crew, x, z, yaw=0, model=0, body=M_TEAL, legs=M_ROAD, fur=0):
+        self.crew.append((crew, int(x * self.sx), z, yaw, model, body, legs, fur))
 
 
 # use kinds (station.h U_*)
@@ -124,7 +124,9 @@ U_DOOR, U_TALK, U_TERM, U_PAD = 1, 2, 3, 4
 T_NONE, T_BRIEF, T_CONTRACT, T_TRAVEL, T_SHOP, T_PAINT, T_MAP, T_TROPHY, T_COMMS, T_MSGS, T_RECAP, T_LOG, T_QUICK = range(13)
 # rooms
 HANGAR, HUB, OPS, WORKSHOP, NAV, LOUNGE, TROPHY, COMMS, QUARTERS = range(9)
-CREW = {'ROOK': 1, 'PIP': 2, 'NOVA': 3, 'DUSTY': 4, 'QUILL': 5, 'JUNO': 6, 'KESTREL': 7}
+CREW = {'ROOK': 1, 'PIP': 2, 'NOVA': 3, 'DUSTY': 4, 'QUILL': 5, 'JUNO': 6, 'KESTREL': 7, 'SABLE': 8}
+# fur (a crew's ears, tail and muzzle, in cream and stunt red so they read on any body colour and the grass): bit 0 ears (16 vertices), bit 1 tail (8), bit 2 muzzle (8); <= 24 each
+FUR_EARS, FUR_TAIL, FUR_MUZZLE = 1, 2, 4
 
 HX, HZ = 1500, 1000                 # an ordinary room, 3000 by 2000 (drawn 2500 wide: SX stretches it)
 SX = 1.2
@@ -162,6 +164,7 @@ def build_rooms():
     m.prop(-hx + 60, -hx + 260, 520, 920, 520, M_STEEL, M_CONCRETE)       # lockers at the left end
     m.prop(hx - 260, hx - 60, 520, 920, 520, M_STEEL, M_CONCRETE)
     m.prop(-120, 120, -460, -260, 300, M_ACCENT, M_STEEL)                 # a bench
+    r.person(8, -1000, 300, 0, 0, M_TEAL, M_ROAD, FUR_EARS | FUR_TAIL)   # Sable, the ground liaison
     r.cam(-1500, 1120, -hz - 520, 160, 300, -hx, -750, -hz, hz)
     r.cam(0, 1120, -hz - 520, 160, 300, -1050, 1050, -hz, hz)
     r.cam(1500, 1120, -hz - 520, 160, 300, 750, hx, -hz, hz)
@@ -182,7 +185,7 @@ def build_rooms():
     m.wall_mark(-300, 300, 600, 1000, 1000 - 4, M_STEEL)
     m.wall_mark(-260, 260, 640, 960, 1000 - 6, M_GLOW, glow=True)
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(1, -240, 200, 0, 0, M_STUNT, M_ROAD)
+    r.person(1, -240, 200, 0, 0, M_BRICK, M_ROAD, FUR_EARS | FUR_TAIL)
     r.use(U_TERM, T_CONTRACT, -970, 730, 340, label='CONTRACTS', ly=980)
     r.use(U_TERM, T_TRAVEL, 970, 730, 340, label='TRAVEL', ly=980)
     r.use(U_TERM, T_BRIEF, 0, 130, 280, label='BRIEFING', ly=700)
@@ -200,7 +203,7 @@ def build_rooms():
     m.prop(-160, 160, 360, 700, 340, M_STEEL, M_ROAD)                    # a nose cone on a stand
     m.wall_mark(-450, 450, 500, 1000, 1000 - 4, M_STEEL)
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(2, 420, 380, 36000, 1, M_ACCENT, M_STEEL)
+    r.person(2, 420, 380, 36000, 1, M_STUNT, M_STEEL, FUR_EARS)
     r.use(U_TERM, T_SHOP, -1060, 200, 360, label='UPGRADES', ly=1000)
     r.use(U_TERM, T_PAINT, 1060, 200, 360, label='PAINT', ly=1000)
     door_front(r, HUB, 'HUB')
@@ -217,7 +220,7 @@ def build_rooms():
     m.wall_mark(-1000, 1000, 380, 1050, 1000 - 4, M_ROAD)
     m.wall_mark(-940, 940, 420, 1010, 1000 - 6, M_GLASS, glow=True)
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(3, 760, 360, 30000, 0, M_GLASS, M_ROAD)
+    r.person(3, 760, 360, 30000, 0, M_STEEL, M_ROAD, FUR_EARS | FUR_TAIL)
     r.use(U_TERM, T_MAP, 0, 120, 360, label='HOLO MAP', ly=760)
     door_front(r, HUB, 'HUB')
     rooms[NAV] = r
@@ -234,7 +237,7 @@ def build_rooms():
     m.prop(850, 1120, 700, 960, 940, M_STEEL, M_ROAD, M_GLASS, glow=True)    # the recap screen
     m.prop(-1150, -960, 160, 360, 420, M_ACCENT, M_STEEL)                # a stool
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(4, -560, 520, 20000, 1, M_ACCENT, M_STEEL)
+    r.person(4, -560, 520, 20000, 1, M_ACCENT, M_STEEL, FUR_EARS | FUR_TAIL)
     r.use(U_TERM, T_RECAP, 985, 560, 340, label='RECAP', ly=1000)
     door_front(r, HUB, 'HUB')
     rooms[LOUNGE] = r
@@ -248,7 +251,7 @@ def build_rooms():
         m.prop(x + 40, x + 180, 740, 880, 700, M_ACCENT, M_ACCENT, M_ACCENT, glow=True, y0=520, solid=False)
     m.prop(-1180, -1000, 160, 700, 300, M_STEEL, M_ROAD)
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(5, 640, 320, 33000, 0, M_BRICK, M_ROAD)
+    r.person(5, 640, 320, 33000, 0, M_BRICK, M_ROAD, FUR_EARS | FUR_MUZZLE)
     r.use(U_TERM, T_TROPHY, -560, 560, 380, label='MEDALS', ly=760)
     door_front(r, HUB, 'HUB')
     rooms[TROPHY] = r
@@ -263,7 +266,7 @@ def build_rooms():
     m.wall_mark(-700, 700, 700, 1100, 1000 - 4, M_ROAD)
     m.prop(-1180, -980, 200, 520, 640, M_STEEL, M_ROAD, M_GLASS, glow=True)
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(6, -520, 500, 3000, 0, M_GLASS, M_STEEL)
+    r.person(6, -520, 500, 3000, 0, M_TEAL, M_STEEL, FUR_EARS | FUR_MUZZLE)
     r.use(U_TERM, T_COMMS, 0, 520, 380, label='COMMS', ly=760)
     r.use(U_TERM, T_MSGS, -1060, 380, 330, label='MESSAGES', ly=760)
     door_front(r, HUB, 'HUB')
@@ -279,7 +282,7 @@ def build_rooms():
     m.wall_mark(-300, 300, 520, 1020, 1000 - 4, M_STEEL)
     m.wall_mark(-260, 260, 560, 980, 1000 - 6, M_STUNT)
     r.cam(*STD_CAM(r), -r.hx, r.hx, -r.hz, r.hz)
-    r.person(7, 320, 420, 30000, 2, M_STUNT, M_STEEL)
+    r.person(7, 320, 420, 30000, 2, M_GLASS, M_STEEL, FUR_EARS | FUR_TAIL)
     r.use(U_TERM, T_LOG, 0, 130, 340, label='KESTREL LOG', ly=700)
     door_front(r, HUB, 'HUB')
     rooms[QUARTERS] = r

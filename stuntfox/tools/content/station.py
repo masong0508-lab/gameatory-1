@@ -42,7 +42,7 @@ ACE = 0x60
 NOT = lambda c: 0x80 | c
 KESTREL_FLAG, FINALE_FLAG = 1, 2                    # content/campaign.sfc's FLAG_*
 
-R, P, N, D, Q, J, K = (G.CREW[n] for n in ('ROOK', 'PIP', 'NOVA', 'DUSTY', 'QUILL', 'JUNO', 'KESTREL'))
+R, P, N, D, Q, J, K, S = (G.CREW[n] for n in ('ROOK', 'PIP', 'NOVA', 'DUSTY', 'QUILL', 'JUNO', 'KESTREL', 'SABLE'))
 OPEN = lambda t: A_OPEN | t << 3
 
 # (crew, cond, flags, [lines of a node ... , or (line, act)]). Entry numbers are the order here, from 1: entry 1 is the one the first
@@ -153,6 +153,14 @@ TALK = [
     (K, CH(10), E_LOG, ["LOG 4. THE GATE IS NOT A WEAPON. IT IS\nA DOOR. I WANT TO KNOW WHERE IT GOES."]),
     (K, FLAG(FINALE_FLAG), E_LOG, ["LOG 5. IT WENT HOME. HER HOME. SHE WAS\nNOT A VILLAIN. SHE WAS LATE."]),
     (K, ACE, E_LOG, ["ACE LOG. THE PIRATES FLY HARDER NOW.\nSO DO I. FIND ME IN THE SKY."]),
+    # Sable's talk (the ground liaison in the hub): a repeat, so it is said in full each time and never counted as heard
+    (S, 0, E_REPEAT, ["HI FOX. I AM SABLE. I WALK THE CITIES FOR THE CREW.",
+                      "THE CITIES TRUST A FACE THEY CAN READ. MINE HAS EARS.",
+                      "MY EARS HEAR THE TRAFFIC. MY TAIL TELLS YOU I AM HAPPY.",
+                      "IF A CITY SAYS NO, ASK ME. I WILL ASK AGAIN, POLITELY.",
+                      "THE LIAISON DESK IS HERE IN THE HUB. I AM HERE MOST DAYS.",
+                      "THE SNACKS ARE IN THE LOUNGE. DUSTY SAYS THEY ARE HIS.",
+                      "GOOD FLYING OUT THERE. COME BACK WITH STORIES, FOX."]),
 ]
 
 # characters the font has (draw2d.c: ASCII 32..95, lower case drawn as upper) and what the station never says
@@ -206,12 +214,62 @@ def pad4(b):
     return b + bytes(-len(b) % 4)
 
 
+FUR_LIMIT = 24                                   # the crew model budget: vertices per crew model (design 7.3)
+
+
+def fur_box(x0, x1, y0, y1, z0, z1, mat):
+    """One box as traffic.c's person boxes: 8 vertices (bottom then top), 5 faces (no bottom); each face's normal points out."""
+    vs = [(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1), (x0, y1, z0), (x1, y1, z0), (x1, y1, z1), (x0, y1, z1)]
+    quads = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7), (4, 5, 6, 7)]
+    c = [sum(p[i] for p in vs) / 8.0 for i in range(3)]
+    fs = []
+    for q in quads:
+        p0, p1, p2 = vs[q[0]], vs[q[1]], vs[q[2]]
+        a = [p1[i] - p0[i] for i in range(3)]
+        b = [p2[i] - p0[i] for i in range(3)]
+        n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+        m = sum(v * v for v in n) ** 0.5 or 1.0
+        n = [v / m for v in n]
+        f = [sum(vs[i][k] for i in q) / 4.0 - c[k] for k in range(3)]
+        if sum(n[k] * f[k] for k in range(3)) < 0:
+            n = [-v for v in n]
+        fs.append((4, mat, 0, list(q), tuple(n)))
+    return vs, fs
+
+
+def fur_parts(crew_list):
+    """The fur of each furry crew: a part in the crew's own frame (the head is at y 184..226, the hips at y 98), in the
+    body colour (the ears and tail) or cream (the muzzle), so person() draws it with the body it sits on."""
+    out = []
+    for (c, x, z, yaw, model, body_m, legs, fur) in crew_list:
+        if not fur:
+            continue
+        assert fur < 8, 'fur mask %d' % fur
+        boxes = []
+        if fur & G.FUR_EARS:
+            boxes += [(-20, -4, 226, 266, -12, 12, G.M_CREAM), (4, 20, 226, 266, -12, 12, G.M_CREAM)]
+        if fur & G.FUR_TAIL:
+            boxes += [(14, 40, 52, 96, -10, 10, G.M_STUNT)]
+        if fur & G.FUR_MUZZLE:
+            boxes += [(-13, 13, 172, 200, 16, 34, G.M_CREAM)]
+        vs, fs = [], []
+        for bx in boxes:
+            v2, f2 = fur_box(*bx)
+            o = len(vs)
+            vs += v2
+            fs += [(n, mat, fl, [i + o for i in idx], nr) for (n, mat, fl, idx, nr) in f2]
+        assert len(vs) <= FUR_LIMIT, 'crew %d: %d fur vertices' % (c, len(vs))
+        out.append((vs, fs))
+    return out
+
+
 def pack_room(r, pool, start):
     """One room's data, to sit at `start` in the blob: the parts' vertices, faces and normals, their records, the boxes, cameras,
     uses and crew; -> (bytes, the StRoom record)."""
     geo, recs = bytearray(), bytearray()
     prs = []
-    for vs, fs in r.mesh.parts:
+    furs = fur_parts(r.crew)                          # after the room's own parts: not drawn with them (nparts counts those only)
+    for vs, fs in list(r.mesh.parts) + furs:
         ov = len(geo)
         for (x, y, z) in vs:
             geo += struct.pack('<3h', x, y, z)
@@ -239,10 +297,15 @@ def pack_room(r, pool, start):
     for (kind, arg, x, z, rad, sx, sz, label, ly, fl) in r.uses:
         extra += struct.pack('<4hBBBBhH', x, z, sx, sz, rad // 4, kind, arg, fl, ly, pool.add(label))
     crew_at = box_at + len(extra)
-    for (c, x, z, yaw, model, body_m, legs) in r.crew:
-        extra += struct.pack('<2hH4B2x', x, z, yaw & 0xffff, c, model, body_m, legs)
+    k = 0
+    for (c, x, z, yaw, model, body_m, legs, fur) in r.crew:
+        assert c <= 8, 'crew %d: the crew field is 8 at most' % c
+        fi = 0
+        if fur:
+            fi, k = k + 1, k + 1
+        extra += struct.pack('<2hH4B2B', x, z, yaw & 0xffff, c, model, body_m, legs, fur, fi)
     data = pad4(bytes(geo) + bytes(recs) + bytes(extra))
-    rr = struct.pack('<8BhhhH5I12x', len(prs), len(r.mesh.boxes), len(r.cams), len(r.uses), len(r.crew), r.ceil_c, r.floor_c, 0,
+    rr = struct.pack('<8BhhhH5I12x', len(r.mesh.parts), len(r.mesh.boxes), len(r.cams), len(r.uses), len(r.crew), r.ceil_c, r.floor_c, 0,
                      r.hx, r.hz, r.zmin, pool.add(r.title), parts_at, box_at, cam_at, use_at, crew_at)
     assert len(rr) == 48
     return data, rr
