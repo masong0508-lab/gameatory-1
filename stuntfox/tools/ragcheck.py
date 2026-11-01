@@ -150,6 +150,17 @@ def flat_spot(L, rng, need=4, tries=4000):
     return None
 
 
+def flat_mat_spot(L, rng, mat, need=4, tries=30000):
+    """like flat_spot, on cells of one material (3 grass, 1 road)"""
+    for _ in range(tries):
+        cx, cz = rng.randrange(6, 120), rng.randrange(6, 120)
+        g = L.rh_ground(cx * 1024 + 512, cz * 1024 + 512)
+        if all(L.rh_ground((cx + k) * 1024 + 512, cz * 1024 + 512) == g and L.rh_mat((cx + k) * 1024 + 512, cz * 1024 + 512) == mat and
+               L.rh_surface((cx + k) * 1024 + 512, g + 400, cz * 1024 + 512) == g for k in range(need)):
+            return (cx * 1024 + 512, g, cz * 1024 + 512)
+    return None
+
+
 def ledge_spot(L, rng, tries=20000):
     """a roof cell with a street cell 300+ units lower next to it along +x"""
     for _ in range(tries):
@@ -227,6 +238,10 @@ def standard(L, sim, rng, wacky, out, tag):
         'blast': (spot, 0, (v // 4, v * 4 // 10, v // 8), (300, 0, 200)),
         'punch': (spot, 0, (0, 1500, 2600), (180, 0, 0)),
     }
+    for nm, mt in (('road', 1), ('grass', 3)):         # the same car throw on each surface (the surface test)
+        sp = flat_mat_spot(L, random.Random(11), mt)
+        if sp:
+            throws['on_' + nm] = (sp, 16384, (v * 2 // 3, v // 5, 0), (0, 0, 500))
     ledge = ledge_spot(L, rng)
     if ledge:
         throws['ledge'] = (ledge, 16384, (900, 300, 0), (0, 0, 100))
@@ -239,6 +254,15 @@ def standard(L, sim, rng, wacky, out, tag):
             break
     if wall:
         throws['wall'] = (wall, 16384, (v * 2 // 3, v // 6, 0), (0, 0, 300))
+    throws['drop_road'] = ((spot[0], spot[1] + 200, spot[2]), 0, (0, 0, 0), (0, 0, 0))
+    bt = (ctypes.c_int * 2)()
+    for nm, flat in (('deck_flat', True), ('deck_slope', False)):   # a body dropped on a bridge deck (flat: like the road)
+        cells = [(cx * 1024 + 512, cz * 1024 + 512) for cx in range(8, 120) for cz in range(8, 120)]
+        cells = [c for c in cells if (L.rh_deck(c[0], c[1], 0, bt) == 1) == flat and L.rh_deck(c[0], c[1], 0, bt)]
+        if cells:
+            x, z = cells[len(cells) // 2]
+            L.rh_deck(x, z, 0, bt)
+            throws[nm] = ((x, bt[1] + 200, z), 0, (0, 0, 0), (0, 0, 0))
     for name, (at, yaw, vel, spin) in throws.items():
         r = run(sim, L, at, yaw, vel, spin)
         r['hops'] = hops(r['track'], L)
@@ -248,6 +272,13 @@ def standard(L, sim, rng, wacky, out, tag):
         if out:
             side_view(r, os.path.join(out, '%s_%s.png' % (tag, name)), '%s %s' % (tag, name))
             gif(r['track'], os.path.join(out, '%s_%s.gif' % (tag, name)), L)
+    if 'deck_flat' in res and 'drop_road' in res:      # a flat deck bounces like the road (it once passed as water: no bounce)
+        a, b = res['deck_flat'], res['drop_road']
+        ok = a['bounces'] == b['bounces'] and a['under'] < 16 and a['inside'] <= 6
+        print('%s deck_flat vs road: bounces %d vs %d, hops %s vs %s: %s' % (tag, a['bounces'], b['bounces'], a['hops'], b['hops'], 'OK' if ok else 'FAIL'))
+    if 'deck_slope' in res:
+        a = res['deck_slope']
+        print('%s deck_slope: under %d inside %d: %s' % (tag, a['under'], a['inside'], 'OK' if a['under'] < 16 and a['inside'] <= 6 else 'FAIL'))
     return res
 
 

@@ -43,6 +43,12 @@ static const Stick sticks[] = {
 };
 #define NSTICK (sizeof sticks / sizeof sticks[0])
 
+/* by the floor's material (palette.h): friction and how much of the bounce is kept, /16. Grass takes
+   the energy out of a landing and grips; everything else (road, kerb, plaza, roofs, decks) is as
+   it was. WACKY ignores it: a superball is a superball everywhere */
+static const u8 surf_rub[16] = {6, 6, 6, 10, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6};
+static const u8 surf_e[16] = {16, 16, 16, 9, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+
 #define SH 3                       /* points are in units << SH */
 #define VBOUNCE (3 << SH)          /* coming down slower than this (units a tick) it does not bounce */
 #define VQUIET 10                  /* (units << SH a tick) moving less than this a body is settling */
@@ -146,9 +152,11 @@ int rag_throw(V3 feet, s32 yaw, V3 vel, V3 spin, int body, int legs, int hero, c
 
 /* the floor under (x, z) (units) for a point that was at height y0: a bridge deck it was over,
    else the ground (a water cell's surface: it floats); *n: 0 flat, else the ramp's shape */
+static u8 fl_mat;                  /* the material of the floor floor_at last found (0: a bridge deck, the default) */
 static s32 floor_at(s32 x, s32 z, s32 y0, int *shape, s32 *ceil)
 {
     const Cell *c = &world.cell[(x >> 10) * CITY + (z >> 10)];
+    fl_mat = c->mat;
     s32 g = c->hi, fx = x & 1023, fz = z & 1023, d = c->hi - c->lo;
     *shape = 0;
     *ceil = 0x7fffffff;
@@ -163,10 +171,11 @@ static s32 floor_at(s32 x, s32 z, s32 y0, int *shape, s32 *ceil)
     if (dk[0] | dk[1]) {
         for (int k = 0; k < 2; k++) {
             s32 b, t;
-            if (!world_deck(x, z, k, &b, &t))
+            int sd = world_deck(x, z, k, &b, &t);
+            if (!sd)
                 break;
             if (y0 >= ((b + t) >> 1))
-                g = t, *shape = 0;                 /* on it (a sloped one: flat enough) */
+                g = t, *shape = sd > 1 ? sd : 0, fl_mat = 0;   /* on it (a sloped one is a ramp: its floor follows the point; a flat one is plain floor, not water) */
             else if (*ceil > b)
                 *ceil = b;                         /* under it */
         }
@@ -399,11 +408,13 @@ static void step(Rag *r, int dt)
     s32 fl[RAG_P], ce[RAG_P];                      /* each point's floor and ceiling (units << SH, from o) */
     s16 vin[RAG_P];                                /* how fast it came into what it touched */
     u8 touch[RAG_P];                               /* what: 0 nothing, 1 floor, 2 ramp, 3 wall x, 4 wall z, 5 ceiling, 6 water */
+    u8 mat[RAG_P];                                 /* the floor's material under each (fl_mat) */
     const s32 ox = r->o[0], oy = r->o[1], oz = r->o[2];
     const s32 grav = ((rag_wacky ? 3 : 4) * rag_grav_k + 3) >> 2;            /* (units << SH a tick each tick: G_ACC, 0.5 units) */
     const s32 lo = (2 * CELL - ox) << SH, hi = ((CITY - 2) * CELL - ox) << SH;
     const s32 loz = (2 * CELL - oz) << SH, hiz = ((CITY - 2) * CELL - oz) << SH;
     s32 fall = 0;                                  /* the body's own speed up (x 12), coming in */
+    s32 pushx = 0, pushz = 0;
     for (int i = 0; i < RAG_P; i++) {
         s32 vx = clampv(r->v[i][0]), vy = r->v[i][1] - grav * dt, vz = clampv(r->v[i][2]);
         if (vy < -FALL) vy = -FALL;                /* (as fast as a body falls through the air) */
@@ -414,13 +425,16 @@ static void step(Rag *r, int dt)
         X[i][0] = X0[i][0] + vx * dt;
         X[i][1] = X0[i][1] + vy * dt;
         X[i][2] = X0[i][2] + vz * dt;
-        if (X[i][0] < lo) X[i][0] = lo;
-        if (X[i][0] > hi) X[i][0] = hi;
-        if (X[i][2] < loz) X[i][2] = loz;
-        if (X[i][2] > hiz) X[i][2] = hiz;
         touch[i] = 0;
         vin[i] = 0;
     }
+    if (X[0][0] < lo) pushx = lo - X[0][0];        /* (past the map's edge: the whole body goes back by how far the pelvis is, */
+    else if (X[0][0] > hi) pushx = hi - X[0][0];   /*  not each point to the edge, or the sticks tear against it) */
+    if (X[0][2] < loz) pushz = loz - X[0][2];
+    else if (X[0][2] > hiz) pushz = hiz - X[0][2];
+    if (pushx | pushz)
+        for (int i = 0; i < RAG_P; i++)
+            X[i][0] += pushx, X[i][2] += pushz;
     /* out of the city: walls first (back to its own side of a cell's edge), then the floor */
     s32 hx[RAG_P], hz[RAG_P];                      /* the cell each point's floor is of (units) */
     u8 ramp[RAG_P];
@@ -432,6 +446,7 @@ static void step(Rag *r, int dt)
             touch[i] = t, vin[i] = r->v[i][t - 3 ? 2 : 0];
         int sh = floor_of(X[i], ox, oy, oz, y0, i, &fl[i], &ce[i], &hx[i], &hz[i]);
         ramp[i] = sh >= 2;
+        mat[i] = fl_mat;
         if (X[i][1] < fl[i]) {
             if (!touch[i])
                 touch[i] = sh == 1 ? 6 : sh >= 2 ? 2 : 1, vin[i] = r->v[i][1] - grav * dt;
@@ -462,6 +477,7 @@ static void step(Rag *r, int dt)
     }
     /* how fast each point went, and what bounced */
     s32 e = rag_bounce ? rag_bounce : rag_wacky ? 12 : 9, rub = rag_wacky ? 2 : 6;   /* restitution and friction, / 16 */
+    s32 es = 16;                                   /* (the softest floor it came down hard on) */
     const s32 upmost = rag_wacky ? 26 << SH : 14 << SH;    /* no bounce faster up than this (units a tick): off a
                                                               roof a body hops 200 units, not 800 */
     s32 most = 0, rise = 0;
@@ -474,13 +490,17 @@ static void step(Rag *r, int dt)
             s32 in = vin[i];
             down |= touch[i] <= 2 || touch[i] == 6;
             if (touch[i] <= 2) {                   /* floor or ramp: up is out */
+                s32 ei = e;
+                if (!rag_wacky)
+                    rub = surf_rub[mat[i]], ei = e * surf_e[mat[i]] >> 4;
                 if (vy > 40 << SH)
                     vy = 40 << SH;                 /* (put out of a floor it was deep in: not a launch) */
                 if (in < -VBOUNCE) {               /* (the limb itself a little; the body below) */
-                    s32 up = (-in * e) >> 5;
+                    s32 up = (-in * ei) >> 5;
                     if (up > upmost >> 1) up = upmost >> 1;
                     if (vy < up) vy = up;
                     hard = 1;
+                    if (ei * 16 < e * es) es = ei * 16 / e;
                 }
                 vx -= (vx * rub) >> 4, vz -= (vz * rub) >> 4;
             } else if (touch[i] == 3) {
@@ -504,7 +524,7 @@ static void step(Rag *r, int dt)
     if (hard && fall < -VBOUNCE * 2) {
         if (-fall >> SH > r->land)
             r->land = -fall >> SH;                 /* (how hard: fall damage, merge.c) */
-        if ((fall = ((-fall * e) >> 4) - rise) > 0) {
+        if ((fall = ((-fall * (e * es >> 4)) >> 4) - rise) > 0) {
             if (fall > upmost - rise)
                 fall = upmost - rise;
             for (int i = 0; i < RAG_P; i++)

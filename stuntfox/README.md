@@ -56,6 +56,10 @@ bodies cost about half a frame a second). Once unlocked, the OPTIONS line RAGDOL
 ON / OFF; the code again makes them WACKY (further, spinning launches, lower gravity, near-superball
 bounces), and again puts them back. With them on (or FALL DAMAGE on), a fall of a storey or more on
 foot (off a roof, a ledge, a bridge) tumbles him as a ragdoll too; walking down a ramp, a stair or off a kerb never does.
+A body lies on a sloping bridge deck as on any floor (it no longer sinks into the ramp end), grass takes the bounce out
+of a landing and grips (a short hop and a short slide; WACKY ignores the surface), and at the map's edge the whole body is
+stopped, not each limb. `tools/ragcheck.py` runs the solver on the PC against the real worlds; `tools/ragdoll_ps1_ref.c`
+(tests: `python3 tests/s2/ragdoll_ps1.py`) is the fuller ragdoll for the PS1 port, as a reference that runs on the PC only.
 
 FALL DAMAGE ON / OFF (off to begin with): on, the man's own tumble costs health when it lands after a
 real fall (off a roof, a ledge, a bridge, or out of the Arwing high up), the harder the more; a fatal

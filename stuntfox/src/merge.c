@@ -310,6 +310,7 @@ static u8 fp_view;                 /* first person this frame: the camera is the
 static s32 cam_yaw, cam_zoom;      /* orbit (65536 per turn, from behind) and distance */
 static u16 cam_pad;                /* the D-pad, while it is the camera's */
 static u8 cam_lock, cam_home;      /* cam_home: on its way back behind you */
+static s32 cam_sm = 16384;         /* how far out the on-foot camera is (of 16384), easing out from a wall */
 static u8 cam_cut;                 /* straight to the new place, no swing (boarding) */
 static u8 cam_keep;                /* on foot: it swings round you at its distance (see camera_look) */
 
@@ -1119,10 +1120,10 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
         dist = dist * z >> 8;
         height = height * z * z >> 16;   /* further out is higher up, nearer is lower */
     }
-    V3 want = vadd(vscale(fwd, -dist), vscale(up, height));
+    V3 cw, want = vadd(vscale(fwd, -dist), vscale(up, height));   /* (cw: the camera built here, set in cam.pos once) */
     s32 w;
-    if (world_water(pos.x, pos.z, &w) && pos.y < w)
-        pos.y = w;                                     /* sunk in water: watch the surface */
+    if (world_water(pos.x, pos.z, &w) && pos.y < w && !swimming)
+        pos.y = w;                                     /* sunk in water: watch the surface (a swimmer rises to it) */
     cam_focus = pos;
     cam_off = cam_cut ? want : vadd(cam_off, vshr(vsub(want, cam_off), 2));
     if (cam_keep && !cam_cut) {
@@ -1135,44 +1136,55 @@ static void camera_look(V3 pos, V3 fwd, V3 up, s32 dist, s32 height, s32 aim_up,
         cam_off.z = fcos(yaw) * r >> 14;
     }
     cam_up = cam_cut ? up : vnorm(vadd(cam_up, vshr(vsub(up, cam_up), 2)));
+    int cut = cam_cut;
     cam_cut = 0;
-    cam.pos = vadd(pos, cam_off);
+    cw = vadd(pos, cam_off);
     /* Payback's streets are narrow: come in closer rather than look out of a wall */
-    V3 pivot = vadd(pos, v3(0, 150, 0)), span = vsub(cam.pos, pivot);
-    int in = 0, k;
+    V3 pivot = vadd(pos, v3(0, 150, 0)), span = vsub(cw, pivot);
+    int k;
     for (k = 1; k <= 8; k++) {
         V3 q = vadd(pivot, vscale(span, k * 2048));
         if (world_ground(q.x, q.z) > q.y - 40) {
-            cam.pos = vadd(pivot, vscale(span, (k - 1) * 2048));
-            in = 9 - k;
+            cw = vadd(pivot, vscale(span, (k - 1) * 2048));
             break;
         }
     }
-    if (k <= 8 && swimming && mode == FOOT) {
+    s32 tk = k <= 8 ? (k - 1) * 2048 : 16384;          /* (on foot the pull-in eases out, never in: at once) */
+    if (cam_keep && !cut) {
+        cam_sm = tk < cam_sm ? tk : cam_sm + clamp(tk - cam_sm, 0, 512);
+        cw = vadd(pivot, vscale(span, cam_sm));
+    } else
+        cam_sm = tk;
+    if (cam_sm < 16384 && swimming && mode == FOOT) {
         /* a swimmer backed up to a bank: as near, aim as far nearer him, down at the water (a man's
            height over him and on ahead would leave him under the picture) */
-        aim_up = aim_up * (k - 1) >> 3;
-        aim_fwd = (aim_fwd * (k - 1) >> 3) + 48;
+        aim_up = aim_up * (cam_sm >> 11) >> 3;
+        aim_fwd = (aim_fwd * (cam_sm >> 11) >> 3) + 48;
     }
     /* ... and on foot it rises as it comes in, looking down past you: close behind at your
        height, your back filled the middle of the screen and Payback's hearts for seconds */
     static s32 lift;
-    s32 lw = cam_keep ? in * 70 : 0, room = 1 << 20, db, dt;
+    s32 lw = cam_keep ? ((16384 - cam_sm + 2047) >> 11) * 70 : 0, room = 1 << 20, db, dt;
     for (int k = 0; k < 2; k++)                        /* (not up through a deck over you: half the room) */
-        if (world_deck(cam.pos.x, cam.pos.z, k, &db, &dt) && pos.y < db && db - 100 - cam.pos.y < room)
-            room = db - 100 - cam.pos.y;
+        if (world_deck(cw.x, cw.z, k, &db, &dt) && pos.y < db && db - 100 - cw.y < room)
+            room = db - 100 - cw.y;
     if (room < 0)
         room = 0;
     if (lw > room >> 1)
         lw = room >> 1;
     lift += (lw - lift) >> 2;
-    cam.pos.y += lift < room ? lift : room;
-    s32 g = world_ground(cam.pos.x, cam.pos.z) + 60;
-    if (cam.pos.y < g)
-        cam.pos.y = g;
-    sw_cam_clear(&cam.pos);                            /* (out of the moon and the rocks on a space walk) */
+    cw.y += lift < room ? lift : room;
+    s32 g = world_ground(cw.x, cw.z) + 60;
+    if (cw.y + 1000 < g) {                         /* (deep in a wall the pull-in's steps skipped: close in, not up onto its top) */
+        cw = vadd(pivot, vscale(span, 4096));
+        g = world_ground(cw.x, cw.z) + 60;
+    }
+    if (cw.y < g)
+        cw.y = g;
+    sw_cam_clear(&cw);                            /* (out of the moon and the rocks on a space walk) */
     V3 target = vadd(pos, vadd(vscale(up, aim_up), vscale(fwd, aim_fwd)));
-    cam.m.f = vsub(target, cam.pos);
+    cam.pos = cw;
+    cam.m.f = vsub(target, cw);
     cam.m.u = cam_up;
     morth(&cam.m);
     /* Payback's world is the mirror image of ours (its y is our z): draw it the way Payback
@@ -1659,6 +1671,8 @@ static int car_dead(void)
 static s32 swim_head;              /* our heading */
 static V3 swim_at;                 /* where he is: on the water, or up a ladder */
 static u16 swim_t;                 /* ticks in the water (his stroke) */
+static V3 climb_to;                /* where the climb out ends (swim_out) */
+static u8 climbing;                /* ... under way: he rises or drops there, not in one jump */
 
 static int cell_of(s32 x, s32 z) { return clamp(x >> 10, 0, CITY - 1) * CITY + clamp(z >> 10, 0, CITY - 1); }
 
@@ -1677,8 +1691,12 @@ static int swim_roof(int c, s32 surf)
 /* Payback's record where he is: he sees no buttons (sf_keys), we move him */
 static void swim_hold(u8 *me)
 {
-    man_put(me, swim_at, swim_head);
-    *(u16 *)(me + E_Z) = 19904 - 2 * (swim_at.y - world.yoff);
+    V3 h = swim_at;
+    s32 w;
+    if (!swim_lad && !climbing && world_water(h.x, h.z, &w) && h.y < w)
+        h.y = w;                                       /* (Payback's record stays on the surface while he rises to it) */
+    man_put(me, h, swim_head);
+    *(u16 *)(me + E_Z) = 19904 - 2 * (h.y - world.yoff);
     *(s16 *)(me + E_VZ) = 0;
 }
 
@@ -1697,7 +1715,7 @@ static void swim_in(u8 *me, V3 p)
     p.z = clamp(p.z, (z << 10) + (wet_cell(x, z - 1) ? 0 : SWIM_BODY),
                 (z << 10) + (wet_cell(x, z + 1) ? 1023 : 1023 - SWIM_BODY));
     swimming = 1;
-    swim_lad = 0;
+    swim_lad = climbing = 0;
     swim_at = p;
     swim_head = entity_heading(me);
     swim_t = 0;
@@ -1709,13 +1727,23 @@ static void swim_in(u8 *me, V3 p)
     }
 }
 
-/* out onto the bank at p: Payback's man again */
-static void swim_out(u8 *me, V3 p)
+/* out onto the bank at p: Payback's man again, at once */
+static void swim_land(u8 *me, V3 p)
 {
-    swimming = swim_lad = 0;
+    swimming = swim_lad = climbing = 0;
     swim_at = p;
     swim_hold(me);
     me[E_SINKING] = 0;
+}
+
+/* out onto the bank at p: he climbs up (or drops) to it in a few ticks, the camera with him */
+static void swim_out(u8 *me, V3 p)
+{
+    climb_to = p;
+    climbing = 1;
+    swim_lad = 0;
+    if (iabs(p.y - swim_at.y) < 24 && iabs(p.x - swim_at.x) < 24 && iabs(p.z - swim_at.z) < 24)
+        swim_land(me, p);
 }
 
 /* Payback's man has gone into the water. Or it sinks him where we have land: out of a car going
@@ -1727,7 +1755,7 @@ static APART void swim_check(u8 *me)
     s32 w;
     if (world_water(p.x, p.z, &w)) {
         if (p.y <= w + 16)
-            swim_in(me, v3(p.x, w, p.z));
+            swim_in(me, v3(p.x, clamp(p.y, w - 512, w), p.z));    /* (up to the surface by swim_tick) */
         return;
     }
     if (!me[E_SINKING])
@@ -1753,6 +1781,9 @@ static APART void swim_check(u8 *me)
 static void swim_move(u8 *me, s32 dx, s32 dz)
 {
     V3 q = v3(swim_at.x + dx, swim_at.y, swim_at.z + dz);
+    s32 sy = swim_at.y, sw;                            /* (his height for the bank tests: the surface he rises to) */
+    if (world_water(swim_at.x, swim_at.z, &sw) && sy < sw)
+        sy = sw;
     if (q.x < 2 * CELL || q.z < 2 * CELL || q.x >= (CITY - 2) * CELL || q.z >= (CITY - 2) * CELL)
         return;
     s32 fx = q.x + (dx > 0 ? SWIM_BODY : dx < 0 ? -SWIM_BODY : 0);
@@ -1765,8 +1796,8 @@ static void swim_move(u8 *me, s32 dx, s32 dz)
     const Cell *c = &world.cell[j];
     if (c->shape == SHAPE_WATER) {
         /* (on into it, and down at once where it is lower when he is in it) */
-        if (c->hi - swim_at.y <= SWIM_CLIMB && !swim_roof(j, c->hi))
-            swim_at = v3(q.x, cell_of(q.x, q.z) == j ? c->hi : swim_at.y, q.z);
+        if (c->hi - sy <= SWIM_CLIMB && !swim_roof(j, c->hi))
+            swim_at = q;                               /* (swim_tick takes his height to the surface) */
         return;
     }
     int e = dx < 0 ? 3 : dx > 0 ? 1 : dz < 0 ? 0 : 2, w = world.swim[i];
@@ -1785,7 +1816,7 @@ static void swim_move(u8 *me, s32 dx, s32 dz)
     s32 ex = (fx & ~1023) + (dx < 0 ? 1023 : 0), ez = (fz & ~1023) + (dz < 0 ? 1023 : 0);
     s32 g = world_ground(dx ? ex : q.x, dz ? ez : q.z);
     /* (water with no table, the map's rim: any bank of that height) */
-    if ((w >> e & 1 || !(w & 16)) && g - swim_at.y <= SWIM_CLIMB + 8 && g >= swim_at.y - SWIM_DROP - 8) {
+    if ((w >> e & 1 || !(w & 16)) && g - sy <= SWIM_CLIMB + 8 && g >= sy - SWIM_DROP - 8) {
         q = v3(fx + dx * 6, 0, fz + dz * 6);
         q.y = world_ground(q.x, q.z);
         swim_out(me, q);
@@ -1800,7 +1831,7 @@ static void swim_move(u8 *me, s32 dx, s32 dz)
     s32 at = dx ? q.z : q.x, best = at + 4096;
     for (s32 t = (at & ~1023) + 32; t < (at | 1023); t += 64) {
         s32 h = dx ? world_ground(ex, t) : world_ground(t, ez);
-        if (h - swim_at.y <= SWIM_CLIMB && h >= swim_at.y - SWIM_DROP && iabs(t - at) < iabs(best - at))
+        if (h - sy <= SWIM_CLIMB && h >= sy - SWIM_DROP && iabs(t - at) < iabs(best - at))
             best = t;
     }
     s32 v = iabs(dx + dz), d = clamp(best - at, -v, v);
@@ -1814,6 +1845,19 @@ static void swim_move(u8 *me, s32 dx, s32 dz)
 static APART void swim_tick(u8 *me, u16 k)
 {
     swim_t++;
+    if (climbing) {
+        swim_at.y += clamp(climb_to.y - swim_at.y, -12, 6);   /* (a game frame runs 3 or 4 ticks: 24 units at most) */
+        if (climb_to.y - swim_at.y < 40) {             /* (up first, then in over the bank's lip, not into its face) */
+            swim_at.x += clamp(climb_to.x - swim_at.x, -40, 40);
+            swim_at.z += clamp(climb_to.z - swim_at.z, -40, 40);
+        }
+        if (iabs(climb_to.x - swim_at.x) + iabs(climb_to.z - swim_at.z) + iabs(climb_to.y - swim_at.y) < 8)
+            swim_land(me, climb_to);
+        return;
+    }
+    s32 sw;
+    if (!swim_lad && world_water(swim_at.x, swim_at.z, &sw))
+        swim_at.y += clamp(sw - swim_at.y, -16, 6);   /* (to the surface, not in one jump) */
     if (swim_lad) {
         /* in to its foot, a hand's breadth off the bank's face, as he goes up (not in one jump) */
         static const s16 lx[4] = {512, 1024 - 72, 512, 72}, lz[4] = {72, 512, 1024 - 72, 512};
@@ -1998,7 +2042,7 @@ static void land(u8 *me)
                                                       from SPACE_LO up he is spacewalk.c's figure) */
         return;
     }
-    swimming = swim_lad = 0;                           /* (called from the water, landed on the street) */
+    swimming = swim_lad = climbing = 0;                /* (called from the water, landed on the street) */
     entity_put(me, at, heading_of(&b->m), v3(0, 0, 0));
     *(u16 *)(me + E_Z) = 19904 - 2 * (ga - world.yoff);   /* (set down at its height, as Payback keeps it) */
     *(s16 *)(me + E_VZ) = 0;
@@ -3291,7 +3335,7 @@ static void choose_mode(u8 *me)
         boarding = 0;
         if (mode != DRIVE || car_ent != me)
             car_take(me);
-        swimming = 0;
+        swimming = climbing = 0;
         if (call_req)
             want_ship = 60;                            /* out of the car, then the Arwing comes */
         if (car_wet > 20 && !want_ship) {
@@ -3524,7 +3568,7 @@ static void step(u8 *me, int ticks)
     } else if (mode == FLY && me) {
         V3 p = vshr(ship.b.pos, FX);
         if (swimming && street_at(p.x, p.z))
-            swim_out(me, v3(p.x, world_ground(p.x, p.z), p.z));   /* (called from the water, over the street) */
+            swim_land(me, v3(p.x, world_ground(p.x, p.z), p.z));   /* (called from the water, over the street) */
         man_follow(me);                                /* (last: where he waits under us) */
     }
     if (swimming && me)
@@ -3563,7 +3607,8 @@ static void level_enter(int map)
     was_flying = in_space = 0;
     air_ticks = loop_top = upside_ticks = 0;
     car_boom = hurt_n = car_wet = 0;
-    swimming = swim_lad = 0;
+    swimming = swim_lad = climbing = 0;
+    cam_sm = 16384;
     sf_guard[0] = sf_guard[1] = sf_guard[2] = sf_guard[3] = 0;
     rag_clear();
     memset(rag_who, 0, sizeof rag_who);
@@ -3898,7 +3943,7 @@ int sf_draw(int view)
     if (me)
         hero = is_person(me) ? me : 0;
     if (!me || me != hero)
-        swimming = 0;
+        swimming = climbing = 0;
     goals_scan(me);
     opt_frame(me, ticks);
     if (!paused) {

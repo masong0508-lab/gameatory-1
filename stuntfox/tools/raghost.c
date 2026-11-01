@@ -202,6 +202,7 @@ double rb_time(int ticks, int n)
 
 int rh_wall(int x, int z, int *lohi) { s32 lo = 0, hi = 0; int w = world_wall(x, z, &lo, &hi); lohi[0] = lo; lohi[1] = hi; return w; }
 int rh_deck(int x, int z, int k, int *bt) { s32 b = 0, t = 0; int s = world_deck(x, z, k, &b, &t); bt[0] = b; bt[1] = t; return s; }
+int rh_mat(int x, int z) { return world_cell(x, z)->mat; }
 int rh_shape(int x, int z) { return world_cell(x, z)->shape; }
 
 extern unsigned rag_pulls, rag_steps;
