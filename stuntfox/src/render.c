@@ -471,7 +471,7 @@ void r_poly2d(const s32 *xy, int n, int color, int key, int bg)
 }
 
 /* clip a screen-space polygon (28.4) by a*x + b*y + c >= 0 */
-static int clip2d(const s32 *in, int n, s32 *out, s32 a, s32 b, s32 c)
+HOT static int clip2d(const s32 *in, int n, s32 *out, s32 a, s32 b, s32 c)
 {
     int m = 0;
     for (int i = 0; i < n; i++) {

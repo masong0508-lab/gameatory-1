@@ -21,18 +21,16 @@
 
 extern const u32 rtab[2048];                /* 2^31 / (2048 + i) */
 extern const u32 erecip[2561];              /* 2^24 / i */
-void tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2);
-void tex_hrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2);
 void tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, int row2);
 void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut);
-void tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2, u32 lv);
-void tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2);
 
 /* per pair of screen rows: the ground under the left pixel (units * 256), its step per pixel,
    2^30 / the step per texel (two pixels), and how far the rows reach (units, 0: no ground) */
 static u32 gix[80] SCRATCH2, giz[80] SCRATCH2;
 static s32 gfar[80] EWRAM_BSS;
-static s32 camx8, camz8, camy;
+static s32 camx8, camz8;
+s32 tex_camy;                               /* (read by tex_walk, texrun.s) */
+#define camy tex_camy
 /* the camera's height over the plane the rows below are found on: the street's, or with the
    camera under the street (swimming in a canal, in a sunken yard) a plane 1024 under it, so
    the floors down there still get their tiles (the street over it is not seen from below) */
@@ -52,7 +50,7 @@ static union {
 #define sgx gt.rolled.x
 #define sgz gt.rolled.z
 static int rolled;
-static const u16 *tex_tab;         /* the floor being drawn: its cells' tile ids (its TexFloor's) */
+const u16 *tex_tab;                /* the floor being drawn: its cells' tile ids (its TexFloor's) */
 int tex_on;
 s32 tex_wall_far = TEX_WALL_FAR, tex_floor_far = 1 << 30, tex_far = TEX_FAR;
 /* what nearer walls hide (see tex_occlude) */
@@ -89,17 +87,19 @@ extern const u16 pb_mipof[TEX_IDS];
 #define SHR64(v, k) ({ s64 sv_ = (v); int sk_ = (k); s32 hi_ = (s32)(sv_ >> 32); u32 lo_ = (u32)sv_; \
     sk_ >= 32 ? hi_ >> (sk_ - 32) : sk_ ? (s32)(lo_ >> sk_ | (u32)hi_ << (32 - sk_)) : (s32)lo_; })
 
-/* 1 / v for v > 0, as r / 2^(31 + e) */
+/* 1 / v for v > 0, as r / 2^(31 + e): v's top bit found by halving (conditional ARM, no loops) */
 HOT2 static u32 recip(u32 v, int *e)
 {
-    int s = 0;
-    if (v >= 1u << 27) v >>= 16, s += 16;
-    if (v >= 1u << 19) v >>= 8, s += 8;
-    if (v >= 1u << 15) v >>= 4, s += 4;
-    while (v >= 4096) v >>= 1, s++;
-    while (v < 2048) v <<= 1, s--;
+    u32 t = v;
+    int n = 0;
+    if (t >= 1u << 16) t >>= 16, n = 16;
+    if (t >= 1u << 8) t >>= 8, n += 8;
+    if (t >= 1u << 4) t >>= 4, n += 4;
+    if (t >= 1u << 2) t >>= 2, n += 2;
+    if (t >= 2) n++;
+    int s = n - 11;                         /* (v to 2048..4095) */
     *e = s;
-    return rtab[v - 2048];
+    return rtab[(s >= 0 ? v >> s : v << -s) - 2048];
 }
 
 /* a * 2^sh / w */
@@ -242,69 +242,20 @@ static inline __attribute__((target("arm"))) void flat_pairs(u8 *d, int n, int c
 }
 
 /* n pixel pairs of a floor from d, the ground under the first at X, Z (units * 256, already
-   scaled for the floor's height), stepping dX, dZ a pair; ix, iz: 2^30 / |dX|, |dZ| */
-HOT __attribute__((noinline)) static void tex_walk(u8 *d, int n, s32 X, s32 Z, s32 dX, s32 dZ, u32 ix, u32 iz, int row2, int color)
+   scaled for the floor's height), stepping dX, dZ a pair; ix, iz: 2^30 / |dX|, |dZ|.
+   In texrun.s: it splits the span at the city cells' edges, a tile (or its averages, far off)
+   for each piece; the pieces without a tile, and a span off the map, come through here. */
+void tex_walk(u8 *d, int n, s32 X, s32 Z, s32 dX, s32 dZ, u32 ix, u32 iz, int row2, int color);
+__attribute__((target("arm"), noinline)) void tex_flat_pairs(u8 *d, int n, int color, int row2)
 {
-    u32 duv = PSTEP(dX << 3, dZ << 3);        /* units * 256 -> texels 16.16: * 8 */
-    /* close up, a texel covers many pixels: one sample for every four */
-    int quad = dX < 0x1000 && dX > -0x1000 && dZ < 0x1000 && dZ > -0x1000;
-    /* far off, the level of the tile's averages (see MIP_STEP; from 9000 up, at half the step) */
-    int lv = 0;
-    s32 ms = MIP_STEP - (camy < 3000 ? 0 : camy > 9000 ? 6000 : camy - 3000);
-    for (s32 a = dX < 0 ? -dX : dX, b = dZ < 0 ? -dZ : dZ, c = a > b ? a : b; c >= ms && lv < 3; c >>= 1)
-        lv++;
-    /* a texel of them from the same texture position: its column at bit 27 + lv, its row (32 >> lv
-       texels long) at bit 11 + lv */
-    u32 mlv = ((32u >> lv) - 1) << (5 - lv) | (6 + 2 * lv) << 16 | (u32)(27 + lv) << 24;
-    int moff = lv == 1 ? 0 : lv == 2 ? 256 : 320;
-    while (n > 0) {
-        int cx = X >> 18, cz = Z >> 18;
-        if ((unsigned)cx >= CITY || (unsigned)cz >= CITY) {
-            flat_pairs(d, n, color, row2);
-            return;
-        }
-        int m = n;
-        if (dX) {
-            u32 dist = dX > 0 ? (u32)(((cx + 1) << 18) - X) : (u32)(X - (cx << 18) + 1);
-            int t = (int)(((u64)dist * ix) >> 30) + 1;
-            if (t < m) m = t;
-        }
-        if (dZ) {
-            u32 dist = dZ > 0 ? (u32)(((cz + 1) << 18) - Z) : (u32)(Z - (cz << 18) + 1);
-            int t = (int)(((u64)dist * iz) >> 30) + 1;
-            if (t < m) m = t;
-        }
-        int i = cx * CITY + cz;
-        unsigned id = tex_tab[i];
-        const u8 *tile = TILE(id);
-        if (tile && lv && pb_mipof[id]) {
-            const u8 *mt = pb_mip[pb_mipof[id] - 1] + moff;
-            if (lv == 1)
-                tex_mrun1(d, m, PACK(X << 3, Z << 3), duv, mt, row2);
-            else
-                tex_mrun(d, m, PACK(X << 3, Z << 3), duv, mt, row2, mlv);
-        } else if (tile && quad && m >= 3) {
-            u32 uv = PACK(X << 3, Z << 3);
-            u8 *e = d;
-            int k = m;
-            if ((u32)e & 2) {
-                tex_hrun(e, 1, uv, duv, tile, row2);
-                e += 2, uv += duv, k--;
-            }
-            tex_hrun4(e, k >> 1, uv, duv << 1, tile, row2);
-            if (k & 1)
-                tex_hrun(e + 4 * (k >> 1), 1, uv + (k - 1) * duv, duv, tile, row2);
-        } else if (tile)
-            tex_hrun(d, m, PACK(X << 3, Z << 3), duv, tile, row2);
-        else if (tex_tab != world.dtex)
-            flat_pairs(d, m, pb_pmap[COLOR(world.cell[i].mat, 2, 0)], row2);
-        /* (a deck's polygon spills a pair or two past its cells: there it leaves what is drawn under it, not a
-           neighbour's flat colour, water's blue in a line along a bridge) */
-        d += 2 * m;
-        X += m * dX;
-        Z += m * dZ;
-        n -= m;
-    }
+    flat_pairs(d, n, color, row2);
+}
+/* (a deck's polygon spills a pair or two past its cells: there it leaves what is drawn under it, not a
+   neighbour's flat colour, water's blue in a line along a bridge) */
+__attribute__((target("arm"), noinline)) void tex_flat_cell(u8 *d, int n, int i, int row2)
+{
+    if (tex_tab != world.dtex)
+        flat_pairs(d, n, pb_pmap[COLOR(world.cell[i].mat, 2, 0)], row2);
 }
 
 

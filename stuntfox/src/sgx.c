@@ -637,13 +637,14 @@ static void governor(void)
 }
 
 /* a foe's frame, kept while its way (v) is what it was: it is steered one tick in eight, drawn every frame */
-static struct { V3 v; M3 m; u8 kind; } fcache[NFOE];
+static struct { V3 v; M3 m; } fcache[NFOE];
+static u8 fkind[NFOE];             /* (apart: in the struct it cost three bytes of padding a foe) */
 
 static const M3 *frame_c(const Foe *f)
 {
     int i = f - sg_foes;
-    if (fcache[i].kind != f->kind || fcache[i].v.x != f->v.x || fcache[i].v.y != f->v.y || fcache[i].v.z != f->v.z) {
-        fcache[i].kind = f->kind;
+    if (fkind[i] != f->kind || fcache[i].v.x != f->v.x || fcache[i].v.y != f->v.y || fcache[i].v.z != f->v.z) {
+        fkind[i] = f->kind;
         fcache[i].v = f->v;
         frame_of(f, &fcache[i].m);
     }

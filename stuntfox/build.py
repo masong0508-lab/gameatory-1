@@ -34,7 +34,7 @@ import s2build  # noqa: E402
 import mkradio  # noqa: E402
 
 CFLAGS = ['--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-O2', '-ffreestanding', '-fno-builtin',
-          '-nostdlib', '-ffunction-sections', '-Wall', '-Wno-unused-function']
+          '-nostdlib', '-fomit-frame-pointer', '-ffunction-sections', '-Wall', '-Wno-unused-function']
 ARM_FILES = {'render.c', 'citydraw.c', 'fx.c', 'physics.c', 'model.c'}  # hot code: ARM, IWRAM
 
 

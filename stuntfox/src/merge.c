@@ -235,11 +235,21 @@ static int map_is(const u32 *g, int m)
     return ok >= 28;
 }
 
+static u32 key_calls, frame_calls;
+
 static int which_map(int last)
 {
     const u32 *g = PB_GRID;
     if ((u32)g < 0x02000000 || (u32)g >= 0x0203c000)
         return -1;
+    /* (the map we drew last, when 8 of its cells still say so; all 32 only every 8th frame: this ran 352 loads every frame) */
+    if (last >= 0 && last < NWORLD && (frame_calls & 7)) {
+        int ok = 0;
+        for (int i = 0; i < 8; i++)
+            ok += g[merge_sig[last][i][0]] == merge_sig[last][i][1];
+        if (ok >= 7)
+            return last;
+    }
     if (last >= 0 && last < NWORLD && map_is(g, last))
         return last;
     for (int m = 0; m < NWORLD; m++)
@@ -283,7 +293,7 @@ static void bail_press(void);
 static int bail_camera(void);
 
 /* SELECT, as sf_keys sees it */
-static u32 key_calls, frame_calls, sel_since;
+static u32 sel_since;
 static u8 sel_down, sel_used, sel_replay, inject_l, call_req, r_chord;
 static u8 sel_chord;               /* SELECT still down since it made the radio's chord: the D-pad steers */
 static u8 sel_seen;                /* SELECT seen down while we drew (see sel_look) */

@@ -97,7 +97,7 @@ static const SpLv sp_tab[] = {
 #define SP_N (int)(sizeof sp_tab / sizeof *sp_tab)
 static u8 sp_cap, sp_lv;           /* the deepest row allowed (0: Normal), the row in use */
 static u16 sp_dk = 256, sp_pk = 256, sp_tr = 8;    /* the reach, trees and traffic the other settings ask for */
-static u8 sp_n, sp_sum, sp_good, sp_wait = 3, sp_up;   /* frames and ticks in this look, calm looks, those to wait, raised lately */
+static u8 sp_n, sp_sum, sp_good, sp_wait = 6, sp_up;   /* frames and ticks in this look, calm looks, those to wait, raised lately (looks left to count a drop as a bounce) */
 static u8 sp_tw = 48;              /* the looks to wait before row 8 gives its tiles back (they come and go over the whole city) */
 static const char *const l_draw[] = {"Near", "Normal", "Far", "Max"};
 static const u16 v_draw[] = {180, 256, 332, 410};
@@ -192,25 +192,32 @@ static void speed_tick(int ticks)
     if (++sp_n < 8)
         return;
     int sum = sp_sum, lv = sp_lv, bounced = sp_up;
-    sp_n = sp_sum = sp_up = 0;
-    if (sum >= 19) {                                   /* 25 a second or less: down a row, two when it is far off */
+    sp_n = sp_sum = 0;
+    if (sum >= 19) {                                   /* 25 a second or less: down a row, two when it is well off (21+) */
         if (lv < sp_cap)
-            speed_set(lv + 1 + (sum >= 24 && lv + 1 < sp_cap));
+            speed_set(lv + 1 + (sum >= 21 && lv + 1 < sp_cap));
         if (bounced && sp_wait < 96)
-            sp_wait *= 2;                              /* (back down soon after a raise: wait longer for the next) */
+            sp_wait *= 2;                              /* (back down within 80 looks of a raise: wait longer for the next) */
+        sp_up = 0;
         if (bounced && lv == 7 && sp_tw < 96)
             sp_tw *= 2;
         sp_good = 0;
     } else if (sum <= 16 && lv) {                      /* 30 a second (no frame over 2 ticks): one row back, once it has been so a while */
         if (++sp_good >= (lv == 8 && sp_tw > sp_wait ? sp_tw : sp_wait))
-            speed_set(lv - 1), sp_good = 0, sp_up = 1;
+            speed_set(lv - 1), sp_good = 0, sp_up = 80;
     } else {
         sp_good = 0;
     }
+    if (sp_up && !--sp_up && sp_wait > 6)              /* (a raise that held for the whole window: forgive a doubling) */
+        sp_wait >>= 1;
 }
+
+static u32 pk[4];                  /* the packed choices of words 1..4 (what opt_save and pack_x give), kept until apply() says a choice moved */
+#define PK_OK 0x80000000u          /* (set in pk[0]: word 1 only has the shield's 3 bits) */
 
 static void apply(void)
 {
+    pk[0] = 0;
     car_vmax_k = v_scale[pos[O_CARSPD]];
     car_grip_k = v_scale[pos[O_GRIP]];
     ship_speed_k = v_scale[pos[O_SHIPSPD]];
@@ -253,24 +260,30 @@ static u32 code(const Opt *o, int p)
     return c >= o->n ? c - o->n : c;
 }
 
-static u32 pack_x(void)
+static void pack_all(void)
 {
-    u32 x = 0;
+    if (pk[0] & PK_OK)
+        return;
+    pk[0] = pk[1] = pk[2] = pk[3] = 0;
     for (int i = 0; i < O_N; i++) {
         const Opt *o = &opts[i];
-        if (o->word == 4)
-            x |= code(o, pos[i]) << o->shift;
+        pk[o->word - 1] |= code(o, pos[i]) << o->shift;
     }
-    return x;
+    pk[0] |= PK_OK;
+}
+
+static u32 pack_x(void)
+{
+    pack_all();
+    return pk[3];
 }
 
 void opt_save(u32 *w)
 {
-    for (int i = 0; i < O_N; i++) {
-        const Opt *o = &opts[i];
-        if (o->word < 4)
-            w[o->word] |= code(o, pos[i]) << o->shift;
-    }
+    pack_all();
+    w[1] |= pk[0] & ~PK_OK;
+    w[2] |= pk[1];
+    w[3] |= pk[2];
 }
 
 void opt_load(const u32 *w)
@@ -302,7 +315,7 @@ void opt_level_enter(void)
     hp_last = -1;
     score_last = -1;
     fps_t = fps_f = 0;
-    sp_n = sp_sum = sp_good = sp_up = 0, sp_wait = 3, sp_tw = 48;
+    sp_n = sp_sum = sp_good = sp_up = 0, sp_wait = 6, sp_tw = 48;
     speed_set(0);
     if (pos[O_LIVES])
         PB_LIVES = v_lives[pos[O_LIVES]];
