@@ -296,8 +296,10 @@ HOT __attribute__((noinline)) static void tex_walk(u8 *d, int n, s32 X, s32 Z, s
                 tex_hrun(e + 4 * (k >> 1), 1, uv + (k - 1) * duv, duv, tile, row2);
         } else if (tile)
             tex_hrun(d, m, PACK(X << 3, Z << 3), duv, tile, row2);
-        else
+        else if (tex_tab != world.dtex)
             flat_pairs(d, m, pb_pmap[COLOR(world.cell[i].mat, 2, 0)], row2);
+        /* (a deck's polygon spills a pair or two past its cells: there it leaves what is drawn under it, not a
+           neighbour's flat colour, water's blue in a line along a bridge) */
         d += 2 * m;
         X += m * dX;
         Z += m * dZ;

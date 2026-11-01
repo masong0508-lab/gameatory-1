@@ -389,8 +389,9 @@ def merged(rom, grid, wet=(), city=None):
                 tiles[i] = 0
                 cells.append(('ground', 0, 0, 1, M_ROAD))
             if top_h > bottom:
-                decks[i] = (h_units(bottom), h_units(top_h), BUILDING_MATS[((tile & 0xff) * 7 + 3) % len(BUILDING_MATS)],
-                            tile, h_units(low_h), 1)
+                # (one material for all of them: a span's lanes join into boxes of four cells instead of one a lane, and its
+                # sides are one stone, not a colour a tile)
+                decks[i] = (h_units(bottom), h_units(top_h), M_CONCRETE, tile, h_units(low_h), 1)
             continue
         d = slab(over[0], hi) if len(over) == 2 and over[0] in reach else None
         if d:
@@ -1107,8 +1108,10 @@ def build(rom_bytes, merge=False, level=0, rom=None, limits=True, loops=None):
 
     boxes = greedy(cells, lambda i: (cells[i][2], cells[i][4], 0) if cells[i][0] == 'building' else None, 4)
     # what spans over open air (bridge decks, walkways, buildings over a road): boxes with a base
+    deck_from = len(boxes)
     for dd in (decks, decks2):
         boxes += greedy(cells, lambda i: (dd[i][4], dd[i][2], dd[i][0]) if i in dd else None, 4)
+    deck_to = len(boxes)
     lots = greedy(cells, lambda i: cells[i][4] if cells[i][0] in ('ground', 'kerb') and cells[i][4] != M_ROAD
                   else None, 16)
     # (water below the street: a flat floor at its surface)
@@ -1198,7 +1201,20 @@ def build(rom_bytes, merge=False, level=0, rom=None, limits=True, loops=None):
         blob.extend(data)
 
     assert all(k[2] % 64 == 0 and -128 * 64 <= k[2] < 128 * 64 for *_, k in boxes)
-    section(b''.join(struct.pack('<BBBBhBb', x0, y0, x1, y1, k[0], k[1], k[2] // 64) for x0, y0, x1, y1, k in boxes))
+    def hidden_sides(j):
+        """Bits of a deck box's sides (+x, -x, +z, -z) that lie against flat decks as high and as deep (two lanes of one
+        bridge are boxes of their own): nothing to draw there but a sliver along the seam (citydraw.c draw_box)."""
+        x0, y0, x1, y1, k = boxes[j]
+        def covered(cs):
+            return all(any(i in dd and dd[i][5] == 1 and dd[i][1] >= k[0] and dd[i][0] <= k[2]
+                           for dd in (decks, decks2)) for i in cs)
+        sides = ([(x1, y) for y in range(y0, y1)], [(x0 - 1, y) for y in range(y0, y1)],
+                 [(x, y1) for x in range(x0, x1)], [(x, y0 - 1) for x in range(x0, x1)])
+        return sum(1 << b for b, cs in enumerate(sides)
+                   if all(0 <= cx < N and 0 <= cy < N for cx, cy in cs) and covered([cx * N + cy for cx, cy in cs]))
+    hid = {j: hidden_sides(j) for j in range(deck_from, deck_to)} if merge else {}
+    section(b''.join(struct.pack('<BBBBhBb', x0, y0, x1, y1, k[0], k[1] | hid.get(j, 0) << 4, k[2] // 64)
+                     for j, (x0, y0, x1, y1, k) in enumerate(boxes)))
     section(b''.join(struct.pack('<BBBBB', x0, y0, x1, y1, k) for x0, y0, x1, y1, k in lots))
     section(b''.join(struct.pack('<BBBBhhBB', x0, y0, x1, y1, k[0], k[1], k[2], k[3])
                      for x0, y0, x1, y1, k in ramps))

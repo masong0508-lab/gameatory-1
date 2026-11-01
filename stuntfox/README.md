@@ -20,6 +20,10 @@ The car radio also plays our remixes of Payback's songs 1, 2 and 4 (a 32 MiB ROM
 rendered from your ROM by `tools/music` at build time, which needs numpy and scipy and takes a
 few minutes the first time (cached in `build/radio`). `--no-remixes` builds without them, as
 does a machine without numpy or scipy; the radio then plays Payback's own songs.
+The same way the title song (Payback's song 0: the title, the menus, a few vehicles' radios) becomes a nu metal remix that
+loops with no seam, and the credits play a djent remix (each rendered once, about four minutes, cached too; two more streams
+at 0x09500000 of the cartridge, 5 MiB; the build stops with an error if they ever outgrow it). GAME SETTINGS has a "Title music" line,
+Remix or Original, and the radio's ORIGINALS choice puts Payback's own song 0 back as well (the line keeps saying Remix then).
 `--amiga DIR` (your own Amiga copy of Payback, the folder with `maps/`) is optional: the build reads its maps (never copied
 into the repo) to draw rivers and lakes as water and bridges as drivable decks, and adds a few stunt ramps in plazas of the
 city maps. Without it the world is what it always was, byte for byte. `tools/amiga_classify.py --amiga DIR` reports what it finds.

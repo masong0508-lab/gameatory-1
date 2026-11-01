@@ -207,13 +207,22 @@ static void draw_box(const Box *b)
     V3 centre = cadd(p, w >> 1, h >> 1, d >> 1);
     if (!in_view(centre, ((w > d ? w : d) * 3 >> 2) + (h >> 1)))
         return;
-    int f = fog_of(centre.z), m = b->mat;
+    int f = fog_of(centre.z), m = b->mat & 15, hid = b->mat >> 4;   /* (hid: the sides against decks as high, mkworld.py) */
     V3 c000 = p, c100 = cadd(p, w, 0, 0), c001 = cadd(p, 0, 0, d);
     V3 c010 = cadd(p, 0, h, 0), c110 = cadd(p, w, h, 0), c011 = cadd(p, 0, h, d), c111 = cadd(p, w, h, d);
     s32 cx = cam.pos.x, cy = cam.pos.y, cz = cam.pos.z, yt = b->h;
     const u16 *bt = &world.btex[16 * (b - world.box)];
     if (cy > yt) {
         V3 top[4] = {c010, c110, c111, c011};
+        if (y0 > 0) {
+            /* a deck's top is a polygon per box, over the water or street under it: where two meet, a pixel
+               of that shows through along the seam. Each grows by about a pixel (more with distance) so they
+               overlap; the same plane and tiles, so nothing is seen of it */
+            s32 g = 6 + (centre.z > 0 ? centre.z >> 7 : 0);
+            if (g > 120) g = 120;
+            top[0] = cadd(c010, -g, 0, -g), top[1] = cadd(c110, g, 0, -g);
+            top[2] = cadd(c111, g, 0, g), top[3] = cadd(c011, -g, 0, g);
+        }
 #ifdef MERGE
         /* (a deck high over a road has its own tiles, dtex: the cell's are the road's under it) */
         int i = b->x0 * CITY + b->z0;
@@ -237,13 +246,13 @@ static void draw_box(const Box *b)
         quad(c000, c100, c101, c001, COLOR(m, 0, f), 0);
     }
     int nx = b->x1 - b->x0, nz = b->z1 - b->z0;
-    if (cx > x0 + w && !(deck && buried(x0 + w + 8, mz, yt)))
+    if (cx > x0 + w && !(hid & 1) && !(deck && buried(x0 + w + 8, mz, yt)))
         side(c100, az, d, y0, yt, side_cover(b->x1, b->z0, 0, 1, nz), m, 2, f, bt + 4);
-    if (cx < x0 && !(deck && buried(x0 - 8, mz, yt)))
+    if (cx < x0 && !(hid & 2) && !(deck && buried(x0 - 8, mz, yt)))
         side(c000, az, d, y0, yt, side_cover(b->x0 - 1, b->z0, 0, 1, nz), m, 0, f, bt + 12);
-    if (cz > z0 + d && !(deck && buried(mx, z0 + d + 8, yt)))
+    if (cz > z0 + d && !(hid & 4) && !(deck && buried(mx, z0 + d + 8, yt)))
         side(c001, ax, w, y0, yt, side_cover(b->x0, b->z1, 1, 0, nx), m, 1, f, bt + 8);
-    if (cz < z0 && !(deck && buried(mx, z0 - 8, yt)))
+    if (cz < z0 && !(hid & 8) && !(deck && buried(mx, z0 - 8, yt)))
         side(c000, ax, w, y0, yt, side_cover(b->x0, b->z0 - 1, 1, 0, nx), m, 1, f, bt);
 }
 

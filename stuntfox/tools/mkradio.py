@@ -38,6 +38,16 @@ SEG = 480
 # flag (found by scanning the built ROM; inaudible at 2 bits there)
 PLAIN = {4: (5735,)}
 
+# The title songs (Payback's song 0 remade): the nu metal theme, which plays wherever Payback plays song 0, and the
+# djent that plays over the credits. Each is a loop of whole segments with its ring-out folded into its head, so the
+# stream wraps with no seam. They are streams of their own below the radio's (5 MiB, up to the radio's; the radio keeps all it had).
+TITLE_BASE = 0x09500000
+TITLE_CEIL = 10 ** (-1 / 20)       # the songs peak at -1 dBFS at most (the decoder adds the coding error to the music)
+TITLE_MAGIC = 0x31544954           # "TIT1"
+TITLE_HEAD = 0x40
+TITLES = (('title_numetal.py', 294.40), ('title_djent.py', 219.6))   # script, the loop's length in seconds
+TITLE_LUFS_SONG = 0                # loudness of Payback's own song 0, as the radio's remixes are set to their originals'
+
 
 def _hash(*parts):
     h = hashlib.sha1()
@@ -99,7 +109,7 @@ def renders(rom_path, build):
     return out, key
 
 
-def originals(rom_path):
+def originals(rom_path, songs=None):
     """{song: LUFS} of Payback's songs as its player makes them at music volume 256 (8-bit full
     scale = 1.0): its mixer adds the four channels, each sample * volume (0-64) >> 8. That is
     the plain sum of render.py's stems / 4, not its mono mix, which is panned (-3 dB)."""
@@ -108,7 +118,7 @@ def originals(rom_path):
     import pbsong
     import render
     lufs = {}
-    for n, _ in SONGS:
+    for n in songs if songs is not None else [n for n, _ in SONGS]:
         r = render.render(pbsong.load(rom_path, n), flavour='payback', rate=RATE, interp='nearest', stereo=0,
                           gain=1.0, game_pitch=True, stems=True)
         lufs[n] = round(float(dsp.loudness_lufs(sum(r.stems.values()) / 4, rate=RATE)), 3)
@@ -218,6 +228,127 @@ def blob(rom_path, build):
     rep['bytes'] = len(data)
     rep['end'] = '0x%08x' % (BASE + len(data))
     _drop(os.path.join(build, 'radio', 'streams-*'))
+    open(cache + '.bin', 'wb').write(data)
+    json.dump(rep, open(cache + '.json', 'w'), indent=1)
+    return data, rep
+
+
+
+def _title_sources():
+    d = os.path.join(MUSIC, 'title')
+    return _music_sources() + b''.join(open(os.path.join(d, f), 'rb').read() for f in sorted(os.listdir(d))
+                                       if f.endswith('.py'))
+
+
+def title_renders(rom_path, build):
+    """[mono float at RATE, one whole loop, full scale 1.0] for each of TITLES, rendered (one at a time: each wants
+    about 3 GB) when the cache does not hold it"""
+    try:
+        import numpy as np
+        from scipy import signal
+        from scipy.io import wavfile
+    except ImportError as e:
+        raise Unavailable('%s (the title songs need numpy and scipy)' % e)
+    key = _hash(open(rom_path, 'rb').read(), _title_sources(), repr(TITLES), str(RATE))
+    d = os.path.join(os.path.abspath(build), 'radio', 'title-' + key)
+    os.makedirs(d, exist_ok=True)
+    env = dict(os.environ, PAYBACK_ROM=os.path.abspath(rom_path), MIX_WAV_ONLY='1')
+    out = []
+    for i, (script, secs) in enumerate(TITLES):
+        npy = os.path.join(d, 'title%d.npy' % i)
+        if not os.path.exists(npy):
+            base = os.path.join(d, 'title%d' % i)
+            if not os.path.exists(base + '.wav'):
+                print('radio: rendering the title song %s from the ROM (some minutes, once)' % script, flush=True)
+                with open(base + '.log', 'w') as log:
+                    r = subprocess.run([sys.executable, os.path.join(MUSIC, 'title', script), base], env=env, stdout=log,
+                                       stderr=subprocess.STDOUT, cwd=d)
+                if r.returncode:
+                    raise Unavailable('the title song %s did not render (%s.log)' % (script, base))
+            rate, x = wavfile.read(base + '.wav')
+            assert rate == 44100 and x.dtype == np.int16
+            m = x.astype(np.float64).mean(axis=1) / 32768
+            n0 = int(round(secs * 44100))
+            body, tail = m[:n0].copy(), m[n0:]
+            assert 0 < len(tail) < n0, 'the title song %s is shorter than its loop' % script
+            body[:len(tail)] += tail                 # the ring-out rings into the head: the loop has no seam
+            k = int(round(secs * RATE / SEG))        # whole segments, so the loop wraps on a segment
+            np.save(npy, signal.resample(body, k * SEG).astype(np.float32))   # (circular: the loop is periodic)
+            os.remove(base + '.wav')
+        out.append(np.load(npy).astype(np.float64))
+    for old in glob.glob(os.path.join(os.path.abspath(build), 'radio', 'title-*')):
+        if old != d:
+            shutil.rmtree(old)
+    return out, key
+
+
+def title_blob(rom_path, build):
+    """(bytes for TITLE_BASE, report): u32 MAGIC, u32 count, then {u32 address, u32 segments, u32 the decoder's two
+    samples at the loop (low 16 bits the newer, high the one before), u32 0} per song, then the streams"""
+    src, key0 = title_renders(rom_path, build)
+    import numpy as np
+    key = _hash(key0, open(__file__, 'rb').read(), open(os.path.join(HERE, 'radenc.c'), 'rb').read())
+    cache = os.path.join(build, 'radio', 'tstreams-%s' % key)
+    if os.path.exists(cache + '.bin'):
+        return open(cache + '.bin', 'rb').read(), json.load(open(cache + '.json'))
+    lib = _lib(build)
+    lufs = originals(rom_path, [TITLE_LUFS_SONG])[TITLE_LUFS_SONG]
+    sys.path.insert(0, MUSIC)
+    import dsp
+    xs, D, rep, pre = [], [], {'songs': {}}, []
+    for i, y in enumerate(src):
+        g = 10 ** ((lufs - dsp.loudness_lufs(y, rate=RATE)) / 20)
+        g = min(g, TITLE_CEIL * 32768 / max(1e-9, np.abs(y).max() * 32768))     # (a ceiling: the ARM decoder has no clamp)
+        x = np.clip(np.round(y * g * 32768), -32768, 32767).astype(np.int16)
+        assert np.abs(x).max() <= TITLE_CEIL * 32768 + 1
+        n = len(x) // SEG
+        # the loop's own last segment goes in front, so the first one is coded from the state the loop ends in
+        full = np.concatenate([x[-SEG:], x])
+        e = np.zeros(2 * (n + 1), np.int64)
+        lib.radenc_errors(_p(full, ctypes.c_int16), len(full), _p(e, ctypes.c_int64))
+        xs.append(full)
+        D.append(e.reshape(-1, 2)[1:].astype(np.float64))
+        rep['songs'][i] = dict(seconds=round(len(x) / RATE, 2), gain_db=round(20 * np.log10(g), 2), lufs_original=lufs,
+                               peak_dbfs=round(20 * np.log10(max(1, np.abs(x).max()) / 32768), 2),
+                               clipped=int(np.sum(np.abs(y * g * 32768) > 32767)))
+    room = BASE - TITLE_BASE - TITLE_HEAD
+    Dall = np.concatenate(D)
+    R = np.array([seg_bytes(2), seg_bytes(4)], np.float64)
+
+    def pick(lam):
+        return np.argmin(Dall + lam * R, axis=1)
+    lo, hi = 0.0, 1.0
+    while R[pick(hi)].sum() > room:
+        hi *= 4
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if R[pick(mid)].sum() > room else (lo, mid)
+    choice = pick(hi)
+    head = struct.pack('<II', TITLE_MAGIC, len(xs))
+    body, at, k = b'', TITLE_BASE + TITLE_HEAD, 0
+    for i, full in enumerate(xs):
+        n = len(full) // SEG - 1
+        bits = np.concatenate([[4], np.where(choice[k:k + n] == 1, 4, 2)]).astype(np.uint8)
+        k += n
+        out = np.zeros((n + 1) * seg_bytes(4), np.uint8)
+        rec = np.zeros(len(full), np.int16)
+        nb = lib.radenc_encode(_p(full, ctypes.c_int16), len(full), _p(bits, ctypes.c_uint8), _p(out, ctypes.c_uint8),
+                               _p(rec, ctypes.c_int16))
+        skip = seg_bytes(4)
+        a0, b0 = int(rec[SEG - 1]), int(rec[SEG - 2])
+        x = full[SEG:].astype(np.float64)
+        r, e = x, rec[SEG:].astype(np.float64) - x
+        rep['songs'][i].update(address='0x%08x' % (at + len(body)), bytes=int(nb - skip), segments=n,
+                               bits_per_sample=round((nb - skip) * 8 / len(x), 3), four_bit=int((bits[1:] == 4).sum()),
+                               snr_db=round(10 * np.log10(np.sum(r * r) / max(np.sum(e * e), 1)), 2),
+                               seam_error=int(abs(int(rec[-1]) - a0)))
+        head += struct.pack('<IIII', at + len(body), n, (a0 & 0xffff) | (b0 & 0xffff) << 16, 0)
+        body += out[skip:nb].tobytes()
+    data = head.ljust(TITLE_HEAD, b'\0') + body
+    assert TITLE_BASE + len(data) <= BASE, 'title songs end at 0x%08x, past the radio at 0x%08x' % (TITLE_BASE + len(data), BASE)
+    rep['bytes'] = len(data)
+    rep['end'] = '0x%08x' % (TITLE_BASE + len(data))
+    _drop(os.path.join(build, 'radio', 'tstreams-*'))
     open(cache + '.bin', 'wb').write(data)
     json.dump(rep, open(cache + '.json', 'w'), indent=1)
     return data, rep

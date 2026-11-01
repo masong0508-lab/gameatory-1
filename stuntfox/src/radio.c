@@ -9,6 +9,16 @@
    Payback's buffer, 480 samples an interrupt, at Payback's music volume. The effects half is
    left alone. Near the end the song-ended flag goes up and Payback's radio picks the next.
 
+   The title songs are the same, with Payback's song 0 (the title, the menus, a few vehicles' radios) in
+   place of a song of the radio: the nu metal theme, and over the credits the djent. They are streams
+   of their own (TITLES), whole loops with the ring-out folded into the head, so when one reaches its
+   end the interrupt goes back to its start, the decoder set to the two samples the stream was coded
+   from (a decoder that went on from where it ended would be off by what the end's rounding left, and
+   the prediction carries that on): no seam, and Payback is never told the song ended (its menu would
+   start it over). The credits
+   are known by their text: every line the credits fetch goes through sf_credit_line, and under a
+   second with none is the end of them (the djent eases out over the last half of it).
+
    The state is at the top of EWRAM, which only the boot clears: the interrupt needs it at any
    time, through level loads and the screens our memory is lent out for. 20 bytes is all there
    is there, hence the packing (radio.h). */
@@ -17,6 +27,7 @@
 #include "render.h"
 #include "palette.h"
 #include "radio.h"
+#include "settings.h"
 
 #define PB_SONG (*(volatile s16 *)0x020001c8)      /* Payback's song, -1: none */
 #define PB_VOL (*(volatile s16 *)0x020001ca)       /* its music volume, 0-256 */
@@ -24,6 +35,13 @@
 #define PB_PLAY ((void (*)(int))0x08076c99)
 #define STREAMS ((const u32 *)0x09a00000)          /* magic, count, then {address, segments, song} */
 #define STREAMS_MAGIC 0x31444152
+#define TITLES ((const u32 *)0x09500000)          /* magic, count, then {address, segments, two samples, 0} */
+#define TITLES_MAGIC 0x31544954
+#define THEME 4                    /* on: the theme (Payback's song 0), CREDITS the djent: both Payback's song 0, as on & 3 */
+#define CREDITS 8
+#define CR_IDLE 40                 /* interrupts (0.8 s) without a credits line (they come every game frame): the credits are over */
+#define CR_FADE 25                 /* ... the last of them, the djent eases out over */
+#define PB_TEXT ((const char *(*)(int))0x0803dc8d)
 #define ENDS_AT 3                  /* segments before the end when the song is said to have ended
                                       (Payback's radio takes a frame or two to pick the next) */
 #define ORIG 0x80                  /* + Payback's song: a skip fades it */
@@ -32,6 +50,8 @@
 #define PB_BUF ((u8 *)0x02001514)  /* Payback's two sound buffers, 960 bytes each: effects, music */
 
 struct radio radio __attribute__((section(".radio")));
+static u8 cr_idle;                 /* interrupts left before the credits count as over, while their music plays */
+static u8 s0;                      /* the last song Payback's radio started was its song 0 */
 
 void radio_seg(u8 *out, struct radio *r, int vol);   /* radiodec.s */
 void pb_music(u8 *out);
@@ -73,6 +93,26 @@ static void glide(u8 *out, int from, int to)
         int v = (s8)out[i] * f >> 16;
         out[i] = v < -128 ? -128 : v > 127 ? 127 : v;
     }
+}
+
+/* a title song to its start: its stream, and the two samples before it, times the volume as a and b are */
+static void title_seek(struct radio *r, int which)
+{
+    const u32 *t = TITLES + 2 + 4 * (which == CREDITS);
+    int k = r->vol + 1;
+    r->p = (const u8 *)t[0];
+    r->left = t[1];
+    r->a = (s16)t[2] * k;
+    r->b = (s16)(t[2] >> 16) * k;
+}
+
+/* ... from silence */
+static void title_start(struct radio *r, int which)
+{
+    r->vol = 0;
+    title_seek(r, which);
+    r->fade = 3;
+    r->on = which;
 }
 
 /* the interrupt (sf_mus, while on): the music half of the next buffer, 480 bytes */
@@ -134,6 +174,79 @@ void radio_irq(u8 *out)
         r->on = r->fade = 0;
 }
 
+/* the interrupt for the title songs (sf_mus, while on is THEME or CREDITS): radio_irq's work without its song's end, a skip or a
+   tail, and kept apart from it so that the radio's remixes cost what they did. Over the end of the credits, the djent eases out. */
+void radio_title_irq(u8 *out)
+{
+    struct radio *r = &radio;
+    int vol = PB_VOL < 0 ? 0 : PB_VOL > 256 ? 256 : PB_VOL;
+    if (PB_SONG && r->fade != 2)               /* Payback stopped it or started another song */
+        r->fade = 1;
+    if (cr_idle && !--cr_idle && r->on == CREDITS)
+        title_start(r, THEME);                 /* (the credits are over: the theme again, in from the cut) */
+    else if (!r->left)
+        title_seek(r, r->on);
+    if (r->on == CREDITS && cr_idle && cr_idle < CR_FADE && vol) {     /* (no line for a while: out with it) */
+        int f = vol * cr_idle / CR_FADE;
+        vol = f ? f : 1;
+    }
+    if (r->fade == 2 || !r->left) {
+        quiet(out);
+    } else {
+        int was = r->vol + 1, v = vol ? vol : was;     /* (at volume 0 they keep their scale) */
+        if (v != was) {                        /* (exact: they are multiples of the old one) */
+            r->a = r->a / was * v;
+            r->b = r->b / was * v;
+            r->vol = v - 1;
+        }
+        radio_seg(out, r, v);
+        r->left--;
+        if (!vol)
+            quiet(out);
+        else if (r->fade & 1)
+            ramp(out, r->fade == 3);
+        else if (v != was)
+            glide(out, was, v);
+        if (r->fade == 3 && vol)
+            bridge(out);
+    }
+    if (!vol && !r->fade)
+        r->fade = 3;                           /* (silenced: back in from silence) */
+    else if (vol || r->fade != 3)
+        r->fade = r->fade == 1 ? 2 : r->fade == 3 ? 0 : r->fade;
+    if (PB_SONG)
+        r->on = r->fade = 0;
+}
+
+/* the title songs play (they are there, the game's choice is Remix and the radio is not on Originals) */
+static int theme_on(struct radio *r)
+{
+    return TITLES[0] == TITLES_MAGIC && TITLES[1] >= 2 && !opt_theme && (r->mode & 3) != RADIO_ORIGINALS;
+}
+
+/* the player changed the choice: Payback's song 0, if it is what plays, starts over as the choice says */
+void radio_retheme(void)
+{
+    if (s0 && PB_SONG == 0)
+        sf_play(0);
+}
+
+/* every line of the credits Payback fetches (build.py: the call at 0x08030344): while they scroll, the djent */
+const char *sf_credit_line(int id)
+{
+    struct radio *r = &radio;
+    if (cr_idle)
+        cr_idle = CR_IDLE;
+    else if (r->on == THEME && theme_on(r)) {
+        u16 ime = REG_IME;
+        REG_IME = 0;
+        cr_idle = CR_IDLE;
+        title_start(r, CREDITS);
+        REG_IME = ime;
+    }
+    return PB_TEXT(id);
+}
+
 static void news(int now)
 {
     radio.now = ((radio.now | 7) + 1) | now;
@@ -145,6 +258,17 @@ void sf_play(int n)
     struct radio *r = &radio;
     r->on = r->on ? TAIL : 0;                  /* (the interrupt leaves any remix now) */
     r->fade = 0;
+    s0 = n == 0;
+    if (n == 0) {                              /* the title song, the menus, a few vehicles */
+        u16 ime = REG_IME;
+        REG_IME = 0;
+        PB_PLAY(0);
+        cr_idle = 0;
+        if (theme_on(r))
+            title_start(r, THEME);
+        REG_IME = ime;
+        return;
+    }
     if (n < 1 || n > 6) {
         PB_PLAY(n);
         return;

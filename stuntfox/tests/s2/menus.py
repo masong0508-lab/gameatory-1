@@ -13,6 +13,13 @@ OUT, TAG = os.environ['OUT'], os.environ['TAG']
 ck = Check()
 
 
+def tap(k, hold=6, after=24):
+    # the menus run a game frame every 5 emulator frames: a press shorter than that can fall between two polls
+    # (which build it falls on depends on the sound interrupt's phase), so hold it for more than one
+    e.run(hold, [k] if k else [])
+    e.run(after)
+
+
 def shot(name):
     e.frame.save('%s/menus_%s_%s.png' % (OUT, TAG, name))
 

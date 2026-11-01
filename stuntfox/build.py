@@ -136,9 +136,12 @@ MERGE_PACE = (0x0802472c, 0x6826, 0x2604)     # ldr r6, [r4] (the last dt) -> mo
 # Our renderer draws none of them: the emitter now stops at slot 63 (cmp r3, #99 -> cmp r3, #63; a full kind drops the burst).
 MERGE_FX_CAP = (0x08073c06, 0x2b63, 0x2b3f)
 # The car radio (src/radio.c): Payback's sound interrupt calls its sequencer and its music pass
-# through sf_seq and sf_mus; its radio's two picks draw 1 + random(6) and play through sf_play.
+# through sf_seq and sf_mus; its radio's two picks draw 1 + random(6) and play through sf_play, and so does
+# the play of its song 0 as the game starts (the title songs, in the same file). The credits fetch each
+# line of their text at 0x08030344: sf_credit_line, to know when they run.
 MERGE_RADIO_CALLS = ((0x08075d4a, 0x08075dd0, 'sf_seq'), (0x08075da8, 0x0807c800, 'sf_mus'),
-                     (0x0807747a, 0x08076c98, 'sf_play'), (0x080774ce, 0x08076c98, 'sf_play'))
+                     (0x0807747a, 0x08076c98, 'sf_play'), (0x080774ce, 0x08076c98, 'sf_play'),
+                     (0x08023162, 0x08076c98, 'sf_play'), (0x08030344, 0x0803dc8c, 'sf_credit_line'))
 MERGE_RADIO_PICKS = (0x08077472, 0x080774c6)  # movs r0, #3 (tools/mkmusic.py) -> movs r0, #6
 # The remixes make the cartridge 32 MiB, whose EEPROM is only at 0x0DFFFF00 up. Payback's EEPROM
 # library builds 0x0D000000 in four places (movs rN, #0xd0; lsls rN, rN, #20) in functions that
@@ -472,12 +475,25 @@ def build_merge(payback, out, bps_out=None, remixes=True, amiga=None):
     except mkradio.Unavailable as e:           # (sf_play finds no streams: Payback's songs only)
         print('radio: no remixes (%s); the radio plays Payback\'s own songs' % e)
         streams = None
-    assert len(rom.d) <= mkradio.BASE - GBA
+    try:                                       # the title songs, below them (sf_play finds no streams: song 0 as it was)
+        if not remixes:
+            raise mkradio.Unavailable('--no-remixes')
+        titles, trep = mkradio.title_blob(payback, BUILD)
+    except mkradio.Unavailable as e:
+        print('radio: no title songs (%s); the title, the menus and the credits play Payback\'s own song 0' % e)
+        titles = None
+    assert len(rom.d) <= mkradio.TITLE_BASE - GBA
     if streams:
         rom.d += bytes(ROM_SIZE - len(rom.d))
         rom.d[mkradio.BASE - GBA:mkradio.BASE - GBA + len(streams)] = streams
         print('radio: %d KiB of remixes at 0x%08x-%s, %s' % (len(streams) // 1024, mkradio.BASE, rep['end'],
               ', '.join('song %s %.2f bits/sample' % (n, v['bits_per_sample']) for n, v in rep['songs'].items())))
+    if titles:
+        rom.d += bytes(ROM_SIZE - len(rom.d)) if len(rom.d) < ROM_SIZE else b''
+        rom.d[mkradio.TITLE_BASE - GBA:mkradio.TITLE_BASE - GBA + len(titles)] = titles
+        print('radio: %d KiB of title songs at 0x%08x-%s, %s' % (len(titles) // 1024, mkradio.TITLE_BASE, trep['end'],
+              ', '.join('%s: %.2f bits/sample, %.1f dB snr' % ('theme' if str(n) == '0' else 'credits', v['bits_per_sample'],
+                                                                v['snr_db']) for n, v in trep['songs'].items())))
     img = rom.data()
     open(out, 'wb').write(img)
     if bps_out:

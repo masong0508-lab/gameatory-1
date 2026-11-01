@@ -1,4 +1,5 @@
-/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them (radio.c, radiodec.s). */
+/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, and the title songs in place of its song 0
+   (radio.c, radiodec.s). */
 #ifndef RADIO_H
 #define RADIO_H
 #include "gba.h"
@@ -31,6 +32,8 @@ int radio_chord(void);             /* SELECT and R went down within 0.1 s of eac
 int radio_mode(void);
 void radio_set_mode(int m);
 const char *radio_mode_name(int m);
+void radio_retheme(void);          /* the Title music choice changed: Payback's song 0, if it plays, starts over
+   (the credits' lines go through sf_credit_line: build.py) */
 void radio_hud(int driving, int ticks, int start);   /* the song's name for 2 s when one starts in a car */
 
 #endif

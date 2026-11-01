@@ -7,7 +7,7 @@
 #include "palette.h"
 
 #define MARK_FAR 36000                   /* the farthest it is drawn (r_cam reaches 40000) */
-#define SHAFT_H 2400                     /* the shaft's top, up close */
+#define SHAFT_H 2000                     /* the shaft's top, up close */
 
 static inline s32 ab(s32 v) { return v < 0 ? -v : v; }
 
@@ -36,7 +36,7 @@ void marker_draw(V3 p, int mat)
     /* the shaft: two screen-facing segments, the upper fainter (a step further into the fog colour), narrowing to a
        point; drawn from behind the gem (a key a little farther than its) */
     V3 up = v3(cam.m.r.y, cam.m.u.y, cam.m.f.y);
-    static const u16 seg[3][2] = {{0, 90}, {900, 60}, {SHAFT_H, 0}};
+    static const u16 seg[3][2] = {{0, 56}, {800, 34}, {SHAFT_H, 0}};
     for (int i = 0; i < 2; i++) {
         V3 a = vadd(t, vscale(up, seg[i][0] * hs >> 8)), b = vadd(t, vscale(up, seg[i + 1][0] * hs >> 8));
         s32 wa = seg[i][1] * s >> 8, wb = seg[i + 1][1] * s >> 8;

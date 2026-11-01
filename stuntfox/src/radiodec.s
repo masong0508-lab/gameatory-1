@@ -164,15 +164,23 @@ sf_mus:
     bne 1f
     bx r4                           @ Payback's own song (or none): its music pass, as ever
 1:  push {r4, lr}
+    cmp r3, #4                      @ the title songs (on 4, 8) have an interrupt of their own: radio_irq stays as it was
+    beq 2f
+    cmp r3, #8
+    beq 2f
     bl radio_irq
+    pop {r4}
+    pop {r0}
+    bx r0
+2:  bl radio_title_irq
     pop {r4}
     pop {r0}
     bx r0
     .ltorg
 
 @ ... and in place of its call to its sequencer (0x08075d4a, which takes no arguments): the keys
-@ for the radio's chord (radio_keys), then, while a remix plays, nothing to play (and never
-@ the song's notes)
+@ for the radio's chord (radio_keys), then, while a remix or a title song plays (on 1-3, 4, 8), nothing
+@ to play (and never the song's notes)
     .section .text.sf_seq, "ax", %progbits
     .align 2
     .global sf_seq
@@ -185,7 +193,7 @@ sf_seq:
     ldr r3, =radio + RADIO_ON
     ldrb r3, [r3]
     subs r3, #1
-    cmp r3, #3
+    cmp r3, #8
     bcc 1f
     ldr r3, =0x08075dd1
     bx r3

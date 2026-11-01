@@ -4,6 +4,7 @@
 #include "spacegame.h"
 #include "tex.h"
 #include "spacewalk.h"
+#include "radio.h"
 
 extern u16 car_vmax_k, car_grip_k;     /* car.c, 256 = as built */
 extern u16 ship_speed_k;               /* ship.c */
@@ -20,6 +21,7 @@ extern u8 sg_inf_missiles;             /* spacegame.c */
 u16 cam_dflt = 256;                    /* merge.c: the chase camera's distance it settles at */
 u16 prop_k = 256;                      /* world.h: trees, lamps and benches drawn out to this much of their reach */
 u8 opt_tex = 1;                        /* merge.c: Payback's tiles on (tex_on) */
+u8 opt_theme;                          /* radio.c: 1: Payback's own song 0 on the title screen, in the menus and the credits */
 u8 opt_planet = 1;                     /* planet.c: the world a planet from up high (off: the flat slab and sky as ever) */
 static u8 fps_show;
 static u8 fps_now;
@@ -43,7 +45,7 @@ static u8 fps_now;
 enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_SCORE,
        O_CARSPD, O_ACCEL, O_GRIP, O_DRIFT, O_STEER, O_CGRAV, O_BOOSTK, O_UNLIM,
        O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_JET, O_CAMD, O_TICKER,
-       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_PLANET, O_N };
+       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_PLANET, O_THEME, O_N };
 typedef struct {
     const char *name;
     const char *const *label;
@@ -113,6 +115,8 @@ static const u8 v_cgrav[] = {1, 2, 4, 5};                              /* quarte
 static const char *const l_offon[] = {"Off", "On"};
 static const char *const l_camd[] = {"Close", "Normal", "Far", "Farthest"};
 static const u16 v_camd[] = {190, 256, 330, 400};
+/* (the radio on ORIGINALS also gives Payback's song 0: radio.c theme_on) */
+static const char *const l_theme[] = {"Remix", "Original"};
 static const char *const l_props[] = {"None", "Fewer", "Normal"};
 static const u16 v_props[] = {0, 128, 256};
 static const char *const l_boost[] = {"x0.5", "x0.75", "Normal", "x1.5", "x2", "x4"};
@@ -151,6 +155,7 @@ static const Opt opts[O_N] = {
     [O_TRAFFIC] = {"Traffic", l_traffic, 5, 2, 2, 29, 3},
     [O_FPS] = {"Frame counter", l_offon, 2, 0, 4, 19, 1},
     [O_PLANET] = {"Planet view", l_offon, 2, 1, 4, 28, 1},
+    [O_THEME] = {"Title music", l_theme, 2, 0, 4, 29, 1},
 };
 #define ROWS (O_N + 2)             /* then RESET ALL and BACK */
 
@@ -229,6 +234,10 @@ static void apply(void)
     opt_planet = pos[O_PLANET];
     prop_k = v_props[pos[O_PROPS]];
     fps_show = pos[O_FPS];
+    if (pos[O_THEME] != opt_theme) {
+        opt_theme = pos[O_THEME];
+        radio_retheme();               /* (song 0 starts over as the choice says) */
+    }
 }
 
 /* The extras' word lives in XM, above the keep and below STATE, checked by its second word (the

@@ -10,6 +10,7 @@
 extern u8 opt_tex;                 /* Payback's tiles on */
 extern u8 opt_planet;              /* the planet from up high (planet.c) */
 extern u16 cam_dflt;               /* the chase camera settles at this distance (256 as built) */
+extern u8 opt_theme;               /* 1: Payback's own song 0 for the title, the menus and the credits (radio.c) */
 extern u8 opt_ticker;              /* 0: our hint lines stay off Payback's ticker */
 
 void opt_save(u32 *w);             /* ORs the settings into sg_save's words 1..3 */

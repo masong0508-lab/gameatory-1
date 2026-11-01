@@ -154,3 +154,35 @@ long radenc_encode(const s16 *x, int n, const u8 *bits, u8 *out, s16 *rec)
     }
     return o;
 }
+
+/* what the decoder (src/radiodec.s) makes of nseg segments from state (a, b): the samples (the check of
+   tools/title_check.py; a is the newer). Returns the bytes used, and leaves the state in st[0], st[1]. */
+long radenc_decode(const u8 *in, int nseg, int *st, s16 *out)
+{
+    init();
+    int a = st[0], b = st[1];
+    long o = 0;
+    for (int g = 0; g < nseg; g++) {
+        int bits = in[o];
+        const u8 *head = in + o + 1;
+        const u8 *w = in + o + 1 + NFR;
+        for (int f = 0; f < NFR; f++) {
+            int k = head[f] >> 6, step = STEP[head[f] & 63];
+            for (int i = 0; i < FL; i++) {
+                int word = (i * bits) / 32, shift = (i * bits) % 32;
+                uint32_t v = w[4 * word] | w[4 * word + 1] << 8 | w[4 * word + 2] << 16 | (uint32_t)w[4 * word + 3] << 24;
+                int c = (v >> shift) & ((1 << bits) - 1);
+                c = c >= 1 << (bits - 1) ? c - (1 << bits) : c;
+                int p = pred(k, a, b) + c * step;
+                out[g * SEG + f * FL + i] = p;
+                b = a;
+                a = p;
+            }
+            w += FL * bits / 8;
+        }
+        o += 1 + NFR + NFR * FL * bits / 8;
+    }
+    st[0] = a;
+    st[1] = b;
+    return o;
+}
