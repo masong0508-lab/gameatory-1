@@ -48,5 +48,7 @@ extern u8 model_body;                           /* paint for M_CAR faces, M_CAR 
 extern u8 model_hull;                           /* ... and for M_SHIP faces, M_SHIP by default */
 extern u8 model_legs;                           /* paint for M_SKY faces (people's legs) */
 void models_init(void);
+/* a marker for a phone, a start or a goal, on the ground (or roof) at p: a ring, a gem over it and a thin shaft that fades out; steady in colour (marker.c) */
+void marker_draw(V3 p, int mat);
 
 #endif

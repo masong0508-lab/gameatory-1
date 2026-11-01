@@ -471,20 +471,32 @@ if 'outside' in ONLY:
     live = sum(1 for j in range(5) if r8(RAG + RS * j + 171))
     ck(i == 5 and modename() == 'FLY' and st()['on'] == 0 and live <= 1, 'six times out, called, aboard again: back in the Arwing each time, no body slot left over', 'round %d, %s, %d slots in use' % (i, modename(), live))
     # low down, off the map's edge: the throw is the ragdoll's as ever (it keeps a body on the map itself; this build's bail adds no clamp
-    # of its own under SPACE_LO: the same run on the base ROM gives the same place, 2048 on x)
-    e.load_state(base)
-    run(2)
-    mb(83, 600 // 16)
-    e.write32(B, (-6000 << 8) & 0xffffffff)
-    e.write32(B + 8, (60000 << 8) & 0xffffffff)
-    run(10)
-    n = 0
-    while not r8(S['bail']) and n < 120:
-        e.run(1, ['SELECT'])
-        n += 1
-    k = r8(S['bail']) - 1
+    # of its own under SPACE_LO). Out there he is thrown out of one side or the other by a die, and on the side of the city's edge wall
+    # the ragdoll finds no place and he stays aboard (on any build, the base ROM's too: the die depends on what the game has rolled
+    # before), so it is tried heading each way, which turns the die's side round. Where the body starts is where the Arwing was in the
+    # frame the bail took (which differs from build to build, the Arwing flying on meanwhile): that place is compared, not a fixed x
+    k = -1
+    for t in range(2):
+        e.load_state(base)
+        run(2)
+        mb(83, 600 // 16)
+        e.write32(B, (-6000 << 8) & 0xffffffff)
+        e.write32(B + 8, (60000 << 8) & 0xffffffff)
+        if t:                                  # (heading -z: right is -x, the nose and the wing swapped)
+            for off, v in ((24, (-16384, 0, 0)), (36, (0, 16384, 0)), (48, (0, 0, -16384))):
+                for i in range(3):
+                    e.write32(B + off + 4 * i, v[i] & 0xffffffff)
+        run(10)
+        n, ax = 0, -6000
+        while not r8(S['bail']) and n < 120:
+            ax = r32(B) / 256.0
+            e.run(1, ['SELECT'])
+            n += 1
+        k = r8(S['bail']) - 1
+        if k >= 0:
+            break
     rx = r32(RAG + RS * k + 144) if k >= 0 else 1 << 30
-    ck(k >= 0 and st()['on'] == 0 and abs(rx + 6000) < 150, 'bailing low off the western edge: the ragdoll as ever (no walk, the same place as on the base ROM)', 'x %d' % rx)
+    ck(k >= 0 and st()['on'] == 0 and (abs(rx - ax) < 1500 or rx == 2048) and rx < 4096, 'bailing low off the western edge: the ragdoll as ever (no walk; it starts by the Arwing, or on the map\'s rim)', 'x %d, the Arwing was at %d (try %d)' % (rx, ax, t + 1))
     run(600)
     ck(r8(S['bail']) == 0 and modename() == 'FOOT' and r16(pba('PBA_RESPAWN')) == 0, 'and he is up on foot, alive', status()[:60])
 

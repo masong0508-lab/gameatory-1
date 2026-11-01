@@ -704,9 +704,17 @@ def main():
     ap.add_argument('--out', default='colcheck_out')
     ap.add_argument('--png', action='store_true')
     ap.add_argument('--unpainted', action='store_true', help="Payback's own grid, without mksolo's phones")
+    ap.add_argument('--amiga', metavar='DIR', help="the world as build.py --amiga DIR builds it")
     a = ap.parse_args()
+    if a.amiga:
+        import mkworld
+        import amiga_classify
+        mkworld.AMIGA = {g: amiga_classify.classify(a.amiga, g) for g in range(4)}
     rom_bytes = open(a.rom, 'rb').read()
     rom = payback_rom(rom_bytes, not a.unpainted)
+    if a.amiga and not a.unpainted:
+        import stunt_spots
+        stunt_spots.add(rom)
     build_dir = tempfile.mkdtemp(prefix='colcheck')
     world = a.world
     if not world:

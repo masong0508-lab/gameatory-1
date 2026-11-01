@@ -639,36 +639,10 @@ static void goals_scan(const u8 *me)
             phone_near = 1;                        /* (its call is about to come on the ticker) */
 }
 
-/* a shaft from a to b (camera space), w wide, wholly past one side of the view: model_place's
-   test for a line, as the shaft's ball is as wide as it is tall and takes in most of the view */
-static int shaft_out(V3 a, V3 b, s32 w)
-{
-    s32 x = w * FRX, y = w * FRY;
-    return (a.z < -w && b.z < -w) || (FOCAL * a.x - 121 * a.z > x && FOCAL * b.x - 121 * b.z > x) ||
-           (-FOCAL * a.x - 121 * a.z > x && -FOCAL * b.x - 121 * b.z > x) ||
-           (FOCAL * a.y - 81 * a.z > y && FOCAL * b.y - 81 * b.z > y) ||
-           (-FOCAL * a.y - 81 * a.z > y && -FOCAL * b.y - 81 * b.z > y);
-}
-
 static void rings_draw(void)
 {
-    M3 m;
-    Place pl;
-    myaw(&m, 0);
-    for (int i = 0; i < nring; i++) {
-        V3 p = v3(ring_x[i], world_ground(ring_x[i], ring_z[i]) + 340, ring_z[i]), d = vsub(p, cam.pos);
-        s32 far = iabs(d.x) > iabs(d.z) ? iabs(d.x) : iabs(d.z);
-        if (far > 36000)
-            continue;
-        s32 s = 384 + (far > 18000 ? 18000 : far) / 16, h = 6000 * s >> 8;   /* (wider far off) */
-        V3 a = r_cam(p);
-        if (shaft_out(a, vadd(a, v3(cam.m.r.y * h >> 14, cam.m.u.y * h >> 14, cam.m.f.y * h >> 14)), 80 * s >> 8))
-            continue;
-        model_body = ring_red >> i & 1 ? M_STUNT : M_GRASS;
-        if (model_place(&pl, p, &m, s, 0, 6000))
-            model_draw(&mdl_beacon, &pl);
-    }
-    model_body = M_CAR;
+    for (int i = 0; i < nring; i++)
+        marker_draw(v3(ring_x[i], world_ground(ring_x[i], ring_z[i]), ring_z[i]), ring_red >> i & 1 ? M_STUNT : M_GRASS);
 }
 
 /* the nearest ringing phone, when out of sight: an arrow at the side of the screen it is on,

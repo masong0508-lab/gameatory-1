@@ -1745,11 +1745,8 @@ static __attribute__((noinline)) void draw_marks(void)
             if (near_cam(g, 40000))
                 place_draw(&mdl_gate, g, &m, 256);
         }
-    if (job == J_COURIER && near_cam(job_at, 40000)) {
-        myaw(&m, 0);
-        model_body = M_ACCENT;
-        place_draw(&mdl_beacon, job_at, &m, 256);
-    }
+    if (job == J_COURIER && near_cam(job_at, 40000))
+        marker_draw(job_at, M_ACCENT);
 }
 
 void sg_draw(const Ship *s)

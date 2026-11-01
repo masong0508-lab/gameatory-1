@@ -46,6 +46,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', '..', 'payback-mod'))
 from paybackmod.rom import PaybackRom   # noqa: E402
+import amiga_classify   # noqa: E402
 
 CELL = 1024
 N = 128
@@ -281,6 +282,10 @@ def pb_reach(cols, lanes, car=False, seeds=()):
 
 
 PB_SWAP = {2: 4, 3: 5, 4: 2, 5: 3}
+# The player's Amiga copy of Payback (tools/amiga_classify.py, build.py --amiga DIR): {level: its cell flags}; None
+# without it, and then the world is what it was
+AMIGA = None
+AMIGA_LEVEL = None               # (the level being built)
 PB_CLEAR = 0x40                  # headroom left under a deck people walk under (a man's height)
 DECK_T = 0x20                    # how thick a slab of a split deck is (Payback's are solid down to the street)
 
@@ -364,6 +369,29 @@ def merged(rom, grid, wet=(), city=None):
             dt = recs[k][6]
             return (h_units(bottom), h_units(max(t0, t1)), BUILDING_MATS[((dt & 0xff) * 7 + 3) % len(BUILDING_MATS)], dt,
                     h_units(dlo), dshape) if dlo > bottom else None
+        if (AMIGA_LEVEL and AMIGA_LEVEL['flags'][i] & amiga_classify.DECK and g > 0 and (shape == 1 or t0 == t1)
+                and not any(r[3] and r[4] != 0x40 for r in recs[:g])):
+            # a span the Amiga game draws open underneath (its road is a cube on an invisible one): Payback's data
+            # has the road as a floor over nothing, which this would draw as a solid block from the ground, a dam
+            # across the river or a wall under the viaduct. A thin slab over open water (the surface its neighbours
+            # have) or the street instead; the floor and its walls are Payback's, as ever. (Only the flat span: a car
+            # keeps to a ramp cell as Payback's do, but flies off the end of a sloped deck; the approach stays a ramp.)
+            sea = AMIGA_LEVEL['under'][i] and amiga_classify.surface_near(AMIGA_LEVEL, i)
+            wet = AMIGA_LEVEL['under'][i]
+            top_h = low_h = t0
+            surf = sea if sea else STREET
+            bottom = max(low_h - DECK_T, surf)
+            if wet:
+                tiles[i] = WATER_TILE
+                cells.append(('ground' if surf == STREET else 'ramp', h_units(surf) - WATER_DEEP, h_units(surf),
+                              SHAPE_WATER, WATER_MAT))
+            else:
+                tiles[i] = 0
+                cells.append(('ground', 0, 0, 1, M_ROAD))
+            if top_h > bottom:
+                decks[i] = (h_units(bottom), h_units(top_h), BUILDING_MATS[((tile & 0xff) * 7 + 3) % len(BUILDING_MATS)],
+                            tile, h_units(low_h), 1)
+            continue
         d = slab(over[0], hi) if len(over) == 2 and over[0] in reach else None
         if d:
             # three floors people get to, one over another (Little Chicago's walkways over its
@@ -1064,6 +1092,8 @@ def build(rom_bytes, merge=False, level=0, rom=None, limits=True, loops=None):
     global STREET
     rom = rom or PaybackRom(rom_bytes)
     grid = rom.painted.get(level) or rom.grid(level)
+    global AMIGA_LEVEL
+    AMIGA_LEVEL = AMIGA.get(level) if AMIGA and merge else None
     STREET = street_level(rom, grid)
     yoff = (0x100 - STREET) * 8         # (Payback's heights are from 0x100: see world.h)
     decks, decks2, walls, tiles, swim = {}, {}, {}, None, ([0] * (N * N), [], [])

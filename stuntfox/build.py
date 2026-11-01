@@ -20,6 +20,8 @@ GEN = os.path.join(BUILD, 'gen')
 sys.path.insert(0, os.path.join(HERE, 'tools'))
 sys.path.insert(0, os.path.join(HERE, '..', 'payback-mod'))
 import mkworld   # noqa: E402
+import amiga_classify  # noqa: E402
+import stunt_spots  # noqa: E402
 import mkassets  # noqa: E402
 import mkpal    # noqa: E402
 import mksolo   # noqa: E402
@@ -284,7 +286,7 @@ def rename(d):
     return n
 
 
-def build_merge(payback, out, bps_out=None, remixes=True):
+def build_merge(payback, out, bps_out=None, remixes=True, amiga=None):
     from paybackmod.rom import PaybackRom, NEW_BASE, OLD_TABLE_START, OLD_TABLE_END
     from paybackmod import bps
     os.makedirs(GEN, exist_ok=True)
@@ -293,6 +295,10 @@ def build_merge(payback, out, bps_out=None, remixes=True):
     mksolo.offer_every_map(rom.d)             # every map in single-player rampage ...
     phones = mksolo.add_phones(rom)           # ... with phones (so missions and a target) on each
     loops = s2build.pre_world(rom, orig)      # (stage 2: an arena regrids its map and stamps its loops)
+    if amiga:                                 # the player's Amiga Payback: what its maps say of water and bridges
+        mkworld.AMIGA = {g: amiga_classify.classify(amiga, g) for g in range(4)}
+        for lv, sp in stunt_spots.add(rom).items():   # (tools/stunt_spots.py: kickers on open plazas)
+            print('stunt spots, level %d: %s' % (lv, ', '.join('(%d,%d)' % s[:2] for s in sp) or 'none'))
     mkmusic.drop_song(rom.d, bl_target)       # one song less (tools/mkmusic.py)
     # a world for each of Payback's maps, above its 8 MiB (after the addressable columns)
     grids = [rom.painted.get(m) or rom.grid(m) for m in range(NWORLD)]
@@ -492,9 +498,12 @@ if __name__ == '__main__':
     ap.add_argument('--bps', help='with --merge: also write a BPS patch for the Payback ROM')
     ap.add_argument('--no-remixes', action='store_true', help="with --merge: the radio plays Payback's own songs "
                     'only (no remixes to render: quicker, needs no numpy or scipy)')
+    ap.add_argument('--amiga', metavar='DIR', help="with --merge: the folder of your Amiga Payback (the one with maps/): "
+                    "water and bridges drawn as that game has them, and the stunt spots (needs nothing else; without it "
+                    "the world is what it was)")
     a = ap.parse_args()
     if a.merge:
-        stats, size = build_merge(a.payback, a.out, a.bps, not a.no_remixes)
+        stats, size = build_merge(a.payback, a.out, a.bps, not a.no_remixes, a.amiga)
         print('wrote %s (Payback with Stunt Fox, %d KiB of code and data), world 0 %s' % (a.out, size // 1024, stats[0]))
     else:
         stats, size = build(a.payback, a.out)

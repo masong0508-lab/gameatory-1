@@ -230,11 +230,20 @@ HOST_VISIBLE MVert gate_v[16] EWRAM_BSS;
 HOST_VISIBLE MFace gate_f[8] EWRAM_BSS;
 #endif
 
-/* a beacon: a tall shaft of light over a rooftop (two crossed panels) */
+/* a marker (marker.c): a ring on the ground (a coloured hexagon with a dark one in it, as decals) and a long diamond turning a cell over it,
+   one model so it costs one placement */
+#define PY 14
+#define GY 1100
 static const MVert beacon_v[] = {
-    {-70, 0, 0}, {70, 0, 0}, {70, 6000, 0}, {-70, 6000, 0}, {0, 0, -70}, {0, 0, 70}, {0, 6000, 70}, {0, 6000, -70},
+    {-620, PY, 0}, {-310, PY, 537}, {310, PY, 537}, {620, PY, 0}, {310, PY, -537}, {-310, PY, -537},
+    {-400, PY, 0}, {-200, PY, 346}, {200, PY, 346}, {400, PY, 0}, {200, PY, -346}, {-200, PY, -346},
+    {0, GY + 440, 0}, {0, GY - 440, 0}, {250, GY, 0}, {0, GY, 250}, {-250, GY, 0}, {0, GY, -250},
 };
-static const MFace beacon_f[] = {F4(M_CAR, MF_TWO | MF_GLOW, 0, 1, 2, 3), F4(M_CAR, MF_TWO | MF_GLOW, 4, 5, 6, 7)};
+static const MFace beacon_f[] = {
+    F6(M_CAR, MF_TWO | MF_GLOW | MF_BACK, 0, 1, 2, 3, 4, 5), F6(M_ROAD, MF_TWO | MF_GLOW | MF_BACK, 6, 7, 8, 9, 10, 11),
+    F3(M_CAR, 0, 12, 15, 14), F3(M_CAR, 0, 12, 16, 15), F3(M_CAR, 0, 12, 17, 16), F3(M_CAR, 0, 12, 14, 17),
+    F3(M_CAR, 0, 13, 14, 15), F3(M_CAR, 0, 13, 15, 16), F3(M_CAR, 0, 13, 16, 17), F3(M_CAR, 0, 13, 17, 14),
+};
 
 /* an explosion's fireball (an octahedron of fire, scaled as it grows) */
 static const MVert boom_v[] = {{0, 256, 0}, {0, -256, 0}, {256, 0, 0}, {-256, 0, 0}, {0, 0, 256}, {0, 0, -256}};
@@ -279,7 +288,7 @@ MODEL(mdl_pod, pod_v, N(pod_v), pod_f, N(pod_f), 160, O_POD);
 MODEL(mdl_medal, medal_v, N(medal_v), medal_f, N(medal_f), 210, O_MEDAL);
 MODEL(mdl_crate, crate_v, N(crate_v), crate_f, N(crate_f), 170, O_CRATE);
 MODEL(mdl_gate, gate_v, 16, gate_f, 8, 710, O_GATE);
-MODEL(mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 6000, O_BEACON);
+MODEL(mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 1700, O_BEACON);
 MODEL(mdl_boom, boom_v, N(boom_v), boom_f, N(boom_f), 260, O_BOOM);
 void models_init(void) {}
 #else
@@ -359,7 +368,7 @@ void models_init(void)
     setup(&mdl_medal, medal_v, N(medal_v), medal_f, N(medal_f), 210, &nb);
     setup(&mdl_crate, crate_v, N(crate_v), crate_f, N(crate_f), 170, &nb);
     setup(&mdl_gate, gate_v, 16, gate_f, 8, 710, &nb);
-    setup(&mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 6000, &nb);
+    setup(&mdl_beacon, beacon_v, N(beacon_v), beacon_f, N(beacon_f), 1700, &nb);
     setup(&mdl_boom, boom_v, N(boom_v), boom_f, N(boom_f), 260, &nb);
 }
 #endif

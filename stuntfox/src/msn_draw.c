@@ -1,7 +1,7 @@
 /* What a mission puts in the 3D scene (ms_draw3d, stage2.h): the start beacon, the objective's beacon, the next
    ring (and a mark for the one after), the pickups and the par ghost. Everything is steady in colour and
-   in light: shapes turn slowly, nothing pulses or blinks. At most about 10k cycles a frame: a beacon is one
-   panel turned to face the camera (the cost is the fill, and a second panel doubled it), a ring is four
+   in light: shapes turn slowly, nothing pulses or blinks. At most about 10k cycles a frame: a beacon is
+   marker_draw's ring, gem and thin shaft, a ring is four
    panels, a pickup is a coin, and nothing draws beyond 40 cells. */
 #include "stage2.h"
 #include "mission.h"
@@ -52,37 +52,10 @@ static void mark(V3 w, int c)
     r_poly2d(rim, 4, COLOR(M_ROAD, 0, 0), 0, 0);
 }
 
-/* a shaft from a to b (camera space), w wide, wholly past one side of the view: the beacon's ball is as wide
-   as it is tall and takes in most of the view, so model_place would let every one through */
-static int shaft_out(V3 a, V3 b, s32 w)
-{
-    s32 x = w * FRX, y = w * FRY;
-    return (a.z < -w && b.z < -w) || (FOCAL * a.x - 121 * a.z > x && FOCAL * b.x - 121 * b.z > x) ||
-           (-FOCAL * a.x - 121 * a.z > x && -FOCAL * b.x - 121 * b.z > x) ||
-           (FOCAL * a.y - 81 * a.z > y && FOCAL * b.y - 81 * b.z > y) ||
-           (-FOCAL * a.y - 81 * a.z > y && -FOCAL * b.y - 81 * b.z > y);
-}
-
-static const MVert beacon_v[4] = {{-70, 0, 0}, {70, 0, 0}, {70, 6000, 0}, {-70, 6000, 0}};
-
+/* the start, the goal: the marker (marker.c); no farther than 40 cells */
 static void beacon(const MsPlace *pl_, int mat)
 {
-    M3 m;
-    Place pl;
-    V3 p = wpos(pl_), d = vsub(p, cam.pos);
-    s32 far = ab(d.x) > ab(d.z) ? ab(d.x) : ab(d.z);
-    if (far > FAR_BEACON)
-        return;
-    s32 s = 384 + (far > 18000 ? 18000 : far) / 16, h = 6000 * s >> 8;     /* (wider far off: it must show from afar) */
-    V3 a = r_cam(p);
-    if (shaft_out(a, vadd(a, v3(cam.m.r.y * h >> 14, cam.m.u.y * h >> 14, cam.m.f.y * h >> 14)), 80 * s >> 8))
-        return;
-    /* half as wide up close (to 1 by 24 cells): a long panel is mostly fill, and fill is what it costs */
-    s32 k = ONE / 2 + (far > 12000 ? (far > 24000 ? 12000 : far - 12000) * (ONE / 2) / 12000 : 0);
-    myaw(&m, fatan2(-d.x, -d.z));                   /* (its face toward the camera) */
-    m.r = vscale(m.r, k);
-    if (model_place(&pl, p, &m, s, 0, 6000))
-        model_poly(&pl, beacon_v, 4, COLOR(mat, 3, 0));
+    marker_draw(wpos(pl_), mat);
 }
 
 /* a ring is a square frame of four panels: the renderer takes ~1.5k to queue a panel, and the eight of an octagon were
