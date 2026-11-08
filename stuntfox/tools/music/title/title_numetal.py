@@ -14,6 +14,12 @@ Form: Payback song 0's own order list, bar for bar (115 bars of 2.56 s at 93.75 
 The ROM layer plays the original note data through Payback's own sequencer: same samples, same notes, same
 volume and effects, on the 94 BPM grid. The heavy layer (chugs, kick, bass, kit, power chords, clean arps,
 lead) is generated from those note events.
+
+Timing: everything sits on Payback's own tick grid. A tick is 20 ms (882 samples at 44.1 kHz), a row 4 ticks, a 16th 8,
+a bar 128 (115 bars = 14720 ticks): every hit of both layers is placed at a whole tick (no swing, no timing humanize:
+only velocities vary), the samples play at their native speed and pitch, and tools/mkradio.py turns each tick into
+exactly one 480-sample stream segment (the game's own tick), so nothing is stretched anywhere. The silent lead-in of the
+percussive samples is skipped (romlayer.lead_bytes) so that their attack, like the synthesised hits', is on the row.
 """
 import os
 import sys

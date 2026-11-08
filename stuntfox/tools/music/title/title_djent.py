@@ -7,8 +7,11 @@ at run time; nothing derived from the ROM is stored.
 
     PAYBACK_ROM=/path/Payback.gba python3 remix_title_djent_full.py OUT_BASE [--stems]
 
-Time base: the original runs one row = 4 ticks of the game's 50.0035 Hz sequencer, so a remix 16th is 2 rows,
-a bar is 32 rows (about 2.56 s), exactly as the original plays it (felt at 93.75 BPM, E minor).
+Time base: the original runs one row = 4 ticks of the player's sequencer, so a remix 16th is 2 rows, a bar is 32 rows
+(128 ticks), exactly as the original plays it (felt at 93.75 BPM, E minor). A tick is 20 ms here (882 samples, the clean
+nominal 50 Hz: every row, 16th and bar of the grid is a whole number of samples, 3528 / 7056 / 56448), and the stream
+encoder (tools/mkradio.py) turns each tick into exactly one 480-sample segment, which is the game's own tick: the loop
+is a whole number of ticks (86 bars = 11008), nothing is stretched, and the song runs at Payback's own tempo.
 
 Form (86 bars, 3:40 + ring-out), original order positions in brackets
     0-6    intro: the original intro figure and the Edim build           [0 1 | 3]
@@ -34,13 +37,15 @@ import dsp                              # noqa: E402
 import mix                              # noqa: E402
 import pbsong                           # noqa: E402
 import render                           # noqa: E402
+render.GAME_CALL_RATE = 50.0            # the original's own sequencer calls (50.0035 Hz in the game) on the nominal 20 ms tick
+import romlayer                         # noqa: E402  (after the line above: its time base)
 import synth                            # noqa: E402
 import djent_synth as dj                # noqa: E402
 import origlayers as ol                 # noqa: E402
 from synth import Inst                  # noqa: E402
 
 RATE = 44100
-ROW = 4.0 / render.GAME_CALL_RATE       # one row at speed 4, as the original player times it (0.0799944 s)
+ROW = 4.0 / render.GAME_CALL_RATE       # one row at speed 4 = 4 ticks = 0.08 s
 S16 = 2 * ROW
 BAR = 16 * S16
 NBARS = 86
@@ -90,6 +95,7 @@ def build(out_base, want_stems=False):
     rom_path = os.environ['PAYBACK_ROM']
     song = ol.clean_song(pbsong.load(rom_path, 0))
     r0 = render.render(song, 'payback', stereo=0.4, tail=1.0)
+    LEAD = romlayer.lead_bytes(song) if romlayer.TRIM_LEADIN else None
     st = ol.order_times(r0)
     st[49] = r0.duration - 1.0
     rows_t = {}
@@ -178,7 +184,7 @@ def build(out_base, want_stems=False):
     # ---------------------------------------------------------------- building blocks
     def chug(t, midi, d16=1.0, vel=1.0, kick_v=0.95, with_sub=True, big=False):
         d = rd(min(0.22, max(0.06, d16 * S16 * 0.66)))
-        for take, pan_, off in ((0, -0.85, 0.0), (1, 0.85, 0.006)):
+        for take, pan_, off in ((0, -0.85, 0.0), (1, 0.85, 0.0012)):   # (the game plays mono: a 6 ms second take was a flam on every chug)
             gtr.note(t + off, PMG[take], midi, d, vel, pan=pan_)
         if with_sub:
             sm_ = midi - 12 if midi >= 40 else midi
@@ -241,7 +247,7 @@ def build(out_base, want_stems=False):
     gains = {}
     group_audio = {}
     for g in ('gtr', 'vox', 'lead', 'fx'):
-        group_audio[g] = ol.render_group(song, ol.GROUPS[g], stereo=0.4, tail=1.0).audio
+        group_audio[g] = ol.render_group(song, ol.GROUPS[g], stereo=0.4, tail=1.0, lead=LEAD).audio
     trk_of = {'gtr': hk_g, 'vox': hk_v, 'lead': hk_l, 'fx': hk_f}
     hook_runs = []
     for b0, orders in RUNS:

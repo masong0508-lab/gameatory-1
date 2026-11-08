@@ -602,8 +602,11 @@ def _durations(notes, steps, alive, total):
 
 
 def render(song, flavour='payback', rate=44100, interp='hermite', stereo=0.5, game_pitch=False,
-           channels=(0, 1, 2, 3), max_seconds=None, start_order=0, stems=False, gain=0.5, tail=0.0):
-    """Render a song. See the module doc. tail: seconds the voices ring on (fading) after the end."""
+           channels=(0, 1, 2, 3), max_seconds=None, start_order=0, stems=False, gain=0.5, tail=0.0, lead=None):
+    """Render a song. See the module doc. tail: seconds the voices ring on (fading) after the end.
+    lead: {sample number: bytes} skipped at the start of each plain trigger of that sample (not of a 9xx offset): the
+    silent lead-in of a percussive sample, so that its attack, not its first (silent) byte, falls on the row. The
+    sample plays at its native speed; nothing is stretched."""
     steps, rows, notes, ended, total = sequence(song, flavour, start_order, game_pitch, max_seconds)
     n_total = int(round((total + tail) * rate)) + 1
     preps = {s.number: _prep(s) for s in song.samples if s.length}
@@ -640,7 +643,7 @@ def render(song, flavour='payback', rate=44100, interp='hermite', stereo=0.5, ga
             if trig is not None:
                 smp = song.sample(trig[0])
                 if smp is not None and smp.length:
-                    v.start(preps[smp.number], smp, trig[1])
+                    v.start(preps[smp.number], smp, trig[1] + (lead.get(smp.number, 0) if lead and not trig[1] else 0))
                     vols[k] = 0.0 if v.on else vols[k]
                 else:
                     v.on = False

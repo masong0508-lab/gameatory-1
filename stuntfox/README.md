@@ -24,6 +24,17 @@ The same way the title song (Payback's song 0: the title, the menus, a few vehic
 loops with no seam, and the credits play a djent remix (each rendered once, about four minutes, cached too; two more streams
 at 0x09500000 of the cartridge, 5 MiB; the build stops with an error if they ever outgrow it). GAME SETTINGS has a "Title music" line,
 Remix or Original, and the radio's ORIGINALS choice puts Payback's own song 0 back as well (the line keeps saying Remix then).
+Both are placed on song 0's own 20 ms tick grid (115 and 86 bars of 128 ticks, loops cut on a bar line) and each tick is
+exactly one 480-sample stream segment, so they run at song 0's tempo with nothing stretched.
+`--street-jungle FILE.mp3` (your own copy of the Street Jungle remix; needs ffmpeg, numpy and scipy) is optional: the radio
+gets a seventh song, "Street Jungle" (it counts as a remix: the RADIO choice REMIXES and ALL SONGS play it, ORIGINALS does
+not; SELECT + R skips it like any other). The MP3 is never copied into the repo; the build resamples it to Payback's mixing
+rate, sets it to the loudness of the radio's other songs and encodes it like them into the cartridge's free space just below
+the title songs (3 MiB, about 3.3 bits a sample, 28.5 dB SNR; `--street-jungle-kib` changes the room, 2090 KiB is the least).
+It loops: at the end of its last bar (313.84 s, `SJ_LOOP` in tools/mkradio.py) it goes back to 32.24 s, with no seam and
+the song never ends by itself (the 4.4 s ring-out after the loop is not in the stream). Without the option the radio is
+what it was. `tools/sj_check.py ROM [MP3]` decodes the stream on the PC and checks it; `tests/radio/run.py` tests the radio's
+choice of song on the PC. The free space below the title songs (the big map's, see its plan) is that much smaller.
 `--amiga DIR` (your own Amiga copy of Payback, the folder with `maps/`) is optional: the build reads its maps (never copied
 into the repo) to draw rivers and lakes as water and bridges as drivable decks, and adds a few stunt ramps in plazas of the
 city maps. Without it the world is what it always was, byte for byte. `tools/amiga_classify.py --amiga DIR` reports what it finds.

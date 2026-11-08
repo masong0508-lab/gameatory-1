@@ -25,6 +25,7 @@ import render  # noqa: E402
 RATE = 44100
 UP = 4
 TICK = 0.02
+TRIM_LEADIN = True               # skip the silent lead-in of percussive samples (see lead_bytes); False: play from the first byte
 SCALE = 0.02 / (1.0 / render.GAME_CALL_RATE)     # nominal seconds per sequencer second (1.00007)
 
 
@@ -39,11 +40,39 @@ def nominal_song(rom):
     return s
 
 
+def lead_bytes(song, rate=8287.1, keep_ms=1.0):
+    """{sample number: bytes} of silent lead-in to skip on a plain trigger, for the percussive samples only.
+
+    A hit's audible attack (the 1 ms energy envelope's 25 % point) sits some milliseconds after its first byte in
+    several of the song's digi-samples (the kick 14 about 16 ms, the pedal chug 12 about 10 ms, the break chop 13 about
+    17 ms, the stabs 1-5 ms), where the synthesised kick, chugs and bass that play with them attack at the row. Played
+    from the first byte the two layers flam. Skipping the lead-in (at the sample's own rate, so its speed and pitch are
+    untouched) puts the attack of both on the grid, keep_ms after the row. Samples that swell (the chords 11, the voices and
+    pads: the 25 % point of the whole sample's peak later than 25 ms, or a slow rise) are left alone."""
+    out = {}
+    for smp in song.samples:
+        if not smp.length:
+            continue
+        x = smp.pcm().astype(np.float64)
+        k = max(1, int(round(rate * 0.001)))
+        e = np.sqrt(np.convolve(x * x, np.ones(k) / k, 'same'))
+        pk = e.max()
+        if pk <= 0:
+            continue
+        t25 = int(np.argmax(e >= 0.25 * pk)) / rate * 1000
+        t50 = int(np.argmax(e >= 0.50 * pk)) / rate * 1000
+        if t25 > 25.0 or t50 - t25 > 12.0 or t25 - keep_ms < 1.0:
+            continue
+        out[smp.number] = int(round((t25 - keep_ms) * rate / 1000))
+    return out
+
+
 class Data:
     """The song's note events and section map on the nominal timeline."""
 
     def __init__(self, rom):
         self.song = nominal_song(rom)
+        self.lead = lead_bytes(self.song) if TRIM_LEADIN else {}
         self.steps, self.rows, notes, self.ended, total = render.sequence(self.song, 'payback')
         self.total = total * SCALE
         self.notes = notes
@@ -203,7 +232,7 @@ def play(data, groups, rate=RATE, gain=0.5, tail=3.5):
             if trig is not None:
                 smp = song.sample(trig[0])
                 if smp is not None and smp.length:
-                    v.start(bank.get(smp.number), trig[1])
+                    v.start(bank.get(smp.number), trig[1] + (data.lead.get(smp.number, 0) if not trig[1] else 0))
                     cur[k] = smp.number
                     vols[k] = 0.0 if v.on else vols[k]
                 else:

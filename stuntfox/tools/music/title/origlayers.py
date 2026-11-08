@@ -53,8 +53,8 @@ def filtered(song, keep):
     return s
 
 
-def render_group(song, keep, rate=44100, stereo=0.4, tail=1.0):
-    r = render.render(filtered(song, keep), 'payback', rate=rate, stereo=stereo, tail=tail, stems=False)
+def render_group(song, keep, rate=44100, stereo=0.4, tail=1.0, lead=None):
+    r = render.render(filtered(song, keep), 'payback', rate=rate, stereo=stereo, tail=tail, stems=False, lead=lead)
     return r
 
 

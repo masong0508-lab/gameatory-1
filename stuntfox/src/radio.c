@@ -1,8 +1,10 @@
-/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, six songs at random.
+/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, six songs at random, and a seventh
+   when the player's build has Street Jungle (build.py --street-jungle).
 
    Payback's radio (0x08077464 on getting in, 0x08077498 every tick) picks 1 + random(n) and
-   plays it; the build makes that random(6) and the play sf_play. 1-3 are Payback's own songs,
-   4-6 the remixes (as the RADIO option allows). A remix is started as Payback's song of the
+   plays it; the build makes that random(6), or random(7) with Street Jungle, and the play sf_play.
+   1-3 are Payback's own songs, 4-6 the remixes, 7 Street Jungle (as the RADIO option allows: it is
+   a remix, so ORIGINALS leaves it out). A remix is started as Payback's song of the
    same number, so Payback's radio, pause, fades and scenes see a song playing as ever, but its
    sequencer is kept out (sf_seq) and its music pass gives way to radio_irq (sf_mus): the
    stream at the top of the cartridge (tools/mkradio.py), decoded into the music half of
@@ -15,7 +17,9 @@
    end the interrupt goes back to its start, the decoder set to the two samples the stream was coded
    from (a decoder that went on from where it ended would be off by what the end's rounding left, and
    the prediction carries that on): no seam, and Payback is never told the song ended (its menu would
-   start it over). The credits
+   start it over). Street Jungle loops the same way, but to a segment in the middle of its stream
+   (the loop's start), and plays on until the player skips it, gets out of the car or Payback starts
+   another song; it stands in for Payback's song SJ_AS. The credits
    are known by their text: every line the credits fetch goes through sf_credit_line, and under a
    second with none is the end of them (the djent eases out over the last half of it).
 
@@ -35,6 +39,10 @@
 #define PB_PLAY ((void (*)(int))0x08076c99)
 #define STREAMS ((const u32 *)0x09a00000)          /* magic, count, then {address, segments, song} */
 #define STREAMS_MAGIC 0x31444152
+#define SJ 7                       /* radio.now & 7: Street Jungle. With count 4 the table has its 5 words after the */
+#define SJ_AT (2 + 3 * 3)          /* three remixes' entries: address, segments, loop address, loop segments, the decoder's state at the loop */
+#define SJ_AS 1                    /* the song of Payback's it plays as (the sequencer is kept out; any of 1-3) */
+#define PB_RADIO_RAND ((int (*)(int))0x08077eb1)   /* the radio's own random(n): 0..n-1 (it draws 1 + random(6) with it) */
 #define TITLES ((const u32 *)0x09500000)          /* magic, count, then {address, segments, two samples, 0} */
 #define TITLES_MAGIC 0x31544954
 #define THEME 4                    /* on: the theme (Payback's song 0), CREDITS the djent: both Payback's song 0, as on & 3 */
@@ -55,6 +63,11 @@ static u8 s0;                      /* the last song Payback's radio started was 
 
 void radio_seg(u8 *out, struct radio *r, int vol);   /* radiodec.s */
 void pb_music(u8 *out);
+
+static int sj_on(void)
+{
+    return STREAMS[0] == STREAMS_MAGIC && STREAMS[1] == 4;
+}
 
 static void quiet(u8 *out)
 {
@@ -154,7 +167,15 @@ void radio_irq(u8 *out)
             r->vol = v - 1;
         }
         radio_seg(out, r, v);
-        end |= --r->left == ENDS_AT;
+        if ((r->now & 7) != SJ)
+            end |= --r->left == ENDS_AT;
+        else if (!--r->left) {                 /* Street Jungle's end: back to its loop, never ended */
+            const u32 *j = STREAMS + SJ_AT;
+            r->p = (const u8 *)j[2];
+            r->left = j[3];
+            r->a = (s16)j[4] * v;
+            r->b = (s16)(j[4] >> 16) * v;
+        }
         if (!vol)
             quiet(out);
         else if (r->fade & 1)
@@ -252,7 +273,8 @@ static void news(int now)
     radio.now = ((radio.now | 7) + 1) | now;
 }
 
-/* Payback's radio picks a song: 0 (a few vehicles and the menus), else 1 + random(6) */
+/* Payback's radio picks a song: 0 (a few vehicles and the menus), else 1 + random(6), or random(7) with Street Jungle
+   (the build makes that, as it finds Street Jungle's stream) */
 void sf_play(int n)
 {
     struct radio *r = &radio;
@@ -269,23 +291,25 @@ void sf_play(int n)
         REG_IME = ime;
         return;
     }
-    if (n < 1 || n > 6) {
+    int sj = sj_on(), top = 6 + sj;
+    if (n < 1 || n > top) {
         PB_PLAY(n);
         return;
     }
-    int remix = n > 3;
-    n = remix ? n - 3 : n;
     int mode = r->mode & ~SKIP;
-    if (mode != RADIO_ALL)
-        remix = mode == RADIO_REMIXES;
-    int t = n + 3 * remix;
-    if ((r->mode & SKIP) && t == (r->now & 7))  /* a skip never lands on the song it left */
-        t = mode == RADIO_ALL ? t % 6 + 1 : (t - 1) / 3 * 3 + t % 3 + 1;
+    int t = n;                                 /* 1-3 Payback's songs, 4-6 their remixes, 7 Street Jungle */
+    if (mode == RADIO_ORIGINALS)               /* (Street Jungle's pick: one of the three, any) */
+        t = n > 6 ? 1 + PB_RADIO_RAND(3) : (n - 1) % 3 + 1;
+    else if (mode == RADIO_REMIXES)            /* (with Street Jungle, one of four, evenly) */
+        t = sj ? 4 + PB_RADIO_RAND(4) : (n - 1) % 3 + 4;
+    if ((r->mode & SKIP) && t == (r->now & 7)) {   /* a skip never lands on the song it left: the next of its group */
+        int lo = mode == RADIO_REMIXES ? 4 : 1, hi = mode == RADIO_ORIGINALS ? 3 : top;
+        t = t == hi ? lo : t + 1;
+    }
     r->mode = mode;
-    n = (t - 1) % 3 + 1;
-    remix = t > 3;
-    const u32 *s = STREAMS + 2 + 3 * (n - 1);
-    if (!remix || STREAMS[0] != STREAMS_MAGIC || STREAMS[1] < 3) {
+    n = t == SJ ? SJ_AS : (t - 1) % 3 + 1;
+    const u32 *s = t == SJ ? STREAMS + SJ_AT : STREAMS + 2 + 3 * (n - 1);
+    if (t < 4 || STREAMS[0] != STREAMS_MAGIC || STREAMS[1] < 3) {
         PB_PLAY(n);
         news(n);
         return;
@@ -299,8 +323,8 @@ void sf_play(int n)
     r->vol = 0;
     r->fade = 3;                               /* (in from silence: no click) */
     r->on = n;
+    news(t);
     REG_IME = ime;
-    news(n + 3);
 }
 
 void radio_skip(void)
@@ -371,14 +395,19 @@ void radio_hud(int driving, int ticks, int start)
         return;
     left = left > ticks ? left - ticks : 0;
     int now = radio.now & 7;
-    if (!driving || !now || now > 6)
+    if (!driving || !now)
         return;
-    char b[24], *p = d_cat(b, "RADIO: SONG ");
+    char b[24], *p;
     static const char num[3] = {'1', '2', '4'};
-    *p++ = num[(now - 1) % 3];
-    *p = 0;
-    if (now > 3)
-        d_cat(p, " REMIX");
+    if (now == SJ) {
+        d_cat(b, "RADIO: STREET JUNGLE");
+    } else {
+        p = d_cat(b, "RADIO: SONG ");
+        *p++ = num[(now - 1) % 3];
+        *p = 0;
+        if (now > 3)
+            d_cat(p, " REMIX");
+    }
     int n = 0;
     while (b[n])
         n++;
