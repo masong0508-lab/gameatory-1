@@ -1,14 +1,15 @@
-/* host test of src/radio.c's song choice, skip, banner and Street Jungle loop (radio.c compiled with its hardware
-   and Payback addresses replaced by host stand-ins) */
+/* host test of src/radio.c's song choice, skip, banner, handover at the end of an edit and the edits table (radio.c
+   compiled with its hardware and Payback addresses replaced by host stand-ins) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include "radio_h.c"
 
-static int rng_calls, played[16], last_played;
-static int rand_seq;
-int fake_rand(int n) { rng_calls++; return (rand_seq++ * 7 + 3) % n; }
+static int last_played;
+static int rand_force = -1;
+static unsigned rand_st = 12345;
+int fake_rand(int n) { rand_st = rand_st * 1664525u + 1013904223u; return rand_force >= 0 ? rand_force % n : (rand_st >> 16) % n; }
 void fake_play(int n) { last_played = n; PB_SONG_V = n; }
 const char *fake_text(int id) { return "x"; }
 void radio_seg(u8 *out, struct radio *r, int vol) { r->p += 1; memset(out, 0, 480); }
@@ -18,101 +19,141 @@ void d_fill(int x, int y, int w, int h, int c) { last_w = w; }
 void d_text(int x, int y, const char *s, int c) { strcpy(last_text, s); }
 u8 opt_theme;
 
-#define STREAM_BASE 0x09a00000
-static u32 *tab;
-static void setup(int sj)
+static u32 *tab, *ed;
+#define ED_ADDR(i) (0x09200000 + 0x1000 * (i))
+#define ED_SEG(i) (60 + 10 * (i))
+#define ED_ID(i) ((i) * 3 % 11)                /* (not in order: the table gives the name) */
+static void setup(int ne)
 {
-    tab[0] = 0x31444152; tab[1] = sj ? 4 : 3;
+    tab[0] = 0x31444152; tab[1] = 3;
     for (int i = 0; i < 3; i++) { tab[2 + 3 * i] = 0x09a00040 + 0x1000 * i; tab[3 + 3 * i] = 100 + i; tab[4 + 3 * i] = i + 1; }
-    memset(tab + 11, 0, 20);
-    if (sj) { tab[11] = 0x09200060; tab[12] = 50; tab[13] = 0x09250000; tab[14] = 40; tab[15] = (u32)(u16)-1234 | (u32)(u16)5678 << 16; }
+    memset(ed, 0, 256);
+    if (ne) {
+        ed[0] = 0x31444552; ed[1] = ne;
+        for (int i = 0; i < ne; i++) { ed[2 + 3 * i] = ED_ADDR(i); ed[3 + 3 * i] = ED_SEG(i); ed[4 + 3 * i] = ED_ID(i); }
+    }
 }
 static int check_fail;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); check_fail++; } } while (0)
+static const char *NAMES[11] = {"HARLEY MUSIC", "SPILT MILK", "GROOVY THING", "KNULLA KUK", "PELFORTH BLUES", "GUITAR SLINGER",
+                                "REVERIE OF TRUTH", "GENERATION LOVE", "GROOVY ELEMENT", "OPERATION SEPTEMBER", "STREET JUNGLE"};
+
+static int song(void) { return radio.now & 31; }
 
 int main(void)
 {
     mmap((void *)0x02000000, 0x40000, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    tab = mmap((void *)STREAM_BASE, 4096, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    int hist[3][8];
-    for (int sj = 0; sj < 2; sj++) {
-        setup(sj);
+    tab = mmap((void *)0x09a00000, 4096, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ed = (u32 *)0x094fff00; mmap((void *)0x094ff000, 4096, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int counts[] = {0, 1, 5, 11};
+    for (int ci = 0; ci < 4; ci++) {
+        int ne = counts[ci], top = 6 + ne;
+        setup(ne);
         for (int mode = 0; mode < 3; mode++) {
-            memset(hist[mode], 0, sizeof hist[mode]);
+            int hist[32] = {0};
             radio.mode = mode;
-            for (int p = 1; p <= 6 + sj; p++) {
-                for (int rep = 0; rep < 40; rep++) {
-                    radio.on = 0;
+            for (int p = 1; p <= top; p++)
+                for (int rep = 0; rep < 60; rep++) {
+                    radio.on = 0; radio.now = 0;
                     sf_play(p);
-                    int t = radio.now & 7;
-                    hist[mode][t]++;
-                    CHECK(t >= 1 && t <= 6 + sj);
-                    if (t == 7) { CHECK(sj); CHECK(radio.on == 1 && last_played == 1); CHECK(radio.p == (u8 *)0x09200060 && radio.left == 50); }
-                    else if (t > 3) { CHECK(radio.on == (t - 1) % 3 + 1); CHECK(radio.p == (u8 *)(u32)(0x09a00040 + 0x1000 * (t - 4))); }
-                    else CHECK(radio.on == 0 && last_played == (t - 1) % 3 + 1);
+                    int t = song();
+                    hist[t]++;
+                    CHECK(t >= 1 && t <= top);
+                    if (t > 6) {
+                        CHECK(ne && t == (radio.now & 31));
+                        CHECK(radio.on == 1 && last_played == 1);
+                        CHECK(radio.p == (u8 *)(u32)ED_ADDR(t - 7) && radio.left == ED_SEG(t - 7) && radio.fade == 3);
+                    } else if (t > 3) {
+                        CHECK(radio.on == (t - 1) % 3 + 1);
+                        CHECK(radio.p == (u8 *)(u32)(0x09a00040 + 0x1000 * (t - 4)));
+                    } else CHECK(radio.on == 0 && last_played == (t - 1) % 3 + 1);
                     if (mode == RADIO_ORIGINALS) CHECK(t <= 3);
                     if (mode == RADIO_REMIXES) CHECK(t >= 4);
                 }
-            }
-            printf("sj=%d mode=%d picks over all p:", sj, mode);
-            for (int t = 1; t <= 7; t++) printf(" %d", hist[mode][t]);
+            int lo = mode == RADIO_REMIXES ? 4 : 1, hi = mode == RADIO_ORIGINALS ? 3 : top;
+            for (int t = lo; t <= hi; t++) CHECK(hist[t] > 0);     /* every song of the group comes up */
+            printf("edits=%d mode=%d picks:", ne, mode);
+            for (int t = 1; t <= top; t++) printf(" %d", hist[t]);
             printf("\n");
         }
-        /* skip never lands on the song it left, each mode's group is a cycle */
-        for (int mode = 0; mode < 3; mode++)
-            for (int start = 1; start <= 6 + sj; start++) {
-                if ((mode == RADIO_ORIGINALS && start > 3) || (mode == RADIO_REMIXES && start < 4)) continue;
-                int seen[9] = {0}, t = start;
-                radio.mode = mode;
-                for (int k = 0; k < 20; k++) {
-                    radio.now = (radio.now & 0xf8) | t;
-                    radio.mode = mode | 0x80;
-                    for (int p = 1; p <= 6 + sj; p++) {
-                        radio.on = 0; radio.mode = mode | 0x80;
+        /* a skip never lands on the song it left, by any draw the radio can make, and a chain of skips (the pick lands on the
+           song it left every time, the worst case) goes round the whole group, each song once */
+        for (int mode = 0; mode < 3; mode++) {
+            int lo = mode == RADIO_REMIXES ? 4 : 1, hi = mode == RADIO_ORIGINALS ? 3 : top;
+            for (int t = lo; t <= hi; t++)
+                for (int p = 1; p <= top; p++)
+                    for (int force = 0; force < 4; force++) {
+                        radio.on = 0; radio.mode = mode | 0x80; rand_force = force;
+                        radio.now = t;
                         sf_play(p);
-                        CHECK((radio.now & 7) != t);
-                        CHECK(!(radio.mode & 0x80));
-                        radio.now = (radio.now & 0xf8) | t;
+                        CHECK(song() != t && song() >= lo && song() <= hi && !(radio.mode & 0x80));
                     }
+            for (int start = lo; start <= hi; start++) {
+                int seen[32] = {0}, t = start;
+                for (int k = 0; k < hi - lo + 1; k++) {
+                    seen[t]++;
+                    radio.on = 0; radio.mode = mode | 0x80;
+                    radio.now = t;
+                    rand_force = t - 4 < 0 ? 0 : t - 4;                /* (REMIXES: the draw that lands on t) */
+                    sf_play(mode == RADIO_ALL || t <= 6 ? t : 1);
+                    t = song();
                 }
+                rand_force = -1;
+                CHECK(t == start);
+                for (int u = lo; u <= hi; u++) CHECK(seen[u] == 1);
             }
-        /* the cycle of one skip chain in the ALL mode with sj and the remixes */
-        radio.mode = 0; radio.now = 1; int t = 1; int path[16];
-        for (int k = 0; k < 8; k++) { radio.mode |= 0x80; radio.on = 0; sf_play(1 + (t - 1) % (6 + sj)); /* pick equals the song it left */ t = radio.now & 7; path[k] = t; }
-        printf("sj=%d skip chain ALL from 1 (pick = the song left):", sj); for (int k = 0; k < 8; k++) printf(" %d", path[k]); printf("\n");
-        radio.mode = 2; radio.now = 4; t = 4;
-        for (int k = 0; k < 8; k++) { radio.mode = 2 | 0x80; radio.on = 0; radio.now = (radio.now & 0xf8) | t; if (!sj) sf_play(1 + (t - 1) % 3); else { rand_seq = 0; /* force same pick */ sf_play(1); } t = radio.now & 7; path[k] = t; }
-        printf("sj=%d skip chain REMIXES:", sj); for (int k = 0; k < 8; k++) printf(" %d", path[k]); printf("\n");
+        }
     }
-    /* the interrupt: Street Jungle loops, others end */
-    setup(1);
-    radio.mode = 0; radio.on = 0; PB_SONG_V = 0; PB_VOL_V = 256;
-    sf_play(7);
-    CHECK((radio.now & 7) == 7 && radio.on == 1);
-    u8 out[480]; int loops = 0, ended_flag = 0, jumps = 0;
-    PB_ENDED_V = 0;
-    for (int i = 0; i < 400; i++) {
-        u8 *before = (u8 *)radio.p;
-        radio_irq(out);
-        if ((u8 *)radio.p != before + 1) { jumps++; CHECK(radio.p == (u8 *)(0x09250000 + 0)); CHECK(radio.left == 40);
-            CHECK(radio.a == -1234 * 256 && radio.b == 5678 * 256); if (i > 0) { CHECK(i == 49 || (i - 49) % 40 == 0); } }
-        if (PB_ENDED_V) ended_flag = 1;
+    /* the interrupt: an edit plays to its end, raises Payback's song-ended flag 3 segments before it, then is silent */
+    setup(11);
+    int pick = 7;                                   /* edit 1 of the table: ED_SEG(0) = 60 segments */
+    for (int e = 0; e < 11; e += 5) {
+        radio.mode = RADIO_ALL; radio.on = 0; radio.now = 0; PB_SONG_V = 0; PB_VOL_V = 256; PB_ENDED_V = 0;
+        sf_play(7 + e);
+        CHECK(song() == 7 + e && radio.left == ED_SEG(e));
+        u8 out[480]; int first = -1, flags = 0;
+        for (int i = 0; i < ED_SEG(e) + 20; i++) {
+            u8 *before = (u8 *)radio.p;
+            radio_irq(out);
+            if (PB_ENDED_V && first < 0) first = i;
+            if (i >= ED_SEG(e)) CHECK((u8 *)radio.p == before);          /* silent: nothing is decoded after the end */
+            else CHECK((u8 *)radio.p == before + 1);                     /* ... and no jump back to anywhere before it */
+        }
+        printf("edit %d (%d segments): ended flag first at interrupt %d\n", e + 1, ED_SEG(e), first);
+        CHECK(first == ED_SEG(e) - 4);
+        CHECK(radio.left == 0 && radio.on == 1);
+        /* ... Payback's radio picks the next song: the old one's tail is one buffer, then it is the new song's */
+        PB_ENDED_V = 0;
+        radio.mode = RADIO_REMIXES;
+        sf_play(3);
+        CHECK(song() >= 4);
     }
-    printf("SJ interrupt: %d loop jumps in 400 interrupts (first at 49), ended flag %d, song still on=%d fade=%d\n", jumps, ended_flag, radio.on, radio.fade);
-    CHECK(jumps == 1 + (400 - 50) / 40 && !ended_flag && radio.on == 1);
-    /* a remix ends: flag at 3 left, then quiet */
+    /* a remix ends: flag at 3 left, then quiet (as it always did) */
     radio.mode = 2; radio.on = 0; radio.now = 0; PB_SONG_V = 0; PB_ENDED_V = 0;
-    tab[1] = 3; sf_play(4); /* remix of song 1, 100 segments */
-    ended_flag = 0; int at = -1;
-    for (int i = 0; i < 120; i++) { radio_irq(out); if (PB_ENDED_V && !ended_flag) { ended_flag = 1; at = i; } }
+    rand_force = 0; sf_play(4); rand_force = -1;
+    CHECK(song() == 4);
+    int ended = 0, at = -1; u8 out[480];
+    for (int i = 0; i < 120; i++) { radio_irq(out); if (PB_ENDED_V && !ended) { ended = 1; at = i; } }
     printf("remix 1 (100 segments): ended flag first at interrupt %d\n", at);
     CHECK(at == 96);
-    /* banner */
-    radio.now = 8 | 7; radio_hud(1, 1, 0); radio.now = 16 | 7; radio_hud(1, 1, 0);
-    printf("banner: '%s' width %d (screen 240)\n", last_text, last_w);
-    CHECK(!strcmp(last_text, "RADIO: STREET JUNGLE") && last_w + 4 < 240);
-    radio.now = 24 | 5; radio_hud(1, 1, 0); printf("banner: '%s'\n", last_text); CHECK(!strcmp(last_text, "RADIO: SONG 2 REMIX"));
-    radio.now = 32 | 3; radio_hud(1, 1, 0); printf("banner: '%s'\n", last_text); CHECK(!strcmp(last_text, "RADIO: SONG 4"));
+    /* a skip fades the edit: radio_skip while it plays, and the interrupt ends it */
+    radio.mode = 0; radio.on = 0; PB_SONG_V = 0; PB_ENDED_V = 0; sf_play(8);
+    CHECK(song() == 8);
+    PB_SONG_V = 1; radio.fade = 0; radio_skip();
+    CHECK(radio.fade == 1 && (radio.mode & 0x80) && radio.on == 1);
+    radio_irq(out);
+    CHECK(PB_ENDED_V == 1 && radio.fade == 2);
+    /* the banner: every name in the table, and none for a song of Payback's the wrong way round */
+    for (int i = 0; i < 11; i++) {
+        setup(11);
+        radio.now = (32 * (i + 1)) | (7 + i) & 31; radio.on = 1;
+        radio_hud(1, 1, 0); radio.now = (32 * (i + 2)) | (7 + i) & 31; radio_hud(1, 1, 0);
+        char want[40]; sprintf(want, "RADIO: %s", NAMES[ED_ID(i)]);
+        CHECK(!strcmp(last_text, want) && last_w + 4 < 240);
+        if (i == 0 || i == 9) printf("banner: '%s' width %d (screen 240)\n", last_text, last_w);
+    }
+    radio.now = 64 | 5; radio_hud(1, 1, 0); printf("banner: '%s'\n", last_text); CHECK(!strcmp(last_text, "RADIO: SONG 2 REMIX"));
+    radio.now = 96 | 3; radio_hud(1, 1, 0); printf("banner: '%s'\n", last_text); CHECK(!strcmp(last_text, "RADIO: SONG 4"));
     printf(check_fail ? "FAILED %d\n" : "ALL OK\n", check_fail);
     return check_fail != 0;
 }

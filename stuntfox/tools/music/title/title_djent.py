@@ -21,6 +21,12 @@ Form (86 bars, 3:40 + ring-out), original order positions in brackets
     51-68  break / big chorus: Am Em Am7 Em7 ... half-time pads, stabs  [31 .. 39]
     69-80  groove 3 (two jumps over the original's middle)               [40-43 | 46 47]
     81-85  outro D5 Bm7 E5 and the last E5 ringing out                   [48]
+
+No risers: the original's sweep and riser samples (20, 21) are not played, the swelling chords and pads of the original start
+at their full level (romlayer.swell_bytes), the synthesised pads attack in 30 ms, there are no synthesised risers, reverse
+cymbals or velocity crescendos, and each lead-in is a stop-start fill (the bar's steady drum fill, then a gap of 0.24 s
+in which everything stops) into the downbeat's crash and impact. The song opens on a hit (crash, impact, kick and the E5
+power chord on the first tick), not on a swell.
 """
 import json
 import os
@@ -91,11 +97,30 @@ def accent_pc(sample, period):
     return tab.get(sample, {}).get(n)
 
 
+GAP = 0.24                      # 12 ticks: the last 1.5 sixteenths before a downbeat
+PAD_ATTACK = 0.03               # s: the synthesised pads hit, they do not swell
+
+
 def build(out_base, want_stems=False):
+    gaps = []
+
+    def stop_gaps(x):
+        """Silence in each gap, with 4 ms ramps (the second ends on the downbeat's tick, so its attack is untouched)."""
+        g = np.ones(len(x))
+        r = int(0.004 * RATE)
+        for a, b in gaps:
+            i, j = int(round(a * RATE)), int(round(b * RATE))
+            g[i + r:j - r] = 0.0
+            g[i:i + r] = np.minimum(g[i:i + r], np.linspace(1, 0, r, endpoint=False))
+            g[j - r:j] = np.minimum(g[j - r:j], np.linspace(0, 1, r, endpoint=False))
+        return x * g[:, None] if x.ndim == 2 else x * g
+
     rom_path = os.environ['PAYBACK_ROM']
     song = ol.clean_song(pbsong.load(rom_path, 0))
     r0 = render.render(song, 'payback', stereo=0.4, tail=1.0)
-    LEAD = romlayer.lead_bytes(song) if romlayer.TRIM_LEADIN else None
+    LEAD = romlayer.lead_bytes(song) if romlayer.TRIM_LEADIN else {}
+    if romlayer.SKIP_SWELL:
+        LEAD.update(romlayer.swell_bytes(song))
     st = ol.order_times(r0)
     st[49] = r0.duration - 1.0
     rows_t = {}
@@ -140,7 +165,6 @@ def build(out_base, want_stems=False):
                    sends={'room': 0.1, 'verb': 0.05})
     hk_v = m.track('hook_vocal', gain_db=-6, hp=140, width=1.5, sends={'verb': 0.22, 'hall': 0.25})
     hk_l = m.track('hook_lead', gain_db=-7, hp=180, width=1.5, sends={'verb': 0.2, 'hall': 0.3})
-    hk_f = m.track('hook_fx', gain_db=-10, hp=120, sends={'hall': 0.2})
 
     memo = {}
 
@@ -167,7 +191,6 @@ def build(out_base, want_stems=False):
     TOMI = Inst(synth.tom, decay=0.22)
     TOMF = (190.0, 140.0, 105.0, 80.0)
     IMPACT = Inst(synth.impact, dur=3.0)
-    REVCYM = Inst(synth.reverse_cymbal, dur=1.28)
 
     rec = {'kick': [], 'guitar': [], 'power': [], 'hat': [], 'snare': [], 'sub': [], 'tom': [], 'ride': []}
     kick_req = []
@@ -228,8 +251,9 @@ def build(out_base, want_stems=False):
     def crash(b, s=0, v=0.9):
         cym.hit(T(b, s), CRASH, v)
 
-    def revcym(b, s, v=0.7):
-        fx.clip(T(b, s) - 1.28, REVCYM(None, 0.25, v), gain_db=-6)
+    def stop_gap(b, s=0, v=None):
+        """What a reverse cymbal was (the bar's drum fill leads in): a gap just before the downbeat, in which everything stops."""
+        gaps.append((T(b, s) - GAP, T(b, s)))
 
     def tom_fill(b, s0, pitches, step=2, v=0.8):
         for i, p in enumerate(pitches):
@@ -239,16 +263,16 @@ def build(out_base, want_stems=False):
     def pad_chord(b, name, nbars, trk, vel=0.8, attack=1.0, cutoff=5200.0, voices=5, detune=0.2, oct_=0):
         notes = [p + 12 * oct_ for p in CH[name]]
         f = [hz(p) for p in notes]
-        a = cached('ss', synth.supersaw, tuple(f), nbars * BAR, vel, voices=voices, detune=detune, attack=attack,
+        a = cached('ss', synth.supersaw, tuple(f), nbars * BAR, vel, voices=voices, detune=detune, attack=min(attack, PAD_ATTACK),
                    release=1.4, cutoff=cutoff, seed=21 + len(f))
         trk.clip(T(b), a, fade=0.01)
 
     # ---------------------------------------------------------------- the original's samples (hook layer)
     gains = {}
     group_audio = {}
-    for g in ('gtr', 'vox', 'lead', 'fx'):
+    for g in ('gtr', 'vox', 'lead'):                 # (not 'fx': the original's sweep and riser)
         group_audio[g] = ol.render_group(song, ol.GROUPS[g], stereo=0.4, tail=1.0, lead=LEAD).audio
-    trk_of = {'gtr': hk_g, 'vox': hk_v, 'lead': hk_l, 'fx': hk_f}
+    trk_of = {'gtr': hk_g, 'vox': hk_v, 'lead': hk_l}
     hook_runs = []
     for b0, orders in RUNS:
         i0 = int(round(st[orders[0]] * RATE))
@@ -272,7 +296,7 @@ def build(out_base, want_stems=False):
     hook_events = []
     for oi, evs in EV.items():
         for n in evs:
-            grp = next((g for g in ('gtr', 'vox', 'lead', 'fx') if n.instrument in ol.GROUPS[g]), None)
+            grp = next((g for g in ('gtr', 'vox', 'lead') if n.instrument in ol.GROUPS[g]), None)
             if grp is None:
                 continue
             hook_events.append(dict(t=round(rowT(oi, n.row), 4), group=grp, sample=n.instrument, period=n.period,
@@ -396,7 +420,7 @@ def build(out_base, want_stems=False):
     for s in range(0, 16, 4):
         hat_hit(T(4, s), 0.3)
     for s in range(0, 16, 2):
-        hat_hit(T(5, s), 0.4 + 0.02 * s)
+        hat_hit(T(5, s), 0.5)
     for s in (0, 8):
         want_kick(T(5, s), 0.7)
     for s in (0, 4, 8, 12):
@@ -405,8 +429,12 @@ def build(out_base, want_stems=False):
         want_kick(T(6, s), 0.8)
     tom_fill(6, 8, [0, 1, 2, 3], step=2, v=0.6)
     snare_hit(T(6, 8), 0.8, rim=0.4)
-    fx.clip(T(5, 0), synth.riser(2 * BAR - S16, 0.8, f0=250.0, f1=9000.0, tone=0.3, freq=82.4), gain_db=-10)
-    revcym(7, 0, 0.8)
+    stop_gap(7)
+    # the opening hit: crash, impact, kick and the E5 power chord on the first tick (the loop's last E5 rings into it)
+    cym.hit(T(0), CRASH, 0.9)
+    fx.hit(T(0), IMPACT, 0.5, gain_db=-8)
+    want_kick(T(0), 0.95, True)
+    pcg.note(T(0), PCG_RING, E2, BAR * 0.9, 0.7)
 
     # ================================================================ GROOVE 1 (bars 7-24)
     fx.hit(T(7), IMPACT, 0.6, gain_db=-6)
@@ -422,7 +450,7 @@ def build(out_base, want_stems=False):
              16: dict(ped='half', fill=True)}
     for oi, kw in plan1.items():
         groove(oi, **kw)
-    revcym(25, 0, 0.8)
+    stop_gap(25)
 
     # ================================================================ MENU BED (bars 25-40)
     roots_menu = {17: [E1, E1, B1, B1], 18: [E1, E1, B1, B1], 21: [E1, B1, C2, B1], 22: [E1, B1, C2, B1]}
@@ -460,7 +488,7 @@ def build(out_base, want_stems=False):
         hats_grid(bar_of[oi], 4, v=0.5 if oi == 21 else 0.58)
         crash(bar_of[oi], 0, 0.8)
     tom_fill(40, 8, [0, 1, 2, 3], step=2, v=0.75)
-    revcym(41, 0, 0.8)
+    stop_gap(41)
 
     # ================================================================ EM DROP + GROOVE 2 (bars 41-50)
     fx.hit(T(41), IMPACT, 0.9, gain_db=-4)
@@ -473,13 +501,13 @@ def build(out_base, want_stems=False):
         want_kick(T(41, s), 0.8, big=True)
     snare_hit(T(41, 8), 0.8, rim=0.4)
     for s in range(0, 16, 2):
-        hat_hit(T(42, s), 0.45 + 0.02 * s)
+        hat_hit(T(42, s), 0.6)
     tom_fill(42, 8, [0, 1, 2, 3], step=2, v=0.7)
-    revcym(43, 0, 0.8)
+    stop_gap(43)
     plan2 = {24: dict(ped='gallop_b'), 25: dict(ped='poly_b'), 26: dict(ped='poly', oct_up=True), 27: dict(ped='sev8b', fill=True)}
     for oi, kw in plan2.items():
         groove(oi, **kw)
-    revcym(51, 0, 0.9)
+    stop_gap(51)
 
     # ================================================================ BREAK / BIG CHORUS (bars 51-68)
     fx.hit(T(51), IMPACT, 1.0, gain_db=-3)
@@ -527,8 +555,7 @@ def build(out_base, want_stems=False):
     for oi in (33, 35, 37, 39):
         pad_chord(bar_of[oi], 'Em', 2, air, vel=0.6, attack=0.5, cutoff=5800.0)
     tom_fill(bar_of[39] + 1, 8, [0, 1, 2, 3], step=2, v=0.8)
-    fx.clip(T(bar_of[39]), synth.riser(2 * BAR - S16, 0.9, f0=250.0, f1=9000.0, tone=0.3, freq=82.4), gain_db=-9)
-    revcym(69, 0, 0.9)
+    stop_gap(69)
 
     # ================================================================ GROOVE 3 (bars 69-80)
     fx.hit(T(69), IMPACT, 1.0, gain_db=-3)
@@ -539,7 +566,7 @@ def build(out_base, want_stems=False):
         groove(oi, **kw)
     for oi in (40, 42, 46):
         power(T(bar_of[oi], 0), E2, 3 * S16, vel=0.8, kick_v=None, sub_v=0.0)
-    revcym(81, 0, 0.8)
+    stop_gap(81)
 
     # ================================================================ OUTRO (bars 81-85)
     fx.hit(T(81), IMPACT, 0.8, gain_db=-5)
@@ -585,7 +612,6 @@ def build(out_base, want_stems=False):
     sec_auto(hk_g, HG.get('g', {'*': -1.0, 'break': 0.0, 'groove3': 0.0}))
     sec_auto(hk_v, HG.get('v', {'*': 2.0, 'menu': 4.0, 'break': 5.0, 'intro': 4.0}))
     sec_auto(hk_l, HG.get('l', {'*': 2.0, 'menu': 4.0, 'break': 3.0}))
-    sec_auto(hk_f, HG.get('f', {'*': 0.0}))
     # ================================================================ master
     def soft_clip(x):
         p = float(np.percentile(np.abs(x), 99.7))
@@ -605,6 +631,14 @@ def build(out_base, want_stems=False):
         g = 10 ** (np.interp(np.arange(len(x)) / sr, pts_t, pts_v) / 20.0)
         return x * g[:, None] if x.ndim == 2 else x * g
 
+    def head_fade(x):
+        """1 ms in on the first samples: the opening hit starts from zero, so the loop (its ring-out added to the head) has no step at the wrap."""
+        n = int(0.001 * RATE)
+        x[:n] *= np.linspace(0.0, 1.0, n, endpoint=False)[:, None]
+        return x
+
+    m.master_fx.append(head_fade)
+    m.master_fx.append(stop_gaps)
     m.master_fx.append(lambda x: soft_clip(mono_below(dsp.highpass(dsp.highpass(x, 22), 22), 180.0)))
     m.master_fx.append(arc_env)   # after the soft clip, so the arc does not change the clipper's shape
 

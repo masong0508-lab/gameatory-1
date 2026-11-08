@@ -1,4 +1,4 @@
-/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, Street Jungle when the build has it, and the title
+/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, the radio edits when the build has them, and the title
    songs in place of its song 0 (radio.c, radiodec.s). */
 #ifndef RADIO_H
 #define RADIO_H
@@ -21,8 +21,9 @@ struct radio {
                                       skipped, so the next pick is another song */
     u8 keys;                       /* how many interrupts (20 ms) SELECT (low 4 bits) and R (high
                                       4 bits) have been held, up to 15: only the interrupt writes it */
-    u8 now;                        /* low 3 bits: the song playing, 1-3 Payback's songs 1, 2, 4, 4-6
-                                      their remixes, 7 Street Jungle; + 8 for every song the radio starts */
+    u8 now;                        /* low 5 bits: the song playing, 1-3 Payback's songs 1, 2, 4, 4-6
+                                      their remixes, 7 up the radio edits (the order of their table); + 32 for
+                                      every song the radio starts */
 };
 extern struct radio radio;
 

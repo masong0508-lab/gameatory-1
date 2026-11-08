@@ -20,6 +20,12 @@ a bar 128 (115 bars = 14720 ticks): every hit of both layers is placed at a whol
 only velocities vary), the samples play at their native speed and pitch, and tools/mkradio.py turns each tick into
 exactly one 480-sample stream segment (the game's own tick), so nothing is stretched anywhere. The silent lead-in of the
 percussive samples is skipped (romlayer.lead_bytes) so that their attack, like the synthesised hits', is on the row.
+
+No risers: nothing rises into a section. The original's sweep and riser samples (20, 21) are not played, the swelling
+chords and pads start at their full level (romlayer.swell_bytes), there are no synthesised risers, reverse cymbals or
+velocity crescendos; each lead-in is a stop-start fill instead: steady drum hits (equal velocity) and a short gap, in
+which everything stops, just before the downbeat's crash and impact (stop_fill). The song opens on a hit (crash, kick and the E5
+power chord on the first tick) and not on a swell.
 """
 import os
 import sys
@@ -114,7 +120,7 @@ GROUPS = {
     'stab': {8, 15, 11, 9},                      # struck chord stabs and the bass thump: the title hook
     'pluck': {2, 1},                             # the plucked figure (menu sequence) and the single-voice lead
     'vox': {31, 30, 26, 27, 28, 29},             # sustained voice-like pads / choir
-    'pad': {10, 18, 5, 3, 4, 6, 7, 16, 17, 19, 20, 21},   # drones, strings, riser, basses
+    'pad': {10, 18, 5, 3, 4, 6, 7, 16, 17, 19},   # drones, strings, basses (not the sweep 20 and the riser 21)
     'perc': {12, 13},                            # the title's percussion and break chops (ghost layer)
 }
 
@@ -126,12 +132,29 @@ def rms_ref(x, win=4410):
     return float(np.percentile(r, 90)) if len(r) else 1.0
 
 
+GAPS = []                       # (start, end) seconds of the stop-start gaps, everything is silent in them
+GAP = 0.24                      # 12 ticks: the last 1.5 sixteenths before a downbeat
+
+
+def stop_gaps(x):
+    """Silence in each gap, with 4 ms ramps (the second one ends on the downbeat's tick, so its attack is untouched)."""
+    g = np.ones(len(x))
+    r = int(0.004 * RATE)
+    for a, b in GAPS:
+        i, j = int(round(a * RATE)), int(round(b * RATE))
+        g[i + r:j - r] = 0.0
+        g[i:i + r] = np.minimum(g[i:i + r], np.linspace(1, 0, r, endpoint=False))
+        g[j - r:j] = np.minimum(g[j - r:j], np.linspace(0, 1, r, endpoint=False))
+    return x * g[:, None]
+
+
 def amp(x, drive):
     return np.tanh(drive * x) / np.tanh(drive)
 
 
 def build(rom, win=None):
     D = romlayer.Data(rom)
+    del GAPS[:]
     rom_out = romlayer.play(D, GROUPS)
     rng = np.random.default_rng(2027)
     m = mix.Mix(bpm=BPM, bars=NBARS, rate=RATE, title=TITLE, tail=3.5)
@@ -247,8 +270,19 @@ def build(rom, win=None):
         cnt['imp'] += 1
         tk['fx'].clip(t, synth.impact(2.8 + 0.2 * (cnt['imp'] % 3), v, [36.0, 41.2, 32.7][cnt['imp'] % 3]))
 
-    def revcym(t_end, dur, v=0.8):
-        tk['fx'].clip(t_end - dur, synth.reverse_cymbal(dur, v))
+    TOMS = [196.0, 164.81, 146.83, 130.81]
+
+    def stop_fill(b_end, dur, v=0.85):
+        """Lead-in to the downbeat of bar b_end (what a reverse cymbal or riser was): steady 8th-note toms with the kick,
+        all at the same velocity, over the last dur seconds (whole sixteenths), then a gap of GAP in which the whole mix stops."""
+        t_end = T(b_end)
+        n = int(round(dur / S16))
+        s0 = -n if n % 2 == 0 else -n - 1
+        for i, s in enumerate(range(s0, -2, 2)):
+            t = t_end + s * S16
+            tk['toms'].note(t, tom, hz=TOMS[i % 4], dur=0.3, vel=v)
+            hit_kick(t, 0.7)
+        GAPS.append((t_end - GAP, t_end))
 
     def power_hit(t, chord_name, dur, v, short=False):
         pw = CH[chord_name][0]
@@ -420,6 +454,8 @@ def build(rom, win=None):
     # ======================================================================== INTRO 0-8
     tk['pwr'].clip(0.0, synth.power_chord_guitar(hz('E2'), 3.6, 0.8, seed=11, decay=2.6))
     bass_at(0.0, 'E1', 2.5, 0.8)
+    crash_at(0.0, 0.9)                                              # the song opens on a hit, not on a swell
+    hit_kick(0.0, 0.95)
     for b in range(0, 9):
         clean_arp(b, 0.75 if b < 5 else 0.7, order=b)
         if b >= 1:
@@ -432,21 +468,20 @@ def build(rom, win=None):
         hit_kick(T(b, 8), 0.5, soft=True)
         hit_snare(T(b, 8), 0.5, soft=True)
         for s in range(0, 16, 4):
-            tk['hats'].hit(T(b, s), hat, 0.35 + 0.04 * (b - 5))
-    # ======================================================================== BUILD 9-10 (Edim, riser = ROM sample 21)
+            tk['hats'].hit(T(b, s), hat, 0.42)
+    # ======================================================================== BUILD 9-10 (Edim; the ROM riser is not played, a stop-start fill leads into bar 11)
     for b in (9, 10):
         clean_arp(b, 0.75, order=b)
         sub_hold(b, 1, 0.85)
         for s in (0, 4, 8, 12):
-            hit_kick(T(b, s), 0.62 + 0.06 * (b - 9) + 0.02 * s / 4, soft=True)
+            hit_kick(T(b, s), 0.7, soft=True)
         for s in range(0, 16, 2):
-            tk['hats'].hit(T(b, s), hat, 0.4 + 0.03 * s / 2 + 0.1 * (b - 9))
-        hit_snare(T(b, 8), 0.55 + 0.25 * (b - 9), soft=(b == 9))
+            tk['hats'].hit(T(b, s), hat, 0.55 if s % 4 == 0 else 0.4)
+        hit_snare(T(b, 8), 0.7, soft=(b == 9))
     for i, s in enumerate(range(0, 16, 2)):
-        chug_at(T(10, s), 'E2', 0.12, vj(0.7 + 0.04 * i, 0.9))
+        chug_at(T(10, s), 'E2', 0.12, vj(0.85, 0.9))
         bass_at(T(10, s), 'E1', 0.14, 0.7)
-    tk['fx'].clip(T(10, 0), synth.riser(BAR - S16, 0.7, f0=300.0, f1=8000.0, tone=0.3))
-    revcym(T(11), 1.6, 0.7)
+    stop_fill(11, 1.6)
     # ======================================================================== DRONE 11-14 (E5, N.C. bars 12 and 14 second half)
     for b in (11, 13):
         crash_at(T(b), 0.8 if b == 11 else 0.6)
@@ -493,7 +528,7 @@ def build(rom, win=None):
     # ======================================================================== GROOVE 1: orders 9-16 (bars 21-36)
     crash_at(T(21), 1.0)
     impact_at(T(21), 0.9)
-    revcym(T(21), 1.2, 0.6)
+    stop_fill(21, 1.2)
     for pas, oi in enumerate(range(9, 17)):
         groove_pos(oi, 0 if pas < 2 else 1, pas, [0.88, 0.92, 0.96, 1.0, 1.0, 1.0, 1.0, 1.0][pas], fill=(oi == 16))
     for b in (21, 25, 29, 33):
@@ -507,17 +542,17 @@ def build(rom, win=None):
         k = 'soft'
         if b >= 45:
             k = 'verse'
-        kit_bar(b, k, 0.45 + 0.03 * (b - 41), variant=b)
+        kit_bar(b, k, 0.45 + 0.08 * ((b - 41) // 4), variant=b)      # (a step every four bars, not a crescendo)
         if b >= 45:
             for s in ([2, 7, 8, 10, 14], [2, 3, 10, 13, 14], [2, 7, 10, 11, 14], [2, 3, 8, 13, 15])[b % 4]:
-                hit_kick(T(b, s), vj(0.36 + 0.02 * (b - 45), 0.75), soft=True)
+                hit_kick(T(b, s), vj(0.42 + 0.04 * ((b - 45) // 4), 0.75), soft=True)
                 bass_at(T(b, s), CH[BAR_CHORDS[b]][1], 0.2, vj(0.45, 0.8))
         else:
             hit_kick(T(b), 0.35, soft=True)
         tk['snare'].hit(T(b, 8), rim, 0.5)
-    for b in (49, 50, 51, 52):                                    # rising power chords into the chorus
-        power_hit(T(b), BAR_CHORDS[b], 2.4, 0.35 + 0.1 * (b - 49))
-    revcym(T(53), 2.0, 0.8)
+    for b in (49, 50, 51, 52):                                    # power chords into the chorus, all at the same level
+        power_hit(T(b), BAR_CHORDS[b], 2.4, 0.5)
+    stop_fill(53, 2.0)
     # ======================================================================== CHORUS 53-60 (orders 21-22: the pluck sequence)
     crash_at(T(53), 1.0)
     impact_at(T(53), 1.0)
@@ -574,12 +609,12 @@ def build(rom, win=None):
         power_hit(T(b), nm, 2.4, 0.9)
         sub_hold(b, 1, 0.9)
         for s in range(0, 16, 2):
-            chug_at(T(b, s), CH[nm][0], 0.12, vj(0.8 + 0.01 * s, 0.9))
+            chug_at(T(b, s), CH[nm][0], 0.12, vj(0.85, 0.9))
             hit_kick(T(b, s), vj(0.75, 0.85))
         hit_snare(T(b, 8), 0.9)
         for s in range(0, 16, 2):
             tk['hats'].hit(T(b, s), hat, vj(0.7 if s % 4 == 0 else 0.45, 0.8))
-    revcym(T(79), 1.6, 0.75)
+    stop_fill(79, 1.6)
     # ======================================================================== BREAK 79-94 (orders 32-39, half time)
     crash_at(T(79), 0.9)
     impact_at(T(79), 0.9)
@@ -616,7 +651,7 @@ def build(rom, win=None):
             crash_at(T(b0 + 1, 8), 0.5)
     crash_at(T(87), 0.9)
     impact_at(T(87), 0.8)
-    revcym(T(95), 1.8, 0.8)
+    stop_fill(95, 1.8)
     # ======================================================================== GROOVE 3: orders 40-47 (bars 95-110)
     crash_at(T(95), 1.0)
     impact_at(T(95), 1.0)
@@ -710,6 +745,7 @@ def crop(m, t0, t1):
         for k, pts in list(tr.autos.items()):
             tr.autos[k] = [(t - t0, v) for t, v in pts]
     m.length = t1 - t0
+    GAPS[:] = [(a - t0, b - t0) for a, b in GAPS if t0 <= a and b <= t1]
 
 
 SECGAIN = [(0, 5, -5.5), (5, 9, -4.5), (9, 11, -3.5), (11, 15, -3.5), (15, 19, -2.5), (19, 21, -1.5), (21, 37, 0.0),
@@ -836,6 +872,7 @@ def main():
         audit(m, tk, log, out_base)
     if win:
         crop(m, T(win[0]), T(win[1]))
+    m.master_fx.append(stop_gaps)
     m.master_fx.append(section_gain)
     m.master_fx.append(master_mono_low)
     if '--pre' in args:                       # save the pre-master mix (float32) for the master stage

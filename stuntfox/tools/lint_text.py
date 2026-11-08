@@ -74,6 +74,29 @@ def lint_stage2(path):
     return bad
 
 
+def lint_radio_names(root):
+    """src/radio.c's banner names of the radio edits: the ones tools/radedits.py lists, in its order, in letters of the font, short
+    enough that the banner ('RADIO: ' and the name, 6 pixels a letter, at x 8) clears the screen"""
+    sys.path.insert(0, HERE)
+    import radedits
+    src = open(os.path.join(root, 'src', 'radio.c')).read()
+    m = re.search(r'ed_names\[\]\s*=\s*\{(.*?)\};', src, re.S)
+    if not m:
+        return ['radio.c: no ed_names table']
+    names = re.findall(STRING, m.group(1))
+    want = [e[1] for e in radedits.EDITS]
+    bad = []
+    if names != want:
+        bad.append('radio.c: ed_names %r are not the names of tools/radedits.py %r' % (names, want))
+    for n in names + want:
+        odd = sorted({c for c in n if not 32 <= ord(c) <= 95})
+        if odd:
+            bad.append('radio.c: "%s" has letters the font lacks: %s' % (n, ' '.join(repr(c) for c in odd)))
+        if 8 + TEXT_W * len('RADIO: ' + n) > SCREEN_W - 4:
+            bad.append('radio.c: the banner "RADIO: %s" runs off the screen' % n)
+    return bad
+
+
 def repo_files(root):
     try:
         out = subprocess.run(['git', '-C', root, 'ls-files', '--cached', '--others', '--exclude-standard'],
@@ -108,9 +131,10 @@ def check(root, files):
     for f in stage2:
         bad += lint_stage2(f)
     bad += lint_names(root)
+    bad += lint_radio_names(root)
     if bad:
         sys.exit('\n'.join('lint_text: ' + b for b in bad) + '\nlint_text: failed')
-    return 'lint_text: OK, %d stage-2 files without the ticker, none over a limit; no model or tool names in the repo' \
+    return 'lint_text: OK, %d stage-2 files without the ticker, none over a limit; the radio banner names fit and are those of tools/radedits.py; no model or tool names in the repo' \
         % len(stage2)
 
 

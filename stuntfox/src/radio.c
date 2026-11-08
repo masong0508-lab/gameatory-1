@@ -1,10 +1,10 @@
-/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, six songs at random, and a seventh
-   when the player's build has Street Jungle (build.py --street-jungle).
+/* The car radio: Payback's songs 1, 2 and 4 and our remixes of them, six songs at random, and the radio
+   edits when the player's build has them (build.py --radio-edits: up to eleven short versions of tracker-module remixes).
 
    Payback's radio (0x08077464 on getting in, 0x08077498 every tick) picks 1 + random(n) and
-   plays it; the build makes that random(6), or random(7) with Street Jungle, and the play sf_play.
-   1-3 are Payback's own songs, 4-6 the remixes, 7 Street Jungle (as the RADIO option allows: it is
-   a remix, so ORIGINALS leaves it out). A remix is started as Payback's song of the
+   plays it; the build makes that random(6 + the edits), and the play sf_play.
+   1-3 are Payback's own songs, 4-6 the remixes, 7 and up the edits, in the order of their table (as the RADIO
+   option allows: they are remixes, so ORIGINALS leaves them out). A remix is started as Payback's song of the
    same number, so Payback's radio, pause, fades and scenes see a song playing as ever, but its
    sequencer is kept out (sf_seq) and its music pass gives way to radio_irq (sf_mus): the
    stream at the top of the cartridge (tools/mkradio.py), decoded into the music half of
@@ -17,9 +17,9 @@
    end the interrupt goes back to its start, the decoder set to the two samples the stream was coded
    from (a decoder that went on from where it ended would be off by what the end's rounding left, and
    the prediction carries that on): no seam, and Payback is never told the song ended (its menu would
-   start it over). Street Jungle loops the same way, but to a segment in the middle of its stream
-   (the loop's start), and plays on until the player skips it, gets out of the car or Payback starts
-   another song; it stands in for Payback's song SJ_AS. The credits
+   start it over). A radio edit is a stream like a remix's and ends the same way (it has a beginning, an ending
+   and a little silence after it of its own), so the radio goes on to the next song; it stands in for Payback's
+   song ED_AS. The credits
    are known by their text: every line the credits fetch goes through sf_credit_line, and under a
    second with none is the end of them (the djent eases out over the last half of it).
 
@@ -39,9 +39,11 @@
 #define PB_PLAY ((void (*)(int))0x08076c99)
 #define STREAMS ((const u32 *)0x09a00000)          /* magic, count, then {address, segments, song} */
 #define STREAMS_MAGIC 0x31444152
-#define SJ 7                       /* radio.now & 7: Street Jungle. With count 4 the table has its 5 words after the */
-#define SJ_AT (2 + 3 * 3)          /* three remixes' entries: address, segments, loop address, loop segments, the decoder's state at the loop */
-#define SJ_AS 1                    /* the song of Payback's it plays as (the sequencer is kept out; any of 1-3) */
+#define EDITS ((const u32 *)0x094fff00)           /* magic, count, then {address, segments, name} per edit (tools/mkradio.py) */
+#define EDITS_MAGIC 0x31444552
+#define ED_MAX 16
+#define NOW 31                     /* radio.now & NOW: the song (7 up are the edits), above it the count of songs started */
+#define ED_AS 1                    /* the song of Payback's it plays as (the sequencer is kept out; any of 1-3) */
 #define PB_RADIO_RAND ((int (*)(int))0x08077eb1)   /* the radio's own random(n): 0..n-1 (it draws 1 + random(6) with it) */
 #define TITLES ((const u32 *)0x09500000)          /* magic, count, then {address, segments, two samples, 0} */
 #define TITLES_MAGIC 0x31544954
@@ -58,15 +60,19 @@
 #define PB_BUF ((u8 *)0x02001514)  /* Payback's two sound buffers, 960 bytes each: effects, music */
 
 struct radio radio __attribute__((section(".radio")));
+#ifdef __arm__
+_Static_assert(sizeof(struct radio) == 20, "the radio state is all there is above STATE (merge.ld)");
+#endif
 static u8 cr_idle;                 /* interrupts left before the credits count as over, while their music plays */
 static u8 s0;                      /* the last song Payback's radio started was its song 0 */
 
 void radio_seg(u8 *out, struct radio *r, int vol);   /* radiodec.s */
 void pb_music(u8 *out);
 
-static int sj_on(void)
+/* the radio edits the build has, 0 for none */
+static int ed_n(void)
 {
-    return STREAMS[0] == STREAMS_MAGIC && STREAMS[1] == 4;
+    return EDITS[0] == EDITS_MAGIC && EDITS[1] <= ED_MAX ? EDITS[1] : 0;
 }
 
 static void quiet(u8 *out)
@@ -167,15 +173,7 @@ void radio_irq(u8 *out)
             r->vol = v - 1;
         }
         radio_seg(out, r, v);
-        if ((r->now & 7) != SJ)
-            end |= --r->left == ENDS_AT;
-        else if (!--r->left) {                 /* Street Jungle's end: back to its loop, never ended */
-            const u32 *j = STREAMS + SJ_AT;
-            r->p = (const u8 *)j[2];
-            r->left = j[3];
-            r->a = (s16)j[4] * v;
-            r->b = (s16)(j[4] >> 16) * v;
-        }
+        end |= --r->left == ENDS_AT;
         if (!vol)
             quiet(out);
         else if (r->fade & 1)
@@ -270,11 +268,11 @@ const char *sf_credit_line(int id)
 
 static void news(int now)
 {
-    radio.now = ((radio.now | 7) + 1) | now;
+    radio.now = ((radio.now | NOW) + 1) | now;
 }
 
-/* Payback's radio picks a song: 0 (a few vehicles and the menus), else 1 + random(6), or random(7) with Street Jungle
-   (the build makes that, as it finds Street Jungle's stream) */
+/* Payback's radio picks a song: 0 (a few vehicles and the menus), else 1 + random(6), or random(6 + the edits)
+   (the build makes that, as it finds the edits) */
 void sf_play(int n)
 {
     struct radio *r = &radio;
@@ -291,25 +289,26 @@ void sf_play(int n)
         REG_IME = ime;
         return;
     }
-    int sj = sj_on(), top = 6 + sj;
+    int ne = ed_n(), top = 6 + ne;
     if (n < 1 || n > top) {
         PB_PLAY(n);
         return;
     }
     int mode = r->mode & ~SKIP;
-    int t = n;                                 /* 1-3 Payback's songs, 4-6 their remixes, 7 Street Jungle */
-    if (mode == RADIO_ORIGINALS)               /* (Street Jungle's pick: one of the three, any) */
+    int t = n;                                 /* 1-3 Payback's songs, 4-6 their remixes, 7 up the edits */
+    if (mode == RADIO_ORIGINALS)               /* (an edit's pick: one of the three, any) */
         t = n > 6 ? 1 + PB_RADIO_RAND(3) : (n - 1) % 3 + 1;
-    else if (mode == RADIO_REMIXES)            /* (with Street Jungle, one of four, evenly) */
-        t = sj ? 4 + PB_RADIO_RAND(4) : (n - 1) % 3 + 4;
-    if ((r->mode & SKIP) && t == (r->now & 7)) {   /* a skip never lands on the song it left: the next of its group */
+    else if (mode == RADIO_REMIXES)            /* (with edits, one of 3 + the edits, evenly) */
+        t = ne ? 4 + PB_RADIO_RAND(top - 3) : (n - 1) % 3 + 4;
+    int cur = r->now & NOW;
+    if ((r->mode & SKIP) && t == cur) {        /* a skip never lands on the song it left: the next of its group */
         int lo = mode == RADIO_REMIXES ? 4 : 1, hi = mode == RADIO_ORIGINALS ? 3 : top;
         t = t == hi ? lo : t + 1;
     }
     r->mode = mode;
-    n = t == SJ ? SJ_AS : (t - 1) % 3 + 1;
-    const u32 *s = t == SJ ? STREAMS + SJ_AT : STREAMS + 2 + 3 * (n - 1);
-    if (t < 4 || STREAMS[0] != STREAMS_MAGIC || STREAMS[1] < 3) {
+    n = t > 6 ? ED_AS : (t - 1) % 3 + 1;
+    const u32 *s = t > 6 ? EDITS + 2 + 3 * (t - 7) : STREAMS + 2 + 3 * (n - 1);
+    if (t < 4 || (t < 7 && (STREAMS[0] != STREAMS_MAGIC || STREAMS[1] < 3))) {
         PB_PLAY(n);
         news(n);
         return;
@@ -378,6 +377,13 @@ const char *radio_mode_name(int m)
     return m == RADIO_ORIGINALS ? "RADIO: ORIGINALS" : m == RADIO_REMIXES ? "RADIO: REMIXES" : "RADIO: ALL SONGS";
 }
 
+/* the banner's names of the edits, in the order of tools/radedits.py EDITS (the table gives the index): letters of the font
+   (tools/lint_text.py checks them), 23 at most so that the banner clears the screen */
+static const char *const ed_names[] = {
+    "HARLEY MUSIC", "SPILT MILK", "GROOVY THING", "KNULLA KUK", "PELFORTH BLUES", "GUITAR SLINGER", "REVERIE OF TRUTH",
+    "GENERATION LOVE", "GROOVY ELEMENT", "OPERATION SEPTEMBER", "STREET JUNGLE"
+};
+
 /* the song's name for 2 s when one starts in a car: left, under the hearts, clear of Payback's
    HUD (the car's name at the top as you get in, the minimap, the stunt letters lower down). It
    is drawn into our picture, which Payback keeps behind its pause menu and dialogs: START puts
@@ -394,13 +400,17 @@ void radio_hud(int driving, int ticks, int start)
     if (!left)
         return;
     left = left > ticks ? left - ticks : 0;
-    int now = radio.now & 7;
+    int now = radio.now & NOW;
     if (!driving || !now)
         return;
-    char b[24], *p;
+    char b[40], *p;
     static const char num[3] = {'1', '2', '4'};
-    if (now == SJ) {
-        d_cat(b, "RADIO: STREET JUNGLE");
+    if (now > 6) {
+        p = d_cat(b, "RADIO: ");
+        const u32 *e = EDITS + 2 + 3 * (now - 7);
+        if (now - 6 > ed_n() || e[2] >= sizeof ed_names / sizeof *ed_names)
+            return;
+        d_cat(p, ed_names[e[2]]);
     } else {
         p = d_cat(b, "RADIO: SONG ");
         *p++ = num[(now - 1) % 3];

@@ -26,15 +26,24 @@ at 0x09500000 of the cartridge, 5 MiB; the build stops with an error if they eve
 Remix or Original, and the radio's ORIGINALS choice puts Payback's own song 0 back as well (the line keeps saying Remix then).
 Both are placed on song 0's own 20 ms tick grid (115 and 86 bars of 128 ticks, loops cut on a bar line) and each tick is
 exactly one 480-sample stream segment, so they run at song 0's tempo with nothing stretched.
-`--street-jungle FILE.mp3` (your own copy of the Street Jungle remix; needs ffmpeg, numpy and scipy) is optional: the radio
-gets a seventh song, "Street Jungle" (it counts as a remix: the RADIO choice REMIXES and ALL SONGS play it, ORIGINALS does
-not; SELECT + R skips it like any other). The MP3 is never copied into the repo; the build resamples it to Payback's mixing
-rate, sets it to the loudness of the radio's other songs and encodes it like them into the cartridge's free space just below
-the title songs (3 MiB, about 3.3 bits a sample, 28.5 dB SNR; `--street-jungle-kib` changes the room, 2090 KiB is the least).
-It loops: at the end of its last bar (313.84 s, `SJ_LOOP` in tools/mkradio.py) it goes back to 32.24 s, with no seam and
-the song never ends by itself (the 4.4 s ring-out after the loop is not in the stream). Without the option the radio is
-what it was. `tools/sj_check.py ROM [MP3]` decodes the stream on the PC and checks it; `tests/radio/run.py` tests the radio's
-choice of song on the PC. The free space below the title songs (the big map's, see its plan) is that much smaller.
+`--radio-edits DIR` (the folder with your own MP3 files of our tracker-module remixes; needs ffmpeg, numpy and scipy) is optional:
+the radio gets up to eleven more songs, short "radio edits" of Harley Music, Spilt Milk, Groovy Thing, Knulla Kuk, Pelforth
+Blues, Guitar Slinger, Reverie of Truth, Generation Love, Groovy Element, Operation September and Street Jungle (they count as
+remixes: the RADIO choice REMIXES and ALL SONGS play them, ORIGINALS does not; SELECT + R skips them like any other song, and the
+banner at the start of one names it). `tools/radedits.py` lists the file names it looks for (the GBA edition of each remix, the
+Remix v6 of Street Jungle) and where each is cut: a real beginning (the intro), the main section, for most a bridge or
+breakdown from the middle, the main section again where there is room, and the file's own ending, so every edit finishes and
+the radio goes on to the next song as it does after Payback's own. The cuts are on bar lines, a few ms before the bar, and
+crossfaded over 20 ms (the bars of these renders are a fixed length: 1.92 s for most). A file that is missing, or is not the one
+the cuts were made for (another length), is left out with a message. The MP3s are never copied into the repo; the build resamples
+each edit to Payback's mixing rate, sets it to the loudness of the radio's other songs and encodes it like them into the
+cartridge's free space just below the title songs (all together 5.5 MiB, about 2.3 bits a sample: 4 bits where the coding error
+would be largest, 2 bits elsewhere; `--radio-edits-kib` sets the room, the 2-bit floor of the edits is the least). The 11 edits
+are about 828 s. `--street-jungle FILE.mp3` gives the Street Jungle file by name instead of finding it in DIR. Without any
+the radio is what it was. `tools/edit_check.py ROM [DIR]` decodes the streams on the PC and checks them (the table, the
+extents, a silent beginning and end, and with the MP3 folder the SNR and the steps at the joins); `tests/radio/run.py` tests the
+radio's choice of song, skip, banner and the end of an edit on the PC. The free space below the title songs (the big map's, see its plan)
+is that much smaller.
 `--amiga DIR` (your own Amiga copy of Payback, the folder with `maps/`) is optional: the build reads its maps (never copied
 into the repo) to draw rivers and lakes as water and bridges as drivable decks, and adds a few stunt ramps in plazas of the
 city maps. Without it the world is what it always was, byte for byte. `tools/amiga_classify.py --amiga DIR` reports what it finds.

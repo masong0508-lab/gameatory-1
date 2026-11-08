@@ -289,7 +289,7 @@ def rename(d):
     return n
 
 
-def build_merge(payback, out, bps_out=None, remixes=True, amiga=None, street_jungle=None, sj_kib=mkradio.SJ_KIB):
+def build_merge(payback, out, bps_out=None, remixes=True, amiga=None, street_jungle=None, edit_kib=mkradio.EDIT_KIB, radio_edits=None):
     from paybackmod.rom import PaybackRom, NEW_BASE, OLD_TABLE_START, OLD_TABLE_END
     from paybackmod import bps
     os.makedirs(GEN, exist_ok=True)
@@ -482,37 +482,57 @@ def build_merge(payback, out, bps_out=None, remixes=True, amiga=None, street_jun
     except mkradio.Unavailable as e:
         print('radio: no title songs (%s); the title, the menus and the credits play Payback\'s own song 0' % e)
         titles = None
-    sj = None
-    if street_jungle:                          # Street Jungle, an MP3 of the player's (optional), below the title songs
+    edits, erep = None, None
+    files = {}
+    if radio_edits:                            # the radio edits: the MP3s of the player's in a folder (optional), below the title songs
+        import radedits
+        files = radedits.find(radio_edits)
+        print('radio: edit files found in %s: %s' % (radio_edits, ', '.join(sorted(files)) or 'none'))
+        for k in radedits.KEYS:
+            if k not in files:
+                print('radio: no file for edit %s (%s)' % (k, radedits.entry(k)[2]))
+    if street_jungle:                          # ... and Street Jungle as a file of its own
+        files['street'] = street_jungle
+    if files:
         try:
-            if not streams:
-                raise mkradio.Unavailable('the radio has no remixes in this build')
-            lufs = [v['lufs_original'] for v in rep['songs'].values()]   # (as loud as the radio's other songs)
-            sj, srep = mkradio.sj_blob(street_jungle, BUILD, sum(lufs) / len(lufs), sj_kib)
-        except mkradio.Unavailable as e:       # (asked for by name: no quiet going on without it)
-            raise SystemExit('--street-jungle: %s' % e)
-    top = int(srep['address'], 16) if sj else mkradio.TITLE_BASE
+            if streams:
+                lufs = [v['lufs_original'] for v in rep['songs'].values()]   # (as loud as the radio's other songs)
+            else:
+                lufs = list(mkradio.originals(payback).values())
+            edits, erep = mkradio.edits_blob(files, BUILD, sum(lufs) / len(lufs), edit_kib)
+        except (mkradio.Unavailable, ImportError) as e:
+            if street_jungle:                  # (asked for by name: no quiet going on without it)
+                raise SystemExit('--street-jungle: %s' % e)
+            print('radio: no edits (%s); the radio plays what it always did' % e)
+        if erep and street_jungle and 'street' in erep['skipped']:
+            raise SystemExit('--street-jungle: %s' % erep['skipped']['street'])
+    top = int(erep['address'], 16) if edits else mkradio.TITLE_BASE
     used = len(bytes(rom.d).rstrip(b'\0'))        # (the ROM is padded to 16 MiB: what is used is up to its last byte)
     free = top - GBA - used
     assert free >= 0, 'the code and worlds end at 0x%08x, past the radio streams at 0x%08x' % (GBA + used, top)
     print('rom: code and data end at 0x%08x, %d KiB free up to 0x%08x (the title songs' % (GBA + used, free // 1024, top)
-          + (' and Street Jungle)' if sj else ')'))
-    if sj:                                     # the radio picks among 7 songs: Payback's 1, 2, 4, their remixes, this one
+          + (' and the radio edits)' if edits else ')'))
+    if edits:                                  # the radio picks among 6 songs and the edits: Payback's 1, 2, 4, their remixes, these
+        n = len(erep['edits'])
         for site in MERGE_RADIO_PICKS:
-            struct.pack_into('<H', rom.d, site - GBA, 0x2007)
-        streams = mkradio.sj_table(streams, srep['words'])
+            struct.pack_into('<H', rom.d, site - GBA, 0x2000 + 6 + n)
     if streams:
         rom.d += bytes(ROM_SIZE - len(rom.d))
         rom.d[mkradio.BASE - GBA:mkradio.BASE - GBA + len(streams)] = streams
         print('radio: %d KiB of remixes at 0x%08x-%s, %s' % (len(streams) // 1024, mkradio.BASE, rep['end'],
               ', '.join('song %s %.2f bits/sample' % (n, v['bits_per_sample']) for n, v in rep['songs'].items())))
-    if sj:
-        a = int(srep['address'], 16) - GBA
-        assert not any(rom.d[a:a + len(sj)]) and a + len(sj) <= mkradio.TITLE_BASE - GBA
-        rom.d[a:a + len(sj)] = sj
-        print('radio: %d KiB of Street Jungle at 0x%08x-%s (loop from 0x%08x), %.2f bits/sample, %.1f dB snr; %d KiB free below it' % (
-              len(sj) // 1024, a + GBA, srep['end'], int(srep['loop_address'], 16), srep['bits_per_sample'], srep['snr_db'],
-              (a - used) // 1024))
+    if edits:
+        if len(rom.d) < ROM_SIZE:
+            rom.d += bytes(ROM_SIZE - len(rom.d))
+        a = int(erep['address'], 16) - GBA
+        assert not any(rom.d[a:mkradio.EDIT_TAB - GBA]) and mkradio.EDIT_TAB - GBA + 256 <= mkradio.TITLE_BASE - GBA
+        rom.d[a:a + len(edits)] = edits
+        rom.d[mkradio.EDIT_TAB - GBA:mkradio.EDIT_TAB - GBA + 256] = bytes.fromhex(erep['table'])
+        for e in erep['edits']:
+            print('radio: edit %-20s %6.1f s  %5d KiB  %.2f bits/sample (%d of %d segments at 4)  %.1f dB snr  at %s' % (
+                e['name'], e['seconds'], e['bytes'] // 1024, e['bits_per_sample'], e['four_bit'], e['segments'], e['snr_db'], e['address']))
+        print('radio: %d edits, %.1f s, %d KiB at 0x%08x-%s; %d KiB free below them' % (
+              n, erep['seconds'], len(edits) // 1024, a + GBA, erep['end'], (a - used) // 1024))
     if titles:
         rom.d += bytes(ROM_SIZE - len(rom.d)) if len(rom.d) < ROM_SIZE else b''
         rom.d[mkradio.TITLE_BASE - GBA:mkradio.TITLE_BASE - GBA + len(titles)] = titles
@@ -539,19 +559,22 @@ if __name__ == '__main__':
     ap.add_argument('--bps', help='with --merge: also write a BPS patch for the Payback ROM')
     ap.add_argument('--no-remixes', action='store_true', help="with --merge: the radio plays Payback's own songs "
                     'only (no remixes to render: quicker, needs no numpy or scipy)')
-    ap.add_argument('--street-jungle', metavar='FILE.mp3', help="with --merge: an MP3 of Street Jungle (your own copy; needs "
-                    "ffmpeg, numpy and scipy): a seventh song of the car radio, looping (tools/mkradio.py SJ_LOOP says where). "
-                    "Without it the radio plays what it always did")
-    ap.add_argument('--street-jungle-kib', type=int, default=mkradio.SJ_KIB, metavar='KIB',
-                    help='room for its stream in the cartridge (default %(default)s; about 2090 is the least: all at 2 bits a sample)')
+    ap.add_argument('--radio-edits', metavar='DIR', help="with --merge: the folder of your MP3 files of the tracker-module "
+                    "remixes (the names tools/radedits.py lists; needs ffmpeg, numpy and scipy): each one found becomes a short radio "
+                    "edit, a song of the car radio that ends (tools/radedits.py says where it is cut). A file that is missing, or "
+                    "is not the one the cuts were made for, is left out. Without any the radio plays what it always did")
+    ap.add_argument('--street-jungle', metavar='FILE.mp3', help="with --merge: your MP3 of Street Jungle (Remix v6), as a radio "
+                    "edit like those of --radio-edits (which finds it by its name in DIR)")
+    ap.add_argument('--radio-edits-kib', type=int, default=mkradio.EDIT_KIB, metavar='KIB',
+                    help='room for all the edits together in the cartridge (default %(default)s; the least is all of them at 2 bits a sample)')
     ap.add_argument('--amiga', metavar='DIR', help="with --merge: the folder of your Amiga Payback (the one with maps/): "
                     "water and bridges drawn as that game has them, and the stunt spots (needs nothing else; without it "
                     "the world is what it was)")
     a = ap.parse_args()
-    if a.street_jungle and not a.merge:
-        ap.error('--street-jungle needs --merge')
+    if (a.street_jungle or a.radio_edits) and not a.merge:
+        ap.error('--street-jungle and --radio-edits need --merge')
     if a.merge:
-        stats, size = build_merge(a.payback, a.out, a.bps, not a.no_remixes, a.amiga, a.street_jungle, a.street_jungle_kib)
+        stats, size = build_merge(a.payback, a.out, a.bps, not a.no_remixes, a.amiga, a.street_jungle, a.radio_edits_kib, a.radio_edits)
         print('wrote %s (Payback with Stunt Fox, %d KiB of code and data), world 0 %s' % (a.out, size // 1024, stats[0]))
     else:
         stats, size = build(a.payback, a.out)

@@ -53,94 +53,92 @@ TITLE_TICK = 882                 # samples of a render's tick at RATE (44100 / 5
 TITLE_LUFS_SONG = 0                # loudness of Payback's own song 0, as the radio's remixes are set to their originals'
 
 
-# Street Jungle (build.py --street-jungle FILE.mp3): a seventh song, a remix of a tracker module made outside the
-# game, so it cannot be rendered from the player's ROM and comes in as an MP3 the player supplies (never in the
-# repository). It sits below the title songs, in the cartridge's free space (it ends where they begin), and its
-# five words follow the three remixes' entries in the table at BASE. The file's music loops: at the end of its
-# last bar it goes back to SJ_LOOP[0]. Everything after the loop's end in the file (the 4.4 s ring-out) is not in
-# the stream.
-SJ_TOP = TITLE_BASE
-SJ_LOOP = (32.24, 313.84)          # seconds in the file: the loop's start, and its end, 176 bars of 1.6 s later (150 BPM,
-                                   # measured on the audio: the last drum fill ends on that bar line)
-SJ_KIB = 3072                      # its room: 3 MiB, 2 bits a sample would be 2.04 MiB and 4 bits 3.83
-SJ_WORDS = 5                       # {address, segments, loop address, loop segments, the decoder's state at the loop}
-SJ_AT = 2 + 3 * len(SONGS)         # its first word in the table at BASE
+# The radio edits (build.py --radio-edits DIR, tools/radedits.py): our tracker-module remixes, each cut down to a short
+# radio edit that ends, as MP3 files the player supplies (never in the repository). They sit below the title songs, in the
+# cartridge's free space (they end where the table of them begins), and a table of their own is the last 256 bytes
+# below the title songs: u32 EDIT_MAGIC, u32 count, then {u32 address, u32 segments, u32 the banner's name (an index into
+# radedits.EDITS)} per edit. Each is a plain stream from silence to silence, 20 ms to a segment; the radio ends it
+# (3 segments early) as it ends Payback's own songs and goes on to the next.
+EDIT_TAB = TITLE_BASE - 0x100
+EDIT_MAGIC = 0x31444552            # "RED1"
+EDIT_KIB = 5120                    # the room of all the edits together: 5 MiB (all at 2 bits a sample, 11 edits of about 75 s
+                                   # are 4.7 MiB; the rest goes to 4 bits where it matters most)
+EDIT_MAX = 16                      # (the table's, and radio.c's, limit)
+TAIL = 0.16                        # seconds of silence after an edit's ending
 
 
-def sj_load(path):
-    """the MP3 as mono floats at 44100 Hz, full scale 1.0 (ffmpeg decodes it, the two channels are averaged here)"""
+def edit_prepare(y44, lufs_to):
+    """(samples at Payback's rate as int16, report): an edit (mono floats at 44100 Hz) resampled, set to the loudness of the
+    radio's other songs under a peak ceiling (the ARM decoder has no clamp), and padded with silence to whole segments"""
     import numpy as np
-    try:
-        r = subprocess.run(['ffmpeg', '-v', 'error', '-i', path, '-vn', '-f', 'f32le', '-ac', '2', '-ar', '44100', '-'],
-                           capture_output=True, check=True)
-    except (OSError, subprocess.CalledProcessError) as e:
-        raise Unavailable('Street Jungle: ffmpeg did not decode %s (%s)' % (path, getattr(e, 'stderr', b'').decode()[-200:] or e))
-    x = np.frombuffer(r.stdout, np.float32).astype(np.float64).reshape(-1, 2).mean(axis=1)
-    if len(x) < int((SJ_LOOP[1] + 1) * 44100):
-        raise Unavailable('Street Jungle: %s is shorter than the loop (%.2f s)' % (path, SJ_LOOP[1]))
-    return x
-
-
-def sj_prepare(x44, lufs_to):
-    """(samples at Payback's rate as int16, loop segment, loop segments, report): the file resampled so that its loop
-    is a whole number of 480-sample segments (a change of at most 4 ppm in speed: the loop then ends on a segment
-    and the decoder goes back with no seam), silence in front so that the loop starts on one, cut where the loop
-    ends; at the loudness of the radio's other songs, with a peak ceiling (the ARM decoder has no clamp)."""
-    import numpy as np
-    from fractions import Fraction
     from scipy import signal
     sys.path.insert(0, MUSIC)
     import dsp
-    a, n = int(round(SJ_LOOP[0] * 44100)), int(round((SJ_LOOP[1] - SJ_LOOP[0]) * 44100))
-    m = int(round(n * RATE / 44100 / SEG))                     # segments in the loop
-    f = Fraction(m * SEG, n)
-    y = signal.resample_poly(x44[:a + n], f.numerator, f.denominator)
-    start = int(round(a * float(f)))                           # (the loop's first sample, to a sample)
-    pad = -start % SEG
-    y = np.concatenate([np.zeros(pad), y[:start + m * SEG]])
-    assert len(y) % SEG == 0
+    y = signal.resample_poly(y44, 12001, 22050)                # 44100 -> 24002 Hz
+    y = np.concatenate([y, np.zeros(int(TAIL * RATE))])
+    y = np.concatenate([y, np.zeros(-len(y) % SEG)])
     g = 10 ** ((lufs_to - dsp.loudness_lufs(y, rate=RATE)) / 20)
     g = min(g, TITLE_CEIL / max(1e-9, np.abs(y).max()))
     x = np.clip(np.round(y * g * 32768), -32768, 32767).astype(np.int16)
-    rep = dict(seconds=round(len(x) / RATE, 2), loop_seconds=round(m * SEG / RATE, 2), gain_db=round(20 * np.log10(g), 2),
-               lufs_to=round(lufs_to, 2), rate=round(44100 * float(f), 2),
-               peak_dbfs=round(20 * np.log10(max(1, np.abs(x).max()) / 32768), 2), front_silence_ms=round(1000 * pad / RATE, 1))
-    return x, (pad + start) // SEG, m, rep
+    rep = dict(seconds=round(len(x) / RATE, 2), gain_db=round(20 * np.log10(g), 2), lufs_to=round(lufs_to, 2),
+               peak_dbfs=round(20 * np.log10(max(1, np.abs(x).max()) / 32768), 2))
+    return x, rep
 
 
-def sj_sources():
-    return open(__file__, 'rb').read() + open(os.path.join(HERE, 'radenc.c'), 'rb').read()
+def edits_sources():
+    return b''.join(open(os.path.join(HERE, f), 'rb').read() for f in ('mkradio.py', 'radenc.c', 'radedits.py'))
 
 
-def sj_blob(path, build, lufs_to, kib=SJ_KIB):
-    """(bytes, report) for the stream of Street Jungle, whose room is kib KiB: it ends where the title songs begin, so its
-    address (report['address'], the first byte of the bytes) is what the table at BASE needs. 2 or 4 bits a segment,
-    the least error that fits. Unavailable when it cannot be made here."""
+def edits_blob(files, build, lufs_to, kib=EDIT_KIB):
+    """(bytes, report) for the edits of files ({key: path of the MP3}, keys of radedits.EDITS), whose room is kib KiB in all:
+    the bytes end at EDIT_TAB (report['address'] is where the first byte goes) and report['table'] is the 256 bytes of
+    their table for EDIT_TAB. 2 or 4 bits a segment, the least error that fits, one slope for all of them. An edit whose
+    file is not the one the cuts were made for is left out (report['skipped']). Unavailable when none can be made."""
     try:
         import numpy as np
         import scipy.signal    # noqa: F401
     except ImportError as e:
-        raise Unavailable('%s (Street Jungle needs numpy and scipy)' % e)
-    key = _hash(open(path, 'rb').read(), sj_sources(), repr((SJ_LOOP, kib, round(lufs_to, 3), RATE)))
-    cache = os.path.join(build, 'radio', 'sj-%s' % key)
+        raise Unavailable('%s (the radio edits need numpy and scipy)' % e)
+    sys.path.insert(0, HERE)
+    import radedits
+    keys = [k for k in radedits.KEYS if k in files]
+    if not keys:
+        raise Unavailable('no edit files')
+    key = _hash(b''.join(open(files[k], 'rb').read() for k in keys), edits_sources(), repr((keys, kib, round(lufs_to, 3), RATE)))
+    cache = os.path.join(build, 'radio', 'edits-%s' % key)
     if os.path.exists(cache + '.bin'):
         return open(cache + '.bin', 'rb').read(), json.load(open(cache + '.json'))
     lib = _lib(build)
-    x, ls, m, rep = sj_prepare(sj_load(path), lufs_to)
-    nseg = len(x) // SEG
-    assert nseg == ls + m
-    e = np.zeros(2 * nseg, np.int64)
-    lib.radenc_errors(_p(x, ctypes.c_int16), len(x), _p(e, ctypes.c_int64))
-    D = e.reshape(-1, 2).astype(np.float64)
+    xs, D, skipped, made = [], [], {}, []
+    for k in keys:
+        try:
+            y, info = radedits.make(k, files[k])
+        except radedits.Missing as e:
+            skipped[k] = str(e)
+            print('radio: edit %s left out: %s' % (k, e), flush=True)
+            continue
+        x, rep = edit_prepare(y, lufs_to)
+        e = np.zeros(2 * (len(x) // SEG), np.int64)
+        lib.radenc_errors(_p(x, ctypes.c_int16), len(x), _p(e, ctypes.c_int64))
+        xs.append(x)
+        D.append(e.reshape(-1, 2).astype(np.float64))
+        rep.update(key=k, name=radedits.entry(k)[1], pieces=info['pieces'], joins=info['joins'],
+                   cuts=[round(c / radedits.IN_RATE, 3) for c in info['cuts']], id=radedits.KEYS.index(k))
+        made.append(rep)
+    if not made:
+        raise Unavailable('none of the edit files is the one its cuts were made for')
+    if len(made) > EDIT_MAX:
+        raise Unavailable('more edits than the table holds')
+    room = kib * 1024 - len(made) * 16 - 256
+    Dall = np.concatenate(D)
     R = np.array([seg_bytes(2), seg_bytes(4)], np.float64)
-    room = kib * 1024 - 16 - 3                                 # (the address is aligned down to 16)
+    if R[0] * len(Dall) > room:
+        raise Unavailable('the radio edits: %d KiB is less than their %d KiB at 2 bits a sample' % (kib, R[0] * len(Dall) // 1024))
 
     def pick(lam):
-        return np.argmin(D + lam * R, axis=1)
-    if R[0] * nseg > room:
-        raise Unavailable('Street Jungle: %d KiB is less than its %d KiB at 2 bits a sample' % (kib, R[0] * nseg // 1024))
-    if R[1] * nseg <= room:
-        choice = np.ones(nseg, int)
+        return np.argmin(Dall + lam * R, axis=1)
+    if R[1] * len(Dall) <= room:
+        choice = np.ones(len(Dall), int)
     else:
         lo, hi = 0.0, 1.0
         while R[pick(hi)].sum() > room:
@@ -149,37 +147,49 @@ def sj_blob(path, build, lufs_to, kib=SJ_KIB):
             mid = (lo + hi) / 2
             lo, hi = (mid, hi) if R[pick(mid)].sum() > room else (lo, mid)
         choice = pick(hi)
-    bits = np.where(choice == 1, 4, 2).astype(np.uint8)
-    bits[[g for g in PLAIN.get('sj', ()) if g < nseg]] = 2
-    out = np.zeros(nseg * seg_bytes(4), np.uint8)
-    rec = np.zeros(len(x), np.int16)
-    nb = lib.radenc_encode(_p(x, ctypes.c_int16), len(x), _p(bits, ctypes.c_uint8), _p(out, ctypes.c_uint8), _p(rec, ctypes.c_int16))
-    data = out[:nb].tobytes()
-    sizes = np.where(bits == 4, seg_bytes(4), seg_bytes(2))
-    loop_off = int(sizes[:ls].sum())                           # (the loop's first segment, in bytes)
-    base = (SJ_TOP - len(data)) & ~15
-    a0, b0 = int(rec[ls * SEG - 1]), int(rec[ls * SEG - 2])    # the decoder's state going into the loop: the same on every pass
-    r, d = x.astype(np.float64), rec.astype(np.float64) - x
-    rep.update(address='0x%08x' % base, end='0x%08x' % (base + len(data)), bytes=len(data), segments=int(nseg),
-               loop_segment=int(ls), loop_address='0x%08x' % (base + loop_off), loop_segments=int(m), loop_state=[a0, b0],
-               bits_per_sample=round(nb * 8 / len(x), 3), four_bit=int((bits == 4).sum()),
-               snr_db=round(10 * np.log10(np.sum(r * r) / max(np.sum(d * d), 1)), 2),
-               seam_error=int(abs(int(rec[-1]) - int(rec[ls * SEG - 1]))), seam_step=int(abs(int(rec[ls * SEG]) - int(rec[-1]))),
-               source_seam_step=int(abs(int(x[ls * SEG]) - int(x[-1]))))
-    rep['words'] = [base, int(nseg), base + loop_off, int(m), (a0 & 0xffff) | (b0 & 0xffff) << 16]
-    _drop(os.path.join(build, 'radio', 'sj-*'))
+    # the codes are plain bytes in the cartridge: a segment that spells a name the repository keeps out (tools/lint_text.py) is
+    # coded the other way (2 bits for 4 or the reverse: the next 20 ms differ, nobody hears it) until none does
+    import lint_text
+    flip = set()
+    for _ in range(40):
+        blobs, k0, bad = [], 0, []
+        for i, x in enumerate(xs):
+            n = len(x) // SEG
+            bits = np.where(choice[k0:k0 + n] == 1, 4, 2).astype(np.uint8)
+            for g in flip:
+                if k0 <= g < k0 + n:
+                    bits[g - k0] = 6 - bits[g - k0]
+            out = np.zeros(n * seg_bytes(4), np.uint8)
+            rec = np.zeros(len(x), np.int16)
+            nb = lib.radenc_encode(_p(x, ctypes.c_int16), len(x), _p(bits, ctypes.c_uint8), _p(out, ctypes.c_uint8), _p(rec, ctypes.c_int16))
+            blobs.append((out[:nb].tobytes(), bits, rec))
+            ends = np.cumsum(np.where(bits == 4, seg_bytes(4), seg_bytes(2)))
+            for m in lint_text.NAMES.finditer(blobs[-1][0].decode('latin-1')):
+                bad.append(k0 + int(np.searchsorted(ends, m.start(), side='right')))
+            k0 += n
+        if not bad:
+            break
+        flip.symmetric_difference_update(bad)
+    else:
+        raise Unavailable('the radio edits spell a banned word in their codes')
+    data = b''.join(b for b, _, _ in blobs)
+    base = (EDIT_TAB - len(data)) & ~15
+    tab = struct.pack('<II', EDIT_MAGIC, len(made))
+    at = base
+    for rep, x, (b, bits, rec) in zip(made, xs, blobs):
+        r, d = x.astype(np.float64), rec.astype(np.float64) - x
+        rep.update(address='0x%08x' % at, bytes=len(b), segments=len(x) // SEG, bits_per_sample=round(len(b) * 8 / len(x), 3),
+                   four_bit=int((bits == 4).sum()), snr_db=round(10 * np.log10(np.sum(r * r) / max(np.sum(d * d), 1)), 2),
+                   end_silence_segments=int(len(x) // SEG - 1 - np.nonzero(np.abs(x.reshape(-1, SEG)).max(axis=1) > 64)[0][-1]))
+        tab += struct.pack('<III', at, len(x) // SEG, rep['id'])
+        at += len(b)
+    assert at == base + len(data) and base + len(data) <= EDIT_TAB
+    rep = dict(edits=made, skipped=skipped, address='0x%08x' % base, end='0x%08x' % (base + len(data)), bytes=len(data),
+               seconds=round(sum(m['seconds'] for m in made), 1), table=tab.ljust(256, b'\0').hex())
+    _drop(os.path.join(build, 'radio', 'edits-*'))
     open(cache + '.bin', 'wb').write(data)
     json.dump(rep, open(cache + '.json', 'w'), indent=1)
     return data, rep
-
-
-def sj_table(streams, words):
-    """the table at BASE with Street Jungle in it: count 4, its five words after the three remixes' entries"""
-    head = bytearray(streams[:HEAD])
-    assert struct.unpack_from('<II', head) == (MAGIC, len(SONGS)) and not any(head[4 * SJ_AT:]), 'the table has no room'
-    struct.pack_into('<I', head, 4, len(SONGS) + 1)
-    struct.pack_into('<%dI' % SJ_WORDS, head, 4 * SJ_AT, *words)
-    return bytes(head) + streams[HEAD:]
 
 
 def _hash(*parts):

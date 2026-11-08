@@ -25,6 +25,8 @@ import render  # noqa: E402
 RATE = 44100
 UP = 4
 TICK = 0.02
+SKIP_RISE = True                 # no volume or pitch ramps up in the original's note data (flatten_rises)
+SKIP_SWELL = True                # start the swelling chord / pad samples at their full level (swell_bytes): no riser
 TRIM_LEADIN = True               # skip the silent lead-in of percussive samples (see lead_bytes); False: play from the first byte
 SCALE = 0.02 / (1.0 / render.GAME_CALL_RATE)     # nominal seconds per sequencer second (1.00007)
 
@@ -67,12 +69,108 @@ def lead_bytes(song, rate=8287.1, keep_ms=1.0):
     return out
 
 
+def swell_bytes(song, rate=8287.1, frac=0.9, min_s=0.3):
+    """{sample number: bytes} to skip at the start of each plain trigger of the samples that swell: chords and pads whose
+    energy envelope (20 ms RMS) needs more than min_s to reach frac of its peak (the chords 3-7 and 17 of the intro and
+    outro, the strings 18, the choirs and voices 26-31). The sample then starts at its full level, a hit that holds
+    instead of a chord that rises. Left alone: 11, the groove's struck chord (its bloom is cut by the next row anyway),
+    and 20 and 21, the sweep and the riser, which the title scripts do not play at all."""
+    out = {}
+    k = max(1, int(round(rate * 0.02)))
+    for smp in song.samples:
+        if not smp.length or smp.number in (11, 20, 21):
+            continue
+        x = smp.pcm().astype(np.float64)
+        n = len(x) // k
+        if n < 4:
+            continue
+        e = np.sqrt((x[:n * k].reshape(n, k) ** 2).mean(1))
+        e = np.convolve(e, np.ones(5) / 5, 'same')
+        if e.max() <= 0:
+            continue
+        i = int(np.argmax(e >= frac * e.max()))
+        if i * 0.02 > min_s:
+            out[smp.number] = int(min(i * k, 0.8 * rate))
+    return out
+
+
+def _runs_up(x, a, b, plateau=64):
+    """[(i, j)] of the rising runs of x[a:b]: x[i] < ... <= x[j] with no fall and no flat stretch longer than plateau steps."""
+    out = []
+    i = a
+    while i < b - 1:
+        if x[i + 1] > x[i]:
+            j, last, flat = i + 1, i + 1, 0
+            while j + 1 < b and x[j + 1] >= x[j]:
+                flat = 0 if x[j + 1] > x[j] else flat + 1
+                if flat > plateau:
+                    break
+                j += 1
+                if flat == 0:
+                    last = j
+            out.append((i, last))
+            i = last
+        else:
+            i += 1
+    return out
+
+
+def flatten_rises(steps, rows, min_dvol=6, min_vol_s=0.4, min_semis=1.5, min_pitch_s=0.3):
+    """No risers in the original's note data. The song builds its swells with hand-drawn volume ramps (a C-effect on every
+    row, A-slides), pitch slides (1xx, 3xx) and the riser and sweep samples (20, 21). On the sequencer's output (the
+    steps of render.sequence: per tick and channel the trigger, frequency, volume), per voice:
+      a volume ramp up of at least min_dvol (of 64) over min_vol_s or more (flat stretches up to 1.3 s belong to it) starts
+      at the ramp's end level: the voice hits and holds instead of swelling;
+      a pitch glide up of at least min_semis over min_pitch_s or more holds its starting pitch (and the rest of the
+      voice follows at that pitch).
+    Falls are kept, so are tremolo pulses and vibrato (their ramps are shorter) and all the notes (triggers)."""
+    n = len(steps)
+    tick = steps[1][0] - steps[0][0]
+    outs = [list(s[2]) for s in steps]
+    rep = {'vol': 0, 'pitch': 0, 'runs': []}   # runs: (kind, channel, start s, end s) of what was taken out
+    for k in range(4):
+        v = np.array([o[k][2] for o in outs], np.float64)
+        f = np.array([o[k][1] for o in outs], np.float64)
+        starts = [0] + [i for i in range(1, n) if outs[i][k][0] is not None and outs[i][k][0][0] != 'seek'] + [n]
+        for a, b in zip(starts[:-1], starts[1:]):
+            for i, j in _runs_up(v, a, b):
+                if v[j] - v[i] >= min_dvol and (j - i) * tick >= min_vol_s:
+                    v[i:j + 1] = v[j]                 # the voice hits at the ramp's end level and holds
+                    rep['vol'] += 1
+                    rep['runs'].append(('vol', k, steps[i][0], steps[j][0]))
+            for i, j in _runs_up(f, a, b):
+                if f[i] > 0 and f[j] / f[i] >= 2 ** (min_semis / 12) and (j - i) * tick >= min_pitch_s:
+                    f[i:b] *= f[i] / f[j]
+                    rep['pitch'] += 1
+                    rep['runs'].append(('pitch', k, steps[i][0], steps[j][0]))
+        for i in range(n):
+            t = outs[i][k]
+            outs[i][k] = (t[0], float(f[i]), int(v[i]), t[3], t[4])
+    return [(s[0], s[1], o) for s, o in zip(steps, outs)], rep
+
+
+_sequence = render.sequence
+
+
+def sequence_no_rises(song, flavour='payback', start_order=0, game_pitch=False, max_seconds=None):
+    """render.sequence with the rises of flatten_rises taken out (installed as render.sequence below)."""
+    steps, rows, notes, ended, total = _sequence(song, flavour, start_order, game_pitch, max_seconds)
+    if SKIP_RISE and steps:
+        steps, _ = flatten_rises(steps, rows)
+    return steps, rows, notes, ended, total
+
+
+render.sequence = sequence_no_rises
+
+
 class Data:
     """The song's note events and section map on the nominal timeline."""
 
     def __init__(self, rom):
         self.song = nominal_song(rom)
         self.lead = lead_bytes(self.song) if TRIM_LEADIN else {}
+        if SKIP_SWELL:
+            self.lead.update(swell_bytes(self.song))
         self.steps, self.rows, notes, self.ended, total = render.sequence(self.song, 'payback')
         self.total = total * SCALE
         self.notes = notes
