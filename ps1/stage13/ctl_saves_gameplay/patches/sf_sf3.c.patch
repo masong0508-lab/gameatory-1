@@ -1,0 +1,19 @@
+--- ../s10_boot/sf/sf3.c	2026-11-15 04:54:22.821656424 +0000
++++ sf/sf3.c	2026-11-15 16:37:47.733538926 +0000
+@@ -1035,6 +1035,7 @@
+ u32 sf3_hash;
+ s32 sf3_score, sf3_hp, sf3_clock; u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames, sf3_stat_gpu;
+ static int sf3_have; int sf3_hide_player;
++u32 sf3_w_lba, sf3_w_len;   /* stage 13: first sector / byte length of the loaded map's world file (read-only data in the renderer window): rt.c re-reads a slice of it after a cold-code overlay hit it */
+ u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; static int cam_first = 1;
+ /* stage 7: load map n (0..10) from SF3M.BIN on the CD: world, atlas (VRAM upload), side tables.  Runs between frames (the primitive buffer is the upload buffer).
+    Returns 0, or -1 with the old map still in place if the header or the world magic is wrong. */
+@@ -1043,7 +1044,7 @@
+   sf3_cd_read(CD_SF3W_LBA, 1, sf_tmp);
+   const u32 *hd = (const u32 *)sf_tmp; if (hd[0] != 0x4d334653 || hd[1] != 11) { dbg("SF3M bad header\n"); return -1; }
+   const u32 *e = hd + 2 + 8 * n; u32 first = e[0], wsec = e[1], asec = e[2], sbytes = e[3], sx = e[4], sy = e[5], sz = e[6];
+-  u32 lba = CD_SF3W_LBA + first;
++  u32 lba = CD_SF3W_LBA + first; sf3_w_lba = lba; sf3_w_len = wsec * 2048;
+   sf3_cd_read(lba, wsec, (u8 *)SF_WORLD);
+   if (*(const u32 *)SF_WORLD != 0x57334653) { dbg("SF3W bad magic\n"); return -1; }
+   sf3_cd_read(lba + wsec + asec, (sbytes + 2047) / 2048, sf_tmp); { u32 nf = sbytes - 8192; for (u32 i = 0; i < nf; i++) ((u8 *)SF_SIDE)[i] = sf_tmp[i]; if (!sf3_map_loads) for (u32 i = 0; i < 4096; i++) sint_tab[i] = ((const s16 *)(sf_tmp + nf))[i]; }

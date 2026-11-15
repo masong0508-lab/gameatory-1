@@ -1,0 +1,448 @@
+--- /mnt/project-files/stunt-fox/ps1/stage4/sf/sf3.c	2026-11-13 17:54:49.566261000 +0000
++++ sf/sf3.c	2026-11-13 18:51:05.490538682 +0000
+@@ -1,6 +1,15 @@
+ /* sf.c: Stage 2b. Star-FlyBack / Stunt Fox world (Freedom City) drawn by the PS1 GPU, GTE projection, painter's OT.
+    One translation unit, no SDK.  Data (WORLD.SFW, ATLAS.VRM, CLUT.BIN, SIDE.BIN, FONT.VRM) is linked in by data.s. */
+ #include "ps1.h"
++#ifdef PROF
++#define TK() TICKS8()          /* PROFILE build: per-section timers (1/270 line) */
++#define PHT() HLINES()
++#define CNT(x) ((x)++)
++#else
++#define CNT(x) ((void)0)
++#define TK() 0
++#define PHT() 0
++#endif
+ 
+ #ifndef ERRPX
+ #define ERRPX 2
+@@ -17,6 +26,12 @@
+ #ifndef DEBUG_UNDERLAY
+ #define DEBUG_UNDERLAY 0
+ #endif
++#ifndef FIELDS
++#define FIELDS 2                /* 30 fps: budget = FIELDS * 263 - 70 hblank lines (emulator lines) */
++#endif
++#ifndef LODCALM
++#define LODCALM 75
++#endif
+ #ifndef REACH
+ #define REACH 12288
+ #endif
+@@ -73,7 +88,7 @@
+ static int ovf;           /* primitive pool overflow counter */
+ static int lod;           /* adaptive level of detail 0..3 */
+ static int g_bg;          /* 1: textured packets go to the background list (ground) */
+-static int nprim; static u32 t_rect, t_clipt, t_qoff, t_qf; static u32 t_cb, t_cr, t_ct, t_sec; static int dbgcell; static u32 t_gc, t_gc01; static u32 g_leaf, g_proj, g_clip, g_cleaf; static u32 c_box, c_ramp, c_tree, c_proj, c_clip, c_rect, c_gcell, c_leaf, c_cleaf, c_cells, c_cullcell; static u32 ph_sky, ph_gnd, ph_city, ph_hud;
++static int nprim; static u32 t_rect, t_clipt, t_qoff, t_qf; static u32 t_cb, t_cr, t_ct, t_sec; static int dbgcell; static u32 t_pa, t_pb, t_pc, t_pd, t_pe, t_pf; static u32 t_gc, t_gc01, t_wg, t_fw, t_top, t_in, c_wg, c_wcell, c_wq, c_wf; static u32 g_leaf, g_proj, g_clip, g_cleaf; static u32 c_box, c_ramp, c_tree, c_proj, c_clip, c_rect, c_gcell, c_leaf, c_cleaf, c_cells, c_cullcell; static u32 ph_sky, ph_gnd, ph_city, ph_hud;
+ #define ADDR(p) ((u32)(p) & 0xFFFFFF)
+ 
+ static void list_begin(int c) {
+@@ -126,11 +141,16 @@
+ static inline int absi(int v) { return v < 0 ? -v : v; }
+ typedef struct { s16 sx, sy, z, st; } PV;     /* z = real depth, 0 when not computable */
+ static inline void proj(s32 x, s32 y, s32 z, PV *o) {
+-  c_proj++;
++  CNT(c_proj);
+   s32 dx = (x << 2) - cpx6, dy = (y << 2) - cpy6, dz = (z << 2) - cpz6; int sh = 2;
+   if (absi(dx) >= TIER_Q || absi(dy) >= TIER_Q || absi(dz) >= TIER_Q) {   /* same rule as grid_tex fast path: shared vertices round identically */
+     dx = x - cpx8; dy = y - cpy8; dz = z - cpz8; sh = 0;
+-    if (((u32)(dx + 18000) | (u32)(dy + 18000) | (u32)(dz + 18000)) >= 36000u) { o->z = 0; o->sx = 0; o->sy = 0; return; }
++#ifdef OLDCLIP
++    if (((u32)(dx + 18000) | (u32)(dy + 18000) | (u32)(dz + 18000)) >= 36000u)
++#else
++    if (((u32)(dx + 32768) | (u32)(dy + 32768) | (u32)(dz + 32768)) >= 65536u)   /* stage5 clipfix: each |d| < 32768 (old 18000 bound was an OR of offsets, wrong for valid far vertices) */
++#endif
++    { o->z = 0; o->sx = 0; o->sy = 0; return; }
+   }
+   MTC2(0, (dx & 0xffff) | ((u32)dy << 16)); MTC2(1, dz);
+   GTE(RTPS);
+@@ -225,7 +245,7 @@
+ #define PLANE(pl, v, nz) (PLN[pl][0] * (v)->x + PLN[pl][1] * (v)->y + PLN[pl][2] * (v)->z - ((pl) == 0 ? (nz) : 0))
+ static inline s32 plane(int i, const CV *v, int nearz) { return PLN[i][0] * v->x + PLN[i][1] * v->y + PLN[i][2] * v->z - (i == 0 ? nearz : 0); }
+ static int clip_poly(const CV *in, int n, CV *out, int nearz, int useuv) {
+-  c_clip++;
++  CNT(c_clip);
+   CV a[MAXCV], b[MAXCV]; int na = n, nb;
+   s32 mn[5] = { 0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff }, mx[5] = { -0x7fffffff, -0x7fffffff, -0x7fffffff, -0x7fffffff, -0x7fffffff };
+   for (int i = 0; i < n; i++) { a[i] = in[i];
+@@ -235,9 +255,10 @@
+   for (int pl = 0; pl < 5; pl++) {
+     if (mn[pl] >= 0) continue;
+     nb = 0;
++    s32 dv[MAXCV]; for (int i = 0; i < na; i++) dv[i] = plane(pl, &src[i], nearz);   /* one plane value per vertex (was two per edge) */
+     for (int i = 0; i < na; i++) {
+-      const CV *p = &src[i], *q = &src[(i + 1) % na];
+-      s32 dp = plane(pl, p, nearz), dq = plane(pl, q, nearz);
++      int i1 = i + 1 == na ? 0 : i + 1; const CV *p = &src[i], *q = &src[i1];
++      s32 dp = dv[i], dq = dv[i1];
+       if (dp >= 0 && nb < MAXCV) dst[nb++] = *p;
+       if ((dp >= 0) != (dq >= 0) && nb < MAXCV) {
+         s32 num = dp, den = dp - dq;
+@@ -263,7 +284,7 @@
+ }
+ /* a textured polygon of up to 4 world points (order TL,TR,BR,BL as a ring) with uv in texels, clipped and emitted as a fan */
+ static void clip_emit_tex2(const V3 *w, const int *uv, int n, int bk, u32 cmd, u32 clut, u32 tp, int ubase, int vbase);
+-static void clip_emit_tex(const V3 *w, const int *uv /* u,v pairs */, int n, int bk, u32 cmd, u32 clut, u32 tp, int ubase, int vbase) { u32 t0 = TICKS8(); clip_emit_tex2(w, uv, n, bk, cmd, clut, tp, ubase, vbase); t_clipt += (TICKS8() - t0) & 0xffff; }
++static void clip_emit_tex(const V3 *w, const int *uv /* u,v pairs */, int n, int bk, u32 cmd, u32 clut, u32 tp, int ubase, int vbase) { u32 t0 = TK(); clip_emit_tex2(w, uv, n, bk, cmd, clut, tp, ubase, vbase); t_clipt += (TK() - t0) & 0xffff; }
+ static void clip_emit_tex2(const V3 *w, const int *uv, int n, int bk, u32 cmd, u32 clut, u32 tp, int ubase, int vbase) {
+ #ifdef NOCLIP
+   return;
+@@ -298,7 +319,7 @@
+ }
+ /* flat quad TL,TR,BL,BR (Z order) in the world; GTE when clean */
+ static void quad_flat2(V3 a, V3 b, V3 c, V3 d, u32 rgb, int key, int bg);
+-static void quad_flat(V3 a, V3 b, V3 c, V3 d, u32 rgb, int key, int bg) { u32 t0 = TICKS8(); quad_flat2(a, b, c, d, rgb, key, bg); t_qf += (TICKS8() - t0) & 0xffff; }
++static void quad_flat(V3 a, V3 b, V3 c, V3 d, u32 rgb, int key, int bg) { u32 t0 = TK(); quad_flat2(a, b, c, d, rgb, key, bg); t_qf += (TK() - t0) & 0xffff; }
+ static void quad_flat2(V3 a, V3 b, V3 c, V3 d, u32 rgb, int key, int bg) {
+   PV p[4]; proj(a.x, a.y, a.z, &p[0]); proj(b.x, b.y, b.z, &p[1]); proj(c.x, c.y, c.z, &p[2]); proj(d.x, d.y, d.z, &p[3]);
+   int q = qclass(&p[0], &p[1], &p[2], &p[3]);
+@@ -309,7 +330,7 @@
+ 
+ /* 1 when a world quad (corners as given) is certainly not on screen */
+ static int quad_off2(V3 a, V3 b, V3 c, V3 d);
+-static int quad_off(V3 a, V3 b, V3 c, V3 d) { u32 t0 = TICKS8(); int r = quad_off2(a, b, c, d); t_qoff += (TICKS8() - t0) & 0xffff; return r; }
++static int quad_off(V3 a, V3 b, V3 c, V3 d) { u32 t0 = TK(); int r = quad_off2(a, b, c, d); t_qoff += (TK() - t0) & 0xffff; return r; }
+ static int quad_off2(V3 a, V3 b, V3 c, V3 d) {
+   PV p[4]; proj(a.x, a.y, a.z, &p[0]); proj(b.x, b.y, b.z, &p[1]); proj(c.x, c.y, c.z, &p[2]); proj(d.x, d.y, d.z, &p[3]);
+   return qclass(&p[0], &p[1], &p[2], &p[3]) == Q_SKIP;
+@@ -338,11 +359,11 @@
+   int ua1 = rua1, vb1 = rvb1;
+   int u0 = i == 8 ? ua1 : ((ua1 + 1) * i >> 3), u1 = (i + si) == 8 ? ua1 : ((ua1 + 1) * (i + si) >> 3);
+   int v0 = j == 8 ? vb1 : ((vb1 + 1) * j >> 3), v1 = (j + sj) == 8 ? vb1 : ((vb1 + 1) * (j + sj) >> 3);
+-  c_leaf++;
++  CNT(c_leaf);
+   if (q == Q_OK) {
+     put_ft4(rbk, rcmd, a, b, c, d, (rub + u0) | ((rvb + v0) << 8), (rub + u1) | ((rvb + v0) << 8), (rub + u0) | ((rvb + v1) << 8), (rub + u1) | ((rvb + v1) << 8), rclut, rtp);
+   } else {
+-    c_cleaf++; V3 w[4]; int uv[8];
++    CNT(c_cleaf); V3 w[4]; int uv[8];
+     #define WP(ii, jj, o) w[o].x = rO.x + ((rA.x * (ii)) >> 3) + ((rB.x * (jj)) >> 3); w[o].y = rO.y + ((rA.y * (ii)) >> 3) + ((rB.y * (jj)) >> 3); w[o].z = rO.z + ((rA.z * (ii)) >> 3) + ((rB.z * (jj)) >> 3);
+     WP(i, j, 0) WP(i + si, j, 1) WP(i + si, j + sj, 2) WP(i, j + sj, 3)
+     uv[0] = u0; uv[1] = v0; uv[2] = u1; uv[3] = v0; uv[4] = u1; uv[5] = v1; uv[6] = u0; uv[7] = v1;
+@@ -353,7 +374,7 @@
+ /* Adaptive subdivision over the 8 x 8 lattice, per axis: the affine error along an axis is (screen length along it) x (depth spread along it), so a wall
+    that recedes only along its length is split along the length only (a binary tree, not a quadtree).  si, sj: size in lattice steps. */
+ static void rq(int i, int j, int si, int sj) {
+-  c_nodes++;
++  CNT(c_nodes);
+   PV *a = gv(i, j), *b = gv(i + si, j), *c = gv(i, j + sj), *d = gv(i + si, j + sj);
+   int q = qclass(a, b, c, d);
+   if (q == Q_SKIP) return;
+@@ -407,13 +428,13 @@
+   for (int k = 0; k < np; k++) {
+     int k2 = k + 1 == np ? 0 : k + 1;
+     if (k == ap || k2 == ap) continue;                    /* the apex's own edges are not drawn as triangles */
+-    c_leaf++;
++    CNT(c_leaf);
+     if (ok) put_ft3x(rbk, rcmd, pxy(&pv[ap]), (rub + uu[ap]) | ((rvb + vv[ap]) << 8), pxy(&pv[k]), (rub + uu[k]) | ((rvb + vv[k]) << 8), pxy(&pv[k2]), (rub + uu[k2]) | ((rvb + vv[k2]) << 8), rclut, rtp);
+-    else { V3 tw[3] = { w[ap], w[k], w[k2] }; int tuv[6] = { uu[ap], vv[ap], uu[k], vv[k], uu[k2], vv[k2] }; c_cleaf++; clip_emit_tex(tw, tuv, 3, rbk, rcmd, rclut, rtp, rub, rvb); }
++    else { V3 tw[3] = { w[ap], w[k], w[k2] }; int tuv[6] = { uu[ap], vv[ap], uu[k], vv[k], uu[k2], vv[k2] }; CNT(c_cleaf); clip_emit_tex(tw, tuv, 3, rbk, rcmd, rclut, rtp, rub, rvb); }
+   }
+ }
+ static void grid_tex(int n) {
+-  PV row[2][9]; int st = 8 / n, uu[9], vv[9];
++  u32 tg_ = TK(); PV row[2][9]; int st = 8 / n, uu[9], vv[9];
+   for (int i = 0; i <= n; i++) { uu[i] = i == n ? rua1 : (rua1 + 1) * i / n; vv[i] = i == n ? rvb1 : (rvb1 + 1) * i / n; }
+   /* incremental inputs when the whole rectangle is within the quarter-unit range */
+   s32 m0 = absi(rO.x - camx) + absi(rA.x) + absi(rB.x), m1 = absi(rO.y - camy) + absi(rA.y) + absi(rB.y), m2 = absi(rO.z - camz) + absi(rA.z) + absi(rB.z);
+@@ -422,28 +443,30 @@
+   s32 x0 = (rO.x << 2) - cpx6, y0 = (rO.y << 2) - cpy6, z0 = (rO.z << 2) - cpz6;
+   if (fast) { s32 x = x0, y = y0, z = z0; for (int i = 0; i <= n; i++) { projq(x, y, z, 2, &row[0][i]); x += ax; y += ay; z += az; } }
+   else for (int i = 0; i <= n; i++) proj(rO.x + ((rA.x * (i * st)) >> 3), rO.y + ((rA.y * (i * st)) >> 3), rO.z + ((rA.z * (i * st)) >> 3), &row[0][i]);
++  t_pc += (TK() - tg_) & 0xffff;
+   for (int j = 0; j < n; j++) {
+-    int jj = (j + 1) * st; PV *r0 = row[j & 1], *r1 = row[(j + 1) & 1];
++    u32 tj_ = TK(); int jj = (j + 1) * st; PV *r0 = row[j & 1], *r1 = row[(j + 1) & 1];
+     if (fast) { s32 x = x0 + bx * (j + 1), y = y0 + by * (j + 1), z = z0 + bz * (j + 1); for (int i = 0; i <= n; i++) { projq(x, y, z, 2, &r1[i]); x += ax; y += ay; z += az; } }
+     else for (int i = 0; i <= n; i++) proj(rO.x + ((rA.x * (i * st)) >> 3) + ((rB.x * jj) >> 3), rO.y + ((rA.y * (i * st)) >> 3) + ((rB.y * jj) >> 3), rO.z + ((rA.z * (i * st)) >> 3) + ((rB.z * jj) >> 3), &r1[i]);
+     u8 o0[9], o1[9]; for (int i = 0; i <= n; i++) { o0[i] = ocode(&r0[i]); o1[i] = ocode(&r1[i]); }
+     u32 va = (rvb + vv[j]) << 8, vc = (rvb + vv[j + 1]) << 8;
++    t_pd += (TK() - tj_) & 0xffff;
+     for (int i = 0; i < n; i++) {
+-      if (g_edge_any && ((j == 0 && g_edge[0] > 1) || (j == n - 1 && g_edge[1] > 1) || (i == 0 && g_edge[2] > 1) || (i == n - 1 && g_edge[3] > 1))) { fan_quad(i, j, n, st); continue; }
++      if (g_edge_any && ((j == 0 && g_edge[0] > 1) || (j == n - 1 && g_edge[1] > 1) || (i == 0 && g_edge[2] > 1) || (i == n - 1 && g_edge[3] > 1))) { u32 tf_ = TK(); fan_quad(i, j, n, st); t_pf += (TK() - tf_) & 0xffff; continue; }
+       PV *a = &r0[i], *b = &r0[i + 1], *c = &r1[i], *d = &r1[i + 1];
+       int ca = o0[i], cb = o0[i + 1], cc = o1[i], cd = o1[i + 1];
+       if (!((ca | cb | cc | cd) & OC_BAD)) {              /* clean quad: no clipping needed, only the off-screen test */
+         if (ca & cb & cc & cd & OC_OFF) continue;
+-        c_leaf++; u32 ua = rub + uu[i], ub = rub + uu[i + 1];
++        CNT(c_leaf); u32 ua = rub + uu[i], ub = rub + uu[i + 1];
+         put_ft4(rbk, rcmd, a, b, c, d, ua | va, ub | va, ua | vc, ub | vc, rclut, rtp);
+         continue;
+       }
+       int q = qclass(a, b, c, d); if (q == Q_SKIP) continue;
+-      c_leaf++;
++      CNT(c_leaf);
+       if (q == Q_OK) {
+         put_ft4(rbk, rcmd, a, b, c, d, (rub + uu[i]) | ((rvb + vv[j]) << 8), (rub + uu[i + 1]) | ((rvb + vv[j]) << 8), (rub + uu[i]) | ((rvb + vv[j + 1]) << 8), (rub + uu[i + 1]) | ((rvb + vv[j + 1]) << 8), rclut, rtp);
+       } else {
+-        c_cleaf++; V3 w[4]; int uv[8]; int ii = i * st, i2 = (i + 1) * st, j0 = j * st, j2 = jj;
++        CNT(c_cleaf); V3 w[4]; int uv[8]; int ii = i * st, i2 = (i + 1) * st, j0 = j * st, j2 = jj;
+         WP(ii, j0, 0) WP(i2, j0, 1) WP(i2, j2, 2) WP(ii, j2, 3)
+         uv[0] = uu[i]; uv[1] = vv[j]; uv[2] = uu[i + 1]; uv[3] = vv[j]; uv[4] = uu[i + 1]; uv[5] = vv[j + 1]; uv[6] = uu[i]; uv[7] = vv[j + 1];
+         clip_emit_tex(w, uv, 4, rbk, rcmd, rclut, rtp, rub, rvb);
+@@ -455,9 +478,9 @@
+    Adaptive quadtree over an 8 x 8 lattice (lazy shared vertices): a piece is a single quad when its affine error is under ~2 px.
+    nforce > 0: fixed n x n.  key < -1000000: depth of the centre.  maxn: finest n allowed. */
+ static void rect_tex2(V3 O, V3 A, V3 B, int slot, int ua1, int vb1, u32 cmd, int key, int nforce, int maxn);
+-static void rect_tex(V3 O, V3 A, V3 B, int slot, int ua1, int vb1, u32 cmd, int key, int nforce, int maxn) { u32 t0 = TICKS8(); rect_tex2(O, A, B, slot, ua1, vb1, cmd, key, nforce, maxn); t_rect += (TICKS8() - t0) & 0xffff; }
++static void rect_tex(V3 O, V3 A, V3 B, int slot, int ua1, int vb1, u32 cmd, int key, int nforce, int maxn) { u32 t0 = TK(); rect_tex2(O, A, B, slot, ua1, vb1, cmd, key, nforce, maxn); t_rect += (TK() - t0) & 0xffff; }
+ static void rect_tex2(V3 O, V3 A, V3 B, int slot, int ua1, int vb1, u32 cmd, int key, int nforce, int maxn) {
+-  c_rect++;
++  CNT(c_rect);
+   if (key < -1000000) key = zkey_center(O, A, B);
+   rO = O; rA = A; rB = B; rua1 = ua1; rvb1 = vb1; rcmd = cmd; rbk = bucket(key); rforce = nforce;
+   int pg = slot >> 6, k = slot & 63; rub = (k & 7) * 32; rvb = (k >> 3) * 32;
+@@ -480,7 +503,7 @@
+ }
+ static void wall_grid(V3 O, V3 A, int L, int total, const u16 *bt, int fkey, u32 g) {
+   u32 rgb = g | g << 8 | g << 16; int bk = bucket(fkey), nr = (total + CELL - 1) / CELL; u32 clut = clut_for(fkey);
+-  wO = O; wA = A; wtot = total; if (++wcur == 0) { for (int j = 0; j <= WMAXR; j++) for (int i = 0; i <= WMAXC; i++) wvx[j][i].st = 0; wcur = 1; }
++  CNT(c_wg); wO = O; wA = A; wtot = total; if (++wcur == 0) { for (int j = 0; j <= WMAXR; j++) for (int i = 0; i <= WMAXC; i++) wvx[j][i].st = 0; wcur = 1; }
+   for (int i = 0; i < L; i++) {
+     u16 t = bt[i > 3 ? 3 : i]; if (t == 0xffff) continue;
+     int mesh = side->mesh[t], slot = t, pg = slot >> 6, k = slot & 63, ub = (k & 7) * 32, vb = (k >> 3) * 32; u32 tp = TPAGE(320 + 128 * (pg % 5), 256 * (pg / 5), 1, 0);
+@@ -488,14 +511,14 @@
+       int seg = total - j * CELL; if (seg > CELL) seg = CELL;
+       int vb1 = seg == CELL ? 31 : (seg * 32 >> 10) - 1; if (vb1 < 0) vb1 = 0;
+       PV *a = wv(i, j), *b = wv(i + 1, j), *c = wv(i, j + 1), *d = wv(i + 1, j + 1); int aff = 0;
+-      int q = qcls(a, b, c, d, &aff);
++      int q = qcls(a, b, c, d, &aff); CNT(c_wcell);
+       if (q == Q_SKIP) continue;
+-      if (q == Q_OK && (aff || mesh)) {
++      if (q == Q_OK && (aff || mesh)) { CNT(c_wq);
+         if (mesh) put_f4(bk, 0, side_col(side->avgcol[t], g), a, b, c, d);
+         else put_ft4(bk, FT4_MOD | rgb, a, b, c, d, ub | (vb << 8), (ub + 31) | (vb << 8), ub | ((vb + vb1) << 8), (ub + 31) | ((vb + vb1) << 8), clut, tp);
+         continue;
+       }
+-      V3 Oc = { O.x + A.x * i, O.y - j * CELL, O.z + A.z * i }, Bc = { 0, -seg, 0 };
++      CNT(c_wf); V3 Oc = { O.x + A.x * i, O.y - j * CELL, O.z + A.z * i }, Bc = { 0, -seg, 0 };
+       if (mesh) { V3 p1 = { Oc.x + A.x, Oc.y, Oc.z + A.z }; quad_flat(Oc, p1, (V3){ Oc.x, Oc.y - seg, Oc.z }, (V3){ p1.x, Oc.y - seg, p1.z }, side_col(side->avgcol[t], g), fkey, 0); }
+       else rect_tex(Oc, A, Bc, t, 31, vb1, FT4_MOD | rgb, fkey, 0, 8);
+     }
+@@ -539,8 +562,10 @@
+   }
+   static const u8 ntab[4][7] = { { 8, 4, 4, 2, 2, 1, 1 }, { 8, 4, 2, 2, 1, 1, 1 }, { 4, 4, 2, 2, 1, 1, 1 }, { 4, 2, 2, 1, 1, 1, 1 } };
+   int n = ntab[lod][ring];
++  u32 te_ = TK();
+   g_edge_any = 0;
+-  for (int sd = 0; sd < 4; sd++) {
++  if ((ring == 0 || ntab[lod][ring - 1] <= n)) { g_edge[0] = g_edge[1] = g_edge[2] = g_edge[3] = 1; }   /* a finer neighbour can only be in ring - 1 */
++  else for (int sd = 0; sd < 4; sd++) {
+     int nx = cx + (sd == 2 ? -1 : sd == 3 ? 1 : 0), nz = cz + (sd == 0 ? -1 : sd == 1 ? 1 : 0); g_edge[sd] = 1;
+     if ((unsigned)nx > 127 || (unsigned)nz > 127 || ctex[nx * 128 + nz] == 0xffff) continue;
+     int ni = nx * 128 + nz; if (!(side->gmask[ni >> 3] >> (ni & 7) & 1)) continue;
+@@ -548,7 +573,9 @@
+     if (nr >= 7) continue;
+     int nn = ntab[lod][nr]; if (nn > n && !NOFANX) { g_edge[sd] = nn / n;  /* power of two */ g_edge_any = 1; }
+   }
++  t_pa += (TK() - te_) & 0xffff; te_ = TK();
+   g_bg = 1; rect_tex(O, A, B, t, 31, 31, FT4_RAW, 0, n, n); g_bg = 0; g_edge_any = 0;
++  t_pb += (TK() - te_) & 0xffff;
+ }
+ 
+ /* ------------------------------------------------------------------------------------------- visibility */
+@@ -564,16 +591,30 @@
+ static int reach = REACH;
+ static void ground_draw(void) {
+   int ccx = camx >> 10, ccz = camz >> 10;
+-  for (int dz = -12; dz <= 12; dz++) for (int dx = -12; dx <= 12; dx++) {
+-    int cx = ccx + dx, cz = ccz + dz;
+-    if ((unsigned)cx > 127 || (unsigned)cz > 127) continue;
+-    int i = cx * 128 + cz; if (!(side->gmask[i >> 3] >> (i & 7) & 1)) continue;
+-    int ring = (dx < 0 ? -dx : dx) > (dz < 0 ? -dz : dz) ? (dx < 0 ? -dx : dx) : (dz < 0 ? -dz : dz);
+-    c_cullcell++; if (!in_view(cx * CELL + 512, 0, cz * CELL + 512, 740)) continue;
+-    c_cells++;
++  /* rings >= 7 draw nothing (ground_cell returns before emitting), so only |dx|,|dz| <= 6 are visited.  The in_view test of each cell centre (y 0, r 740) is evaluated
++     with the three camera-axis dot products accumulated incrementally (exact integer sums, same value as dotv: identical result, a handful of adds a cell). */
++  s32 X0 = (ccx - 6) * CELL + 512 - camx, Z0 = (ccz - 6) * CELL + 512 - camz, Y = -camy;
++  s32 sr = mr.x * X0 + mr.y * Y + mr.z * Z0, su = mu.x * X0 + mu.y * Y + mu.z * Z0, sf = mf.x * X0 + mf.y * Y + mf.z * Z0;
++  s32 drx = mr.x * CELL, dux = mu.x * CELL, dfx = mf.x * CELL, drz = mr.z * CELL, duz = mu.z * CELL, dfz = mf.z * CELL;
++  const s32 RX = 740 * 242, RY = 740 * 218;
++  for (int dz = -6; dz <= 6; dz++, sr += drz, su += duz, sf += dfz) {
++    int cz = ccz + dz; if ((unsigned)cz > 127) continue;
++    s32 r_ = sr, u_ = su, f_ = sf;
++    for (int dx = -6; dx <= 6; dx++, r_ += drx, u_ += dux, f_ += dfx) {
++      int cx = ccx + dx;
++      if ((unsigned)cx > 127) continue;
++      int i = cx * 128 + cz; if (!(side->gmask[i >> 3] >> (i & 7) & 1)) continue;
++      CNT(c_cullcell);
++      s32 vx = r_ >> 14, vy = u_ >> 14, vz = f_ >> 14;
++      if (vz < -740) continue;
++      if (H_FOCAL * vx - 161 * vz > RX || -H_FOCAL * vx - 161 * vz > RX) continue;
++      if (H_FOCAL * vy - 121 * vz > RY || -H_FOCAL * vy - 121 * vz > RY) continue;
++      int adx = dx < 0 ? -dx : dx, adz = dz < 0 ? -dz : dz, ring = adx > adz ? adx : adz;
++      CNT(c_cells);
+ #ifndef NOGCELL
+-    { u32 t0_ = TICKS8(); u32 l0_ = c_leaf, p0_ = c_proj; ground_cell(cx, cz, ring); if (dbgcell && ring <= 2) { dbg("cell "); ddec(cx); ddec(cz); ddec(ring); ddec((TICKS8() - t0_) & 0xffff); ddec(c_leaf - l0_); ddec(c_proj - p0_); dbg("\n"); } t_gc += (TICKS8() - t0_) & 0xffff; if (ring <= 1) t_gc01 += (TICKS8() - t0_) & 0xffff; }
++      { u32 t0_ = TK(); ground_cell(cx, cz, ring); t_gc += (TK() - t0_) & 0xffff; }
+ #endif
++    }
+   }
+ }
+ /* one big flat island at y 0 under everything (far shift 3) */
+@@ -610,7 +651,7 @@
+   ps[1] = 0xE2000000 | 0x1C | (0x1C << 5) | (((ub >> 3) & 0x1C) << 10) | (((vb >> 3) & 0x1C) << 15); link_ot(bk, ps, 1);
+ }
+ static void draw_box(int k) {
+-  const Box *b = &boxes[k]; c_box++;
++  const Box *b = &boxes[k]; CNT(c_box);
+   int X0 = b->x0 * CELL, Z0 = b->z0 * CELL, X1 = b->x1 * CELL, Z1 = b->z1 * CELL, h = b->h, bot = b->base * 64, hid = b->mat >> 4, mat = b->mat & 15;
+   int dd = dist_rect(X0, Z0, X1, Z1);
+   if (dd > reach) return;
+@@ -618,6 +659,7 @@
+   if (!in_view((X0 + X1) >> 1, (h + bot) >> 1, (Z0 + Z1) >> 1, ww * 3 / 4 * 11 / 10 + (hh > 0 ? hh : -hh) / 2 + 64)) return;
+   int isdeck = bot != 0;
+   /* top */
++  u32 tt_ = TK();
+   if (camy > h) {
+     int key = zdepth((X0 + X1) >> 1, h, (Z0 + Z1) >> 1);
+     if (dd > TEX_FAR || camy > TEX_TOP) {
+@@ -633,6 +675,7 @@
+       }
+     }
+   }
++  t_top += (TK() - tt_) & 0xffff;
+   if (isdeck && camy < bot) {
+     int key = zdepth((X0 + X1) >> 1, bot, (Z0 + Z1) >> 1);
+     g_src=3, quad_flat((V3){ X0, bot, Z0 }, (V3){ X1, bot, Z0 }, (V3){ X0, bot, Z1 }, (V3){ X1, bot, Z1 }, flat_col(mat, 0, 0), key, 0);
+@@ -653,7 +696,7 @@
+     if (far) {
+       u16 t = btex[16 * k + 4 * sd + (L > 2 ? 1 : 0)]; u32 col = t == 0xffff ? flat_col(mat, light[sd], 0) : side_col(side->avgcol[t], g);
+       V3 a0 = alongx ? (V3){ X0, h, pz } : (V3){ px, h, Z0 }, a1 = alongx ? (V3){ X1, h, pz } : (V3){ px, h, Z1 };
+-      if (t != 0xffff && !side->mesh[t]) { far_wall_tex(a0, a1, bot, t, L, total, fkey, rgb); continue; }
++      if (t != 0xffff && !side->mesh[t]) { u32 tz_ = TK(); far_wall_tex(a0, a1, bot, t, L, total, fkey, rgb); t_fw += (TK() - tz_) & 0xffff; continue; }
+       g_src=2, quad_flat(a0, a1, (V3){ a0.x, bot, a0.z }, (V3){ a1.x, bot, a1.z }, col, fkey, 0);
+       continue;
+     }
+@@ -661,7 +704,7 @@
+       if (quad_off(fa, fb, (V3){ fa.x, bot, fa.z }, (V3){ fb.x, bot, fb.z })) continue; }
+     if (L <= WMAXC && (total + CELL - 1) / CELL <= WMAXR) {
+       V3 O = alongx ? (V3){ X0, h, pz } : (V3){ px, h, Z0 }, A = alongx ? (V3){ CELL, 0, 0 } : (V3){ 0, 0, CELL };
+-      wall_grid(O, A, L, total, &btex[16 * k + 4 * sd], fkey, g); continue;
++      { u32 tz_ = TK(); wall_grid(O, A, L, total, &btex[16 * k + 4 * sd], fkey, g); t_wg += (TK() - tz_) & 0xffff; } continue;
+     }
+     for (int i = 0; i < L; i++) {
+       u16 t = btex[16 * k + 4 * sd + (i > 3 ? 3 : i)]; if (t == 0xffff) continue;
+@@ -708,7 +751,7 @@
+   }
+ }
+ static void draw_ramp(int k) {
+-  const Ramp *r = &ramps[k]; c_ramp++;
++  const Ramp *r = &ramps[k]; CNT(c_ramp);
+   int X0 = r->x0 * CELL, Z0 = r->z0 * CELL, X1 = r->x1 * CELL, Z1 = r->z1 * CELL, mat = r->mat & 15, isdeck = r->dir & 0x80;
+   int dd = dist_rect(X0, Z0, X1, Z1); if (dd > reach) return;
+   int w = X1 - X0, d = Z1 - Z0, ww = w > d ? w : d, ym = (r->h0 + r->h1) >> 1, hh = r->h1 - r->h0; if (hh < 0) hh = -hh;
+@@ -825,10 +868,10 @@
+     int s = sx * 16 + sz, first = sector[2 * s], cnt = sector[2 * s + 1];
+     for (int i = 0; i < cnt; i++) {
+       u16 it = items[first + i]; int kind = it >> 13, idx = it & 0x1fff;
+-      u32 tq = TICKS8();
+-      if (kind == 0) { if (st_box[idx] == stamp) continue; st_box[idx] = stamp; u32 l0_ = c_leaf, p0_ = c_proj, r0_ = c_rect, k0_ = c_cleaf; draw_box(idx); u32 dt_ = (TICKS8() - tq) & 0xffff; t_cb += dt_; if (dbgcell && dt_ > 800) { dbg("box "); ddec(idx); ddec(boxes[idx].x1 - boxes[idx].x0); ddec(boxes[idx].z1 - boxes[idx].z0); ddec(boxes[idx].h); ddec(dt_ / 270); dbg("rect "); ddec(c_rect - r0_); dbg("leaf "); ddec(c_leaf - l0_); ddec(c_cleaf - k0_); dbg("proj "); ddec(c_proj - p0_); dbg("\n"); } }
+-      else if (kind == 2) { if (st_ramp[idx] == stamp) continue; st_ramp[idx] = stamp; draw_ramp(idx); t_cr += (TICKS8() - tq) & 0xffff; }
+-      else if (kind == 5) { if (st_tree[idx] == stamp) continue; st_tree[idx] = stamp; draw_tree(idx); t_ct += (TICKS8() - tq) & 0xffff; }
++      u32 tq = TK();
++      if (kind == 0) { if (st_box[idx] == stamp) continue; st_box[idx] = stamp; u32 l0_ = c_leaf, p0_ = c_proj, r0_ = c_rect, k0_ = c_cleaf; draw_box(idx); u32 dt_ = (TK() - tq) & 0xffff; t_cb += dt_; if (dbgcell && dt_ > 800) { dbg("box "); ddec(idx); ddec(boxes[idx].x1 - boxes[idx].x0); ddec(boxes[idx].z1 - boxes[idx].z0); ddec(boxes[idx].h); ddec(dt_ / 270); dbg("rect "); ddec(c_rect - r0_); dbg("leaf "); ddec(c_leaf - l0_); ddec(c_cleaf - k0_); dbg("proj "); ddec(c_proj - p0_); dbg("\n"); } }
++      else if (kind == 2) { if (st_ramp[idx] == stamp) continue; st_ramp[idx] = stamp; draw_ramp(idx); t_cr += (TK() - tq) & 0xffff; }
++      else if (kind == 5) { if (st_tree[idx] == stamp) continue; st_tree[idx] = stamp; draw_tree(idx); t_ct += (TK() - tq) & 0xffff; }
+     }
+   }
+ }
+@@ -848,15 +891,25 @@
+   F[3].a = 3; F[3].b = 7; F[3].c = 1; F[3].d = 5;   /* +x side: top from -z to +z */
+   F[4].a = 6; F[4].b = 2; F[4].c = 4; F[4].d = 0;   /* -x side */
+   F[5].a = 0; F[5].b = 4; F[5].c = 1; F[5].d = 5;   /* bottom (never seen) */
++  PV pv[8]; u32 have = 0;   /* corners are projected once, on first use by a visible face (same values quad_flat would compute) */
+   for (int f = 0; f < 5; f++) {
+     s32 nx = (F[f].nx * c + F[f].nz * s), nz = (F[f].nz * c - F[f].nx * s), ny = F[f].ny * 16384; nx *= F[f].nx || F[f].nz ? 1 : 0;
+     if (F[f].nx) { nx = F[f].nx * c; nz = -F[f].nx * s; } if (F[f].nz) { nx = F[f].nz * s; nz = F[f].nz * c; }
+     V3 ctr = { (p[F[f].a].x + p[F[f].d].x) >> 1, (p[F[f].a].y + p[F[f].d].y) >> 1, (p[F[f].a].z + p[F[f].d].z) >> 1 };
+     s32 d = (nx * (camx - ctr.x) + ny * (camy - ctr.y) + nz * (camz - ctr.z)) >> 14; if (d <= 0) continue;
+-    quad_flat(p[F[f].a], p[F[f].b], p[F[f].c], p[F[f].d], flat_col(mat, F[f].l, 0), zdepth(ctr.x, ctr.y, ctr.z) - 20, 0);
++    int vi[4] = { F[f].a, F[f].b, F[f].c, F[f].d };
++    for (int k = 0; k < 4; k++) if (!(have >> vi[k] & 1)) { proj(p[vi[k]].x, p[vi[k]].y, p[vi[k]].z, &pv[vi[k]]); have |= 1u << vi[k]; }
++    PV *qa = &pv[vi[0]], *qb = &pv[vi[1]], *qc = &pv[vi[2]], *qd = &pv[vi[3]];
++    int key = zdepth(ctr.x, ctr.y, ctr.z) - 20, qq = qclass(qa, qb, qc, qd);
++    if (qq == Q_SKIP) continue;
++    if (qq == Q_OK) { put_f4(bucket(key), 0, flat_col(mat, F[f].l, 0), qa, qb, qc, qd); continue; }
++    { V3 w[4] = { p[vi[0]], p[vi[1]], p[vi[3]], p[vi[2]] }; clip_emit_flat(w, 4, bucket(key), 0, flat_col(mat, F[f].l, 0), 2); }
+   }
+ }
+ static void car_draw(s32 x, s32 y, s32 z, int ya) {
++#ifndef NOCARCULL
++  if (!in_view(x, y + 100, z, 330)) return;   /* bounding sphere (car half-diagonal 262 + wheels) outside the view frustum: every face would be Q_SKIP */
++#endif
+   int s = fsin(ya), c = fcos(ya);
+   obox(x, y + 70, z, ya, 112, 38, 235, 11);                                              /* body */
+   obox(x - (s * 25 >> 14), y + 140, z - (c * 25 >> 14), ya, 98, 34, 120, 6);             /* cabin (glass) */
+@@ -979,6 +1032,8 @@
+ 
+ /* ------------------------------------------------------------------------------------------- stage 3 entry points */
+ typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;     /* units (1024 a cell); kind 0 car, 1 person */
++u32 sf3_ph[8], sf3_cnt[32]; /* PROFILE: TICKS8 (1/270 line) per phase: sky island city ground car/ents hud send; counters proj leaf clip prim */
++u32 sf3_hash;
+ s32 sf3_score, sf3_hp, sf3_clock; u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames, sf3_stat_gpu;
+ static int sf3_have;
+ int sf3_init(void) {
+@@ -1006,18 +1061,35 @@
+       cpx = car_x + ((cpx - car_x) >> 1); cpz = car_z + ((cpz - car_z) >> 1);
+     }
+     int dy = (short)(car_h - yaw); yaw = (yaw + (dy >> 1)) & 0xffff; pitch = -2300; }
+-  { static const s16 reachs[4] = { REACH, 11264, 10240, 8192 }; static const u8 errs[4] = { ERRPX, 3, 4, 6 }; reach = reachs[lod]; errpx = errs[lod]; }
++  { static const s16 reachs[4] = { REACH, 11264, 10240, 8192 }; static const u8 errs[4] = { ERRPX, 3, 4, 6 }; 
++#ifdef LODREACH
++    reach = reachs[lod];
++#else
++    reach = REACH;   /* LOD never shortens the view (stage5 rule): only the subdivision error and the ground grid change */
++#endif
++    errpx = errs[lod]; }
+   cam_from_angles(); cam_commit();
+   list_begin(0);
+-  sky_draw();
+-  island_draw(flat_col(1, 2, 0));
+-  city_draw(); ground_draw();
++#define PH(k) do { u32 t_ = PHT(); sf3_ph[k] = (t_ - tp_) & 0xffff; tp_ = t_; } while (0)
++  u32 tp_ = PHT(); c_proj = 0; c_leaf = 0; c_clip = 0; t_cb = t_cr = t_ct = t_gc = t_clipt = t_rect = t_qoff = t_qf = t_wg = t_fw = t_top = t_pa = t_pb = t_pc = t_pd = t_pf = 0; c_box = c_rect = c_cells = c_cullcell = c_cleaf = c_wg = c_wcell = c_wq = c_wf = 0;
++  sky_draw(); PH(0);
++  island_draw(flat_col(1, 2, 0)); PH(1);
++  city_draw(); PH(2);
++ground_draw();
++  PH(3);
+   if (pkind) car_draw(px, py, pz, car_h);
+   else billboard(px, py, pz, 45, 0, 150, flat_col(7, 2, 0), zdepth(px, py, pz));
+   for (int i = 0; i < nents; i++) {
+     const SfEnt *e = &ents[i]; if (e->kind == 0) car_draw(e->x, e->y, e->z, e->yaw);
+     else { CV cc; cpu_cam(e->x, e->y, e->z, 0, &cc); if (cc.z > 60 && cc.z < 5000) billboard(e->x, e->y, e->z, 40, 0, 140, flat_col(10, 1, 0), cc.z); }
+   }
++  PH(4);
++#ifdef SPINHASH
++  { u32 h = 2166136261u; u32 lo = ADDR(pbs), hi = lo + PBW * 4, ol = ADDR(otc), oh = ol + OTN * 4;   /* link words that point at static variables (binary-layout dependent) are masked */
++    for (const u32 *q = pbs; q < pb; ) { u32 n = q[0] >> 24, ad = q[0] & 0xFFFFFF; h = (h ^ (n << 24) ^ (((ad >= lo && ad < hi) || (ad >= ol && ad < oh)) ? ad : 0)) * 16777619u;
++      for (u32 k = 1; k <= n; k++) h = (h ^ q[k]) * 16777619u; q += n + 1; }
++    for (int k = 1; k < OTN; k++) h = (h ^ otc[k]) * 16777619u; sf3_hash = h; }
++#endif
+   if (hud) {
+     char b[80], *e;
+     e = fmt_s(b, "ENG "); e = fmt_int(e, sf3_stat_eng, 0); e = fmt_s(e, " Q "); e = fmt_int(e, nprim, 0); e = fmt_s(e, " OVF "); e = fmt_int(e, sf3_stat_ovf, 0); e = fmt_s(e, " LOD "); e = fmt_int(e, lod, 0);
+@@ -1025,12 +1097,17 @@
+     e = fmt_s(b, "SCORE "); e = fmt_int(e, sf3_score, 0); e = fmt_s(e, " HP "); e = fmt_int(e, sf3_hp, 0); e = fmt_s(e, " CLK "); e = fmt_int(e, sf3_clock, 0);
+     hud_box(4, 16, 232, 11); hud_str(6, 18, b, 0xFFE080);
+   }
++  PH(5);
+   gpu_idle();
+   gp0(0xE1000400 | TPAGE(320, 0, 1, 0)); gp0(0xE3000000 | (oy << 10)); gp0(0xE4000000 | 319 | ((oy + 239) << 10)); gp0(0xE5000000 | (oy << 11));
+-  list_send();
++  list_send(); PH(6);
++  sf3_cnt[0] = c_proj; sf3_cnt[1] = c_leaf; sf3_cnt[2] = c_clip; sf3_cnt[3] = t_cb / 268; sf3_cnt[4] = t_cr / 268; sf3_cnt[5] = t_ct / 268; sf3_cnt[6] = t_gc / 268; sf3_cnt[7] = t_clipt / 268; sf3_ph[7] = 0; sf3_cnt[8] = t_rect / 268; sf3_cnt[9] = t_qoff / 268; sf3_cnt[10] = t_qf / 268; sf3_cnt[11] = c_box; sf3_cnt[12] = c_rect; sf3_cnt[13] = c_cells; sf3_cnt[14] = c_cullcell; sf3_cnt[15] = c_cleaf; sf3_cnt[16] = t_wg / 268; sf3_cnt[17] = t_fw / 268; sf3_cnt[18] = t_top / 268; sf3_cnt[19] = c_wg; sf3_cnt[20] = c_wcell; sf3_cnt[21] = c_wq; sf3_cnt[22] = c_wf; sf3_cnt[23] = t_pa / 268; sf3_cnt[24] = t_pb / 268; sf3_cnt[25] = t_pc / 268; sf3_cnt[26] = t_pd / 268; sf3_cnt[27] = t_pf / 268;
+   u32 t1 = HLINES(); u32 eng = (t1 - t0) & 0xffff;
+   sf3_stat_eng = eng; sf3_stat_prim = nprim; sf3_stat_ovf = ovf; sf3_stat_lod = lod; sf3_frames++; ovf = 0;
+-  { int budget = 3 * 263 - 70; static int calm;
+-    if ((int)eng > budget && lod < 3) { lod++; calm = 0; } else if ((int)eng < budget - 190 && lod > 0) { if (++calm > 45) { lod--; calm = 0; } } else calm = 0; }
++  { int budget = FIELDS * 263 - 70; static int calm;
++    if ((int)eng > budget && lod < 3) { lod++; calm = 0; } else if ((int)eng < budget - LODCALM && lod > 0) { if (++calm > 45) { lod--; calm = 0; } } else calm = 0; }
++#ifdef FIXLOD
++  lod = FIXLOD;
++#endif
+   return 0;
+ }

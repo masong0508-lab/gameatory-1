@@ -1,0 +1,11 @@
+--- /mnt/project-files/stunt-fox/ps1/stage4/ps1rt/build.sh	2026-11-13 17:54:48.661183000 +0000
++++ ps1rt/build.sh	2026-11-13 18:28:35.524710411 +0000
+@@ -16,7 +16,7 @@
+   clang $F -c crt0.s -o ../out/$BLD/crt0.o 2>&1 | grep error || true
+   clang $F -c ../out/$BLD/syms.c -o ../out/$BLD/syms.o
+   clang $F -c ../out/$BLD/blobs.s -o ../out/$BLD/blobs.o
+-  clang $SFF -c ../sf/sf3.c -o ../out/$BLD/sf3.o 2>&1 | grep -E 'error' -A3 || true
++  clang $SFF -c ${SF3SRC:-../sf/sf3.c} -o ../out/$BLD/sf3.o 2>&1 | grep -E 'error' -A3 || true
+   llvm-objcopy --prefix-alloc-sections=.sf ../out/$BLD/sf3.o
+   clang $F -I../out -c ../sf/sfdata.s -o ../out/$BLD/sfdata.o
+   ld.lld -T ${LD:-ps1.ld} ../out/$BLD/crt0.o ../out/$BLD/rt.o ../out/$BLD/syms.o ../out/$BLD/blobs.o ../out/$BLD/sf3.o ../out/$BLD/sfdata.o -o ../out/$BLD/payback.elf

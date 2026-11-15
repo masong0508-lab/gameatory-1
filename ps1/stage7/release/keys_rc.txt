@@ -1,0 +1,12 @@
+25 keydown e
+32 keyup e
+90 keydown t
+97 keyup t
+150 keydown c
+150.1 keydown r
+157 keyup r
+157.1 keyup c
+200 keydown c
+200.1 keydown d
+207 keyup d
+207.1 keyup c

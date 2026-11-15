@@ -1,0 +1,17 @@
+--- a/ps1rt/rt.c	2026-11-15 18:18:09.966154038 +0000
++++ b/ps1rt/rt.c	2026-11-15 19:16:50.443310116 +0000
+@@ -533,6 +533,14 @@
+             dbg("SPIN "); dec(it); dbg("hd "); dec(h2); dbg("map "); dec(sf3_map_cur); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("\n"); sum+=d2; if(d2>mx) mx=d2; if(d2>456) over++; }
+           dbg("SPIN done map "); dec(sf3_map_cur); dbg("mean "); dec(sum/12); dbg("max "); dec(mx); dbg("over456 "); dec(over); dbg("\n"); } }
+ #endif
++#ifdef TREETEST
++      /* TEST-ONLY (stage 17): once, after TREETEST renders: the fixed tree poses (sf3.c sf3_treepose), 240 renders each (the camera settles in 6), prints the 6th and last */
++      { extern int sf3_treepose(int n,s32*x,s32*y,s32*z,int*hd); static int tdone; if(!tdone&&st3_render>=TREETEST){ tdone=1; s32 qx,qy,qz; int qh;
++          for(int pi=0;sf3_treepose(pi,&qx,&qy,&qz,&qh);pi++){ for(int r6=0;r6<240;r6++){ int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,qx,qy,qz,qh,0,ents3,0,1); u32 d2=(RC1_VAL-q0)&0xffff;
++              if(r6==5||r6==239){ dbg("TREEPOSE "); dec(pi); dbg("r "); dec(r6); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("ct "); dec(sf3_cnt[5]); dbg("\n"); }
++              gp0(0x03000000); while(!(GP1&0x04000000)){} vsync(); GP1=0x05000000|(o2<<10); buf^=1; } }
++          dbg("TREEPOSE done\n"); } }
++#endif
+ #ifdef PROFSPIN
+       /* TEST-ONLY profiling: freeze the guest at this state and spin the player's heading in 1/32 turns, 6 renders per heading (camera settles), print the last */
+       if(st3_render>=PROFSPIN){ for(u32 it=0;;it++){ int h2=(hd+(it/6)*2048)&0xffff; int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,px,py,pz,h2,pk,ents3,ne,1); u32 d2=(RC1_VAL-q0)&0xffff;

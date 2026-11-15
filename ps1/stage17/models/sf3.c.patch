@@ -1,0 +1,85 @@
+--- /tmp/claude-0/-home-user/567ff2df-658a-593d-ba5b-58eb793419f5/scratchpad/sf3.c.orig	2026-11-15 19:14:22.441392768 +0000
++++ sf/sf3.c	2026-11-15 19:38:00.986093318 +0000
+@@ -917,6 +917,9 @@
+     obox(x + ((sx * c + sz * s) >> 14), y + 30, z + ((sz * c - sx * s) >> 14), ya, 14, 30, 36, 1); }
+ }
+ 
++#ifndef OLDMODELS
++#include "models.h"
++#endif
+ /* ------------------------------------------------------------------------------------------- HUD */
+ static int fontx_ok;
+ static void hud_str(int x, int y, const char *s, u32 rgb) {
+@@ -1032,7 +1035,9 @@
+ }
+ 
+ /* ------------------------------------------------------------------------------------------- stage 3 entry points */
+-typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;     /* units (1024 a cell); kind 0 car, 1 person */
++typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare, look, pol; } SfEnt;     /* units (1024 a cell); kind 0 car, 1 person; look: the descriptor's vehicle look index; pol: police descriptor (0xFE look on a person = the player's outfit) */
++int sf3_sin(int a) { return fsin(a); }
++u8 sf3_plook, sf3_ppol; u32 sf3_mt = 0xffff;    /* the controlled entity's look / police flag (set by gather3); test view number shown in the HUD */
+ u32 sf3_ph[8], sf3_cnt[32]; /* PROFILE: TICKS8 (1/270 line) per phase: sky island city ground car/ents hud send; counters proj leaf clip prim */
+ u32 sf3_hash;
+ s32 sf3_score, sf3_hp, sf3_clock; u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames, sf3_stat_gpu;
+@@ -1050,13 +1055,17 @@
+   if (*(const u32 *)SF_WORLD != 0x57334653) { dbg("SF3W bad magic\n"); return -1; }
+   sf3_cd_read(lba + wsec + asec, (sbytes + 2047) / 2048, sf_tmp); { u32 nf = sbytes - 8192; for (u32 i = 0; i < nf; i++) ((u8 *)SF_SIDE)[i] = sf_tmp[i]; if (!sf3_map_loads) for (u32 i = 0; i < 4096; i++) sint_tab[i] = ((const s16 *)(sf_tmp + nf))[i]; }
+   world_init(); upload_all(lba + wsec);
++#ifndef OLDMODELS
++  models_upload();
++#endif
+   for (u32 i = 0; i < 3072 + 1024 + 2304; i++) ((volatile u16 *)SF_ST)[i] = 0;
+   sf3_map_cur = n; sf3_map_x = sx; sf3_map_y = sy; sf3_map_z = sz; sf3_map_loads++; cam_first = 1;
+   return 0;
+ }
+ u32 sf3_first_map;   /* stage 13: the map the guest's level runs on (0 when the renderer starts with the program) */
+ int sf3_init(void) {
+-  dbg("sf3_init a\n"); timers_init(); GP1 = 0x04000002; DPCR |= 0x08000800;
++  dbg("sf3_init a\n"); timers_init();
++GP1 = 0x04000002; DPCR |= 0x08000800;
+   if (sf3_map_load(sf3_first_map)) return -1;
+   dbg("sf3 init ok\n"); sf3_have = 1; return 0;
+ }
+@@ -1156,12 +1165,23 @@
+   city_draw(); PH(2);
+ ground_draw();
+   PH(3);
++#ifdef OLDMODELS
+   if (pkind) car_draw(px, py, pz, car_h);
+   else if (!sf3_hide_player) billboard(px, py, pz, 45, 0, 150, flat_col(7, 2, 0), zdepth(px, py, pz));
+   for (int i = 0; i < nents; i++) {
+     const SfEnt *e = &ents[i]; if (e->kind == 0) car_draw(e->x, e->y, e->z, e->yaw);
+     else { CV cc; cpu_cam(e->x, e->y, e->z, 0, &cc); if (cc.z > 60 && cc.z < 5000) billboard(e->x, e->y, e->z, 40, 0, 140, flat_col(10, 1, 0), cc.z); }
+   }
++#else
++  n_t0v = n_t0p = n_veh = n_ped = 0; t_vehl = t_pedl = 0;
++  /* stage 17: the player first (always full detail), then the entities nearest first so the far ones get the cheap model when the primitive pool runs short */
++  if (pkind) veh_draw(px, py, pz, car_h, sf3_plook, sf3_ppol, 0);
++  else if (!sf3_hide_player) ped_draw(px, py, pz, car_h, 128, ROW_HERO, 0);
++  { int n = nents > 40 ? 40 : nents;    /* two passes, near first (the cheap levels and the primitive pool check do the rest) */
++    for (int pass = 0; pass < 2; pass++) for (int k = 0; k < n; k++) { const SfEnt *e = &ents[k]; int d = zdepth(e->x, e->y, e->z); if ((d < 1300) != (pass == 0) || d < -400 || d > 9000) continue;
++      if (e->kind == 0) veh_draw(e->x, e->y, e->z, e->yaw, e->look, e->pol, d);
++      else ped_draw(e->x, e->y, e->z, e->yaw, e->spare & 127, ped_row(e->spare & 127, e->pol, e->look == 0xFE), d); } }
++#endif
+   PH(4);
+ #ifdef SPINHASH
+   { u32 h = 2166136261u; u32 lo = ADDR(pbs), hi = lo + PBW * 4, ol = ADDR(otc), oh = ol + OTN * 4;   /* link words that point at static variables (binary-layout dependent) are masked */
+@@ -1172,7 +1192,7 @@
+   for (int di = 0; di < 4; di++) if (rd_live[di]) doll_draw(di);
+   if (hud) {
+     char b[80], *e;
+-    e = fmt_s(b, "ENG "); e = fmt_int(e, sf3_stat_eng, 0); e = fmt_s(e, " Q "); e = fmt_int(e, nprim, 0); e = fmt_s(e, " OVF "); e = fmt_int(e, sf3_stat_ovf, 0); e = fmt_s(e, " LOD "); e = fmt_int(e, lod, 0); e = fmt_s(e, " MAP "); e = fmt_int(e, sf3_map_cur, 0);
++    e = fmt_s(b, "ENG "); e = fmt_int(e, sf3_stat_eng, 0); e = fmt_s(e, " Q "); e = fmt_int(e, nprim, 0); e = fmt_s(e, " OVF "); e = fmt_int(e, sf3_stat_ovf, 0); e = fmt_s(e, " LOD "); e = fmt_int(e, lod, 0); e = fmt_s(e, " MAP "); e = fmt_int(e, sf3_map_cur, 0); if (sf3_mt != 0xffff) { e = fmt_s(e, " MT "); e = fmt_int(e, sf3_mt, 0); }
+     hud_box(4, 4, 232, 11); hud_str(6, 6, b, 0xC0FFC0);
+     e = fmt_s(b, "SCORE "); e = fmt_int(e, sf3_score, 0); e = fmt_s(e, " HP "); e = fmt_int(e, sf3_hp, 0); e = fmt_s(e, " CLK "); e = fmt_int(e, sf3_clock, 0);
+     hud_box(4, 16, 232, 11); hud_str(6, 18, b, 0xFFE080);
+@@ -1182,6 +1202,9 @@
+   gp0(0xE1000400 | TPAGE(320, 0, 1, 0)); gp0(0xE3000000 | (oy << 10)); gp0(0xE4000000 | 319 | ((oy + 239) << 10)); gp0(0xE5000000 | (oy << 11));
+   list_send(); PH(6);
+   sf3_cnt[0] = c_proj; sf3_cnt[1] = c_leaf; sf3_cnt[2] = c_clip; sf3_cnt[3] = t_cb / 268; sf3_cnt[4] = t_cr / 268; sf3_cnt[5] = t_ct / 268; sf3_cnt[6] = t_gc / 268; sf3_cnt[7] = t_clipt / 268; sf3_ph[7] = 0; sf3_cnt[8] = t_rect / 268; sf3_cnt[9] = t_qoff / 268; sf3_cnt[10] = t_qf / 268; sf3_cnt[11] = c_box; sf3_cnt[12] = c_rect; sf3_cnt[13] = c_cells; sf3_cnt[14] = c_cullcell; sf3_cnt[15] = c_cleaf; sf3_cnt[16] = t_wg / 268; sf3_cnt[17] = t_fw / 268; sf3_cnt[18] = t_top / 268; sf3_cnt[19] = c_wg; sf3_cnt[20] = c_wcell; sf3_cnt[21] = c_wq; sf3_cnt[22] = c_wf; sf3_cnt[23] = t_pa / 268; sf3_cnt[24] = t_pb / 268; sf3_cnt[25] = t_pc / 268; sf3_cnt[26] = t_pd / 268; sf3_cnt[27] = t_pf / 268;
++#ifndef OLDMODELS
++  sf3_cnt[28] = t_vehl; sf3_cnt[29] = t_pedl; sf3_cnt[30] = n_veh; sf3_cnt[31] = n_ped;
++#endif
+   u32 t1 = HLINES(); u32 eng = (t1 - t0) & 0xffff;
+   sf3_stat_eng = eng; sf3_stat_prim = nprim; sf3_stat_ovf = ovf; sf3_stat_lod = lod; sf3_frames++; ovf = 0;
+   { int budget = FIELDS * 263 - 70; static int calm;

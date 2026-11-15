@@ -1,0 +1,52 @@
+--- rd/ragdoll_ps1.c.orig	2026-11-15 09:00:41.547827682 +0000
++++ rd/ragdoll_ps1.c	2026-11-15 09:00:41.550089536 +0000
+@@ -16,6 +16,15 @@
+ #ifndef RP_ITER
+ #define RP_ITER 3                      /* constraint passes a substep (the reference: 3) */
+ #endif
++#ifndef RP_SLOW_NS
++#define RP_SLOW_NS 0
++#endif
++#ifndef RP_SLOW_V
++#define RP_SLOW_V (RP_ONE * 3)
++#endif
++#ifndef RP_SLOW_C
++#define RP_SLOW_C 6
++#endif
+ #ifndef RP_NS_BASE
+ #define RP_NS_BASE 4                   /* substeps a frame = BASE + (0.75 x fastest joint's |v|1, m/s) / DIV, at most NSMAX (the reference: 4, 5, 12) */
+ #endif
+@@ -371,7 +380,7 @@
+     if (!d->air || d->brace || d->state != RP_LIVE) return 0;
+     fx vmax = 0;
+     for (int i = 0; i < RP_P; i++) { fx m = iabs(d->vel[i].x) + iabs(d->vel[i].y) + iabs(d->vel[i].z); if (m > vmax) vmax = m; }
+-    return (i64)d->air * 65536 > (i64)vmax * ticks / 30 + RP_ONE * 6 / 10;
++    return (i64)d->air * 65536 > (i64)((uint32_t)vmax * (uint32_t)ticks / 30u) + RP_ONE * 6 / 10;
+ }
+ void rp_wake(rp_doll *d) { if (d->state == RP_ASLEEP) d->state = RP_LIVE; d->quiet = 0; }
+ void rp_impulse(rp_doll *d, int part, rp_v3 dv) { d->vel[part] = add(d->vel[part], dv); rp_wake(d); }
+@@ -702,9 +711,13 @@
+     if (d->lod >= 3) ns = (vmax < 5 * RP_ONE ? 1 : 2) * dtf;      /* the far, simple doll: slow ones one substep, fast ones two */
+ #if RP_ADAPT
+     /* free flight: last tick ended clear of everything by more than this tick can travel: one substep is enough (contacts cannot happen) */
+-    if (d->air && !d->brace && (i64)d->air * 65536 > (i64)vmax * dtf / 40 + RP_ONE * 3 / 10) ns = dtf > 1 ? RP_NS_AIR30 : RP_NS_AIR;
++    if (d->air && !d->brace && (i64)d->air * 65536 > (i64)((uint32_t)vmax * (uint32_t)dtf / 40u) + RP_ONE * 3 / 10) ns = dtf > 1 ? RP_NS_AIR30 : RP_NS_AIR;
++#endif
++#if RP_SLOW_NS
++    /* a doll lying/resting on the ground (touching, no motors, all joints slow): fewer substeps, a slow body moves little in one */
++    if (d->contacts >= RP_SLOW_C && !d->brace && vmax < RP_SLOW_V && ns > RP_SLOW_NS * dtf) ns = RP_SLOW_NS * dtf;
+ #endif
+-    if (ns < 2 && !(RP_ADAPT && d->air) && d->lod < 3) ns = 2;
++    if (ns < 2 && !(RP_ADAPT && d->air) && d->lod < 3 && !(RP_SLOW_NS == 1 && d->contacts >= RP_SLOW_C && vmax < RP_SLOW_V)) ns = 2;
+     if (ns < 1) ns = 1;
+     d->nsub = (uint8_t)ns;
+     fx h = RP_ONE / HZ * dtf / ns;
+@@ -753,7 +766,7 @@
+             car_near = !(iabs(p[RP_PELVIS].x - cp.x) >= rad || iabs(p[RP_PELVIS].y - cp.y) >= rad || iabs(p[RP_PELVIS].z - cp.z) >= rad);
+             {   /* "hot": close enough that a hit is possible within this tick (the car's circumscribed sphere 2.5 m + a doll's reach 2 m + the relative travel) */
+                 fx rel = iabs(d->vel[RP_PELVIS].x - car->vel.x) + iabs(d->vel[RP_PELVIS].y - car->vel.y) + iabs(d->vel[RP_PELVIS].z - car->vel.z);
+-                fx hot = 9 * RP_ONE / 2 + (fx)(((i64)rel * dtf * 3 / 2) / HZ);
++                fx hot = 9 * RP_ONE / 2 + (fx)((uint32_t)rel * (uint32_t)dtf * 3u / 2u / (uint32_t)HZ);
+                 if (!(iabs(p[RP_PELVIS].x - cp.x) >= hot || iabs(p[RP_PELVIS].y - cp.y) >= hot || iabs(p[RP_PELVIS].z - cp.z) >= hot)) any_near = 1;
+             }
+             if (car_near) {

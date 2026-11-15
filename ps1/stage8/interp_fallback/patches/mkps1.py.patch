@@ -1,0 +1,22 @@
+--- stage7c/w/mkps1.py	2026-11-15 04:27:00.000000000 +0000
++++ s8a/prod/mkps1.py	2026-11-15 12:15:35.405761916 +0000
+@@ -10,6 +10,19 @@
+ L=[int(x) for x in os.environ.get('LBAS','0,0,0,0,0,0').split(',')]
+ meta=pickle.load(open(OUT+'/meta_%s.pkl'%TAG,'rb'))
+ open(D+'/syms.c','w').write('unsigned GUEST_MAIN_HOST=0x%08x;\nconst unsigned COLD_HOST=0x%08x;\nconst unsigned CD_ROM_LBA=%d, CD_COLD_LBA=%d, CD_COLD_PAGES=%d;\nconst unsigned CD_SNAPST_LBA=%d;\nconst unsigned CD_SF3W_LBA=%d, CD_SF3W_SECS=%d, CD_SF3A_LBA=%d, CD_SNAP_LBA=%d, CD_SNAP_N=%d;\n'%(gmap[0x08022dc8],meta['cold']['start'],L[0],L[1],L[2],L[6] if len(L)>6 else 0,L[3],os.path.getsize(os.path.dirname(os.path.abspath(__file__))+'/out/SF3W.BIN')//2048 if os.path.exists(os.path.dirname(os.path.abspath(__file__))+'/out/SF3W.BIN') else 0,L[4],L[5],int(os.environ.get('NSNAP','0'))))
++# stage 7: interpreter fallback tables: the hot hash (guest entry -> host entry) and the ROM ranges that start ARM state code
++rt=meta['rt']; nslots=(rt['HEND']-rt['HASH'])//8-64
++sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
++P=pickle.load(open(os.environ.get('PROGPKL',os.path.dirname(os.path.abspath(__file__))+'/out/s2/prog_pr.pkl'),'rb'))
++ra=sorted(a for a,i in P.ins.items() if i.mode=='A' and a>>24==8); runs=[]
++for a in ra:
++    if runs and a<=runs[-1][1]: runs[-1][1]=a+4
++    else: runs.append([a,a+4])
++open(D+'/syms.c','a').write('const unsigned HASH_HOST=0x%08x, HASH_NSLOTS=%d, ARMTAB_N=%d, RT_BX_HOST=0x%08x;\nconst unsigned ARMTAB[]={%s};\n'%(rt['HASH'],nslots,len(runs),rt['RT_BX'],','.join('0x%x,0x%x'%(a,b) for a,b in runs)))
++import prune
++stb=[(a,i) for i,(a,n) in sorted(prune.STUBS.items())]
++assert [i for a,i in stb]==list(range(1,len(stb)+1))
++open(D+'/syms.c','a').write('const unsigned STUBTAB_N=%d, RT_STUB_HOST=0x%08x;\nconst unsigned STUBTAB[]={%s};\n'%(len(stb),rt['RT_STUB'],','.join('0x%x,%d'%(a,i) for a,i in stb)))
+ open(D+'/blobs.s','w').write('''.section .blob,"a"
+ .incbin "%s/payback_%s.bin"
+ .section .bootimg,"a"

@@ -1,0 +1,42 @@
+--- /mnt/project-files/stunt-fox/ps1/stage7/integration/mgba/gbashim.c	2026-11-15 08:34:33.250109000 +0000
++++ mg/gbashim.c	2026-11-15 11:42:55.219619383 +0000
+@@ -126,3 +126,39 @@
+     }
+     out[3] = c->frameCounter(c) - f0; drain(g);
+ }
++
++/* stage 8 scout: instruction-count profile of whole frames (cycle deltas are not available per step in libmgba: frameCycles is coarse).
++   bins: ROM 16-byte buckets (0x08000000..0x0a000000 = 2M), then IWRAM 4-byte buckets (8K) at 0x200000, other at 0x202000: instructions executed.
++   tot[0] = halted steps (pc unchanged), tot[1] = instructions, tot[2] = frames, tot[3] = ARM-state instructions; cov: halfword bitmap as gba_cover */
++void gba_pcprof(Gba *g, int nframes, uint64_t *bins, uint64_t *tot, uint8_t *cov)
++{
++    struct mCore *c = g->core; uint32_t f0 = c->frameCounter(c);
++    while (c->frameCounter(c) - f0 < (uint32_t)nframes) {
++        uint32_t pc = 0, pc2 = 0, cp = 0;
++        c->readRegister(c, "pc", &pc);
++        c->readRegister(c, "cpsr", &cp);
++        if (cov) { if (pc >= 0x08000000 && pc < 0x08800000) { uint32_t h = (pc - 0x08000000) >> 1; cov[h >> 3] |= 1 << (h & 7); } else if (pc >= 0x03000000 && pc < 0x03008000) { uint32_t h = 0x400000 + ((pc - 0x03000000) >> 1); cov[h >> 3] |= 1 << (h & 7); } }
++        c->step(c);
++        c->readRegister(c, "pc", &pc2);
++        if (pc2 == pc) { tot[0]++; continue; }
++        tot[1]++; if (!(cp & 0x20)) tot[3]++;
++        if (pc >= 0x08000000 && pc < 0x0a000000) bins[(pc - 0x08000000) >> 4]++;
++        else if (pc >= 0x03000000 && pc < 0x03008000) bins[0x200000 + ((pc - 0x03000000) >> 2)]++;
++        else bins[0x202000]++;
++    }
++    tot[2] += c->frameCounter(c) - f0; drain(g);
++}
++
++/* debug: list steps that take more than `thr` cycles in one frame: pc before/after, delta */
++int gba_longsteps(Gba *g, uint32_t thr, uint32_t *out, int max)
++{
++    struct mCore *c = g->core; uint32_t f0 = c->frameCounter(c); int n = 0;
++    while (c->frameCounter(c) == f0) {
++        uint32_t pc = 0, pc2 = 0; c->readRegister(c, "pc", &pc);
++        uint64_t t = (uint64_t)c->frameCounter(c) * 280896u + (uint64_t)c->frameCycles(c);
++        c->step(c); c->readRegister(c, "pc", &pc2);
++        uint64_t t2 = (uint64_t)c->frameCounter(c) * 280896u + (uint64_t)c->frameCycles(c);
++        if (t2 > t + thr && n < max) { out[3 * n] = pc; out[3 * n + 1] = pc2; out[3 * n + 2] = (uint32_t)(t2 - t); n++; }
++    }
++    drain(g); return n;
++}

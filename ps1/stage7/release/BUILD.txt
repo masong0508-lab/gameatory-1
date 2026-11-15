@@ -1,0 +1,3 @@
+Release candidate build (code only). Starting point: stage7/integration + loops_fp patches (APPLY.txt) + ragdoll_g2 settings, i.e. the 'stage 7c' ISO, then:
+  python3 -I tools7/mkdisc2.py --iso out/s7c.iso --out DIR/NAME --default-tracks     (needs MUSIC_MODS / MUSIC_PB mp3 dirs; Payback song 3 is refused by name)
+Verify: run_rc.sh DISC.cue OUTPREFIX 300 /abs/path/keys_rc.txt 10   (pcsxr + xvfb + xdotool + ffmpeg; key script path must be absolute), then python3 -I flash.py OUTPREFIX_cap.mp4

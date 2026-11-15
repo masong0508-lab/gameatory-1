@@ -1,0 +1,8 @@
+--- a/t/disc7.sh	2026-11-15 13:49:33.493881806 +0000
++++ b/t/disc7.sh	2026-11-15 14:58:47.313213107 +0000
+@@ -9,4 +9,4 @@
+ WORLD=$(python3 t/worldaddr.py ${WORLDPRD:-$PRD})
+ SECS=$(python3 -c "import os;print((os.path.getsize('out/$PRD/cold_P.bin')+2047)//2048)")
+ SNAPOPT=""; [ "$SNAP" = 1 ] && SNAPOPT="-DSNAPRESUME" && export SNAPFILE=SNAPST.BIN
+-PRD=$PRD NAME=$NAME BLD=bld_$NAME DOLLDEF=$DOLL CFL="-DKPLAN $SNAPOPT -I../out/kp -DPCACHE_ADDR=$PC -DNSLOT=$NS -DCOLD_SECS=$SECS -DSF_WORLD_ADDR=${WORLD}u -DSF_WORLD_LO=${WORLD}u $XF" sh ps1rt/build.sh 2>&1 | grep -v "experimental"
++PRD=$PRD NAME=$NAME BLD=bld_$NAME DOLLDEF=$DOLL CFL="-DKPLAN $SNAPOPT -I../${KPDIR:-out/kp} -DPCACHE_ADDR=$PC -DNSLOT=$NS -DCOLD_SECS=$SECS -DSF_WORLD_ADDR=${WORLD}u -DSF_WORLD_LO=${WORLD}u $XF" sh ps1rt/build.sh 2>&1 | grep -v "experimental"

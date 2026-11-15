@@ -1,0 +1,9 @@
+Stage 10: Payback PS1 original-game disc (code only; no Payback code/assets/ROM/audio here). EMULATOR-ONLY results.
+Base: stage7/integration (+ loops_fp, ragdoll_g2 as stage 7c), then stage8/interp_fallback patches, then patches/ here (cumulative diffs vs stage7/integration, already containing the stage 8 patches):
+  patches/ps1rt_rt.c.patch  ps1rt_hw_card.h.patch  ps1rt_build.sh.patch  mkps1.py.patch  t_sim4.py.patch   (apply with patch -p1 in the integration tree; copy stage8 interp/ and ps1rt/interp_glue.h)
+Changes: menu assist (KPLAN tables = stock menu path OR real pad; in-level plan only with -DTESTTOUR), pad_gba kept apart from the guest key word, Payback names (save BESLES-99902PAYBACK/"PAYBACK SAVE", disc label via VOL=), debug line "MENU 2D LAYER NOT DRAWN", interpreter fallback.
+Build (ROM set): NPAGES=56 PRD=pr_lb WORLDPRD=pr_l RPG=out/touched_f1_boot.pkl.rompages VOL=PAYBACK bash t/disc7.sh NAME "-DSF3_DEFER -DPADDBG" 0   (out/pr_lb from t/boot_chain.sh)
+  python3 -I tools7/mkdisc2.py --iso out/NAME.iso --out DIR/NAME --default-tracks     (Payback song 3 refused by name)
+Test tour: python3 -I tools10/tour.py DISC.cue OUTPREFIX HOME_WITH_.pcsxr [max_s]  (state-aware: waits on log lines, then presses L2/R2/Select+R1/Up; HOME needs a BLANK memory card; keys held 14 s)
+Test-only: -DTESTFAST (faster VCOUNT; shown not needed), -DTESTTOUR (in-level pad plan), --seconds 30 on mkdisc2 (short audio).
+Finding: the title boot never reached a level because the test card held an old save (menu path off-plan), not because of fade timing.

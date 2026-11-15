@@ -1,0 +1,12 @@
+--- src/sf.c.base	2026-11-13 16:04:47.971362541 +0000
++++ src/sf.c	2026-11-13 16:14:52.194889029 +0000
+@@ -165,7 +165,8 @@
+   s32 dx = (x << 2) - cpx6, dy = (y << 2) - cpy6, dz = (z << 2) - cpz6; int sh = 2;
+   if (absi(dx) >= TIER_Q || absi(dy) >= TIER_Q || absi(dz) >= TIER_Q) {   /* same rule as grid_tex fast path: shared vertices round identically */
+     dx = x - cpx8; dy = y - cpy8; dz = z - cpz8; sh = 0;
+-    if (((u32)(dx + 18000) | (u32)(dy + 18000) | (u32)(dz + 18000)) >= 36000u) { o->z = 0; o->sx = 0; o->sy = 0; return; }
++    if (((u32)(dx + 32768) | (u32)(dy + 32768) | (u32)(dz + 32768)) >= 65536u)   /* each |d| < 32768: the old 18000 bound was an OR of offsets, which exceeds 36000 for valid vertices (dy 6000 with dz 14800) and sent far grazing walls down the slow clip path */
++    { o->z = 0; o->sx = 0; o->sy = 0; return; }
+   }
+   MTC2(0, (dx & 0xffff) | ((u32)dy << 16)); MTC2(1, dz);
+   GTE(RTPS);

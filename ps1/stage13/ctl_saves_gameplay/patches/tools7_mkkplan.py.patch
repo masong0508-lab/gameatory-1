@@ -1,0 +1,25 @@
+--- ../s10_boot/tools7/mkkplan.py	2026-11-15 13:49:33.500910059 +0000
++++ tools7/mkkplan.py	2026-11-15 15:29:28.442930624 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+-"""mkkplan.py PAD_BOOT.json OUT/kplan.h [extra in-level plan entries 'a,b,mask;...']  (TEST-ONLY pad plan for the scripted discs)
+-KPL = the menu plan recorded from the stock game's title -> level path (mgba/padlog.py); KPL2 = in-level walk/drive plan (frames since the level clock runs;
+-mask bits: 1=A 2=B 4=SELECT 8=START 16=RIGHT 32=LEFT 64=UP 128=DOWN 256=R 512=L)."""
++"""mkkplan.py PAD_A.json OUT/kplan.h [extra in-level plan entries 'a,b,mask;...'] [PAD_B.json [PAD_C.json]]
++KPL  = menu plan recorded from the stock game's title -> level path with a BLANK save (mgba/padlog.py), frames from power-on; KPLB / KPLC = the same path with an initialised save that holds a profile in slot 1 (B) / an initialised save without a profile (C);
++KPL2 = in-level walk/drive plan (TEST-ONLY, -DTESTTOUR; frames since the level clock runs; mask bits: 1=A 2=B 4=SELECT 8=START 16=RIGHT 32=LEFT 64=UP 128=DOWN 256=R 512=L)."""
+ import json,sys
+ d=json.load(open(sys.argv[1])); extra=[]
+ if len(sys.argv)>3 and sys.argv[3]:
+@@ -9,4 +9,10 @@
+ KPL2=[[0,240,64],[240,300,96],[300,540,64],[540,600,80],[600,606,1],[606,800,64],[800,1000,64],[1000,1060,96],[1060,1300,64],[1300,1360,80],[1360,1700,64],[1700,1760,96],[1760,2400,64]]
+ KPL2+=extra
+ f=lambda L:'{'+','.join('{%d,%d,%d}'%tuple(x) for x in L)+'}'
+-open(sys.argv[2],'w').write('/* generated: pad plan for the test disc (TEST-ONLY) */\nstatic const u32 KPL[][3]=%s;\nstatic const u32 NKPL=%d;\nstatic const u32 KPL2[][3]=%s;\nstatic const u32 NKPL2=%d;\n#define CAR_T 800\n'%(f(d['plan']),len(d['plan']),f(KPL2),len(KPL2)))
++o='/* generated: pad plans of the menu assist (stage 13) */\nstatic const u32 KPL[][3]=%s;\nstatic const u32 NKPL=%d;\n'%(f(d['plan']),len(d['plan']))
++for nm,fn in (('B',4),('C',5)):
++    if len(sys.argv)>fn:
++        e=json.load(open(sys.argv[fn])); pl=[[a-360,b-360,m] for a,b,m in e['plan'][1:]]   # relative to the first skip press (360): the anchor of the B/C plans in the runtime is the first big image the guest draws
++        o+='static const u32 KPL%s[][3]=%s;\nstatic const u32 NKPL%s=%d;\n'%(nm,f(pl),nm,len(pl))
++o+='static const u32 KPL2[][3]=%s;\nstatic const u32 NKPL2=%d;\n#define CAR_T 800\n'%(f(KPL2),len(KPL2))
++open(sys.argv[2],'w').write(o)

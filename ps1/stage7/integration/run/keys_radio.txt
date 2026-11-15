@@ -1,0 +1,16 @@
+45 keydown c
+45.1 keydown r
+52 keyup r
+52.1 keyup c
+70 keydown c
+70.1 keydown w
+77 keyup w
+77.1 keyup c
+95 keydown c
+95.1 keydown d
+102 keyup d
+102.1 keyup c
+118 keydown c
+118.1 keydown d
+125 keyup d
+125.1 keyup c

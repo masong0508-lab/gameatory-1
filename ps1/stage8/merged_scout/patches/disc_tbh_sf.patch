@@ -1,0 +1,101 @@
+--- /mnt/project-files/stunt-fox/ps1/stage7/integration/disc.py	2026-11-15 08:34:39.841759000 +0000
++++ disc.py	2026-11-15 11:39:46.913991814 +0000
+@@ -4,7 +4,12 @@
+ import armdec as D
+ from armdec import *
+ ROMB=0x08000000
+-IWCODE_END=0x03006cc4
++import os
++IWCODE_END=int(os.environ.get('IWCODE_END','0x03006cc4'),16)
++ROMC=int(os.environ.get('ROM_CODE_END','0x7c9e0'),16)
++_x=os.environ.get('ROM_EXTRA')   # 'lo,hi' file offsets of a second code span (merged ROM: Stunt Fox at 0x1b0000)
++ROMX=tuple(int(v,16) for v in _x.split(',')) if _x else None
++def rspans(): return [(0,ROMC)]+([ROMX] if ROMX else [])
+ class Img:
+     """static view of guest memory for translation: ROM + IWRAM code image (+ optional extra regions for tests)"""
+     def __init__(s,rom,iw,extra=None):
+@@ -35,6 +40,9 @@
+         if w is None: return None
+         return arm(w,a)
+ EXTRA_RANGES=[]
++SF_LO=0x081b0000; SF_HI=0x081b0000+int(os.environ.get('SF_LEN','0'),16) if os.environ.get('SF_LEN') else 0
++def in_sf(a): return SF_HI and SF_LO<=a<SF_HI
++HOTCALLS=[]   # (site, target, mode) IWRAM targets reached from Stunt Fox ROM code: they belong to the SF-version IWRAM image, scanned separately
+ def inrange(a):
+     if ROMB<=a<ROMB+0x800000 or 0x03000000<=a<IWCODE_END: return True
+     return any(lo<=a<hi for lo,hi in EXTRA_RANGES)
+@@ -91,6 +99,11 @@
+                 regs[i.rd]=(regs[i.rn]+i.imm)&0xffffffff
+             else:
+                 for r in s.writes(i): regs.pop(r,None)
++            if in_sf(a) and ((op in('bl','b') and getattr(i,'target',None) is not None and i.target>>24==3) or (op=='bx' and isinstance(regs.get(i.rm),int) and regs[i.rm]>>24==3)):
++                HOTCALLS.append((a,i.target if op!='bx' else regs[i.rm]&~1,op))
++                if op=='bl': regs={}; a=nxt; continue
++                if al: return
++                a=nxt; continue
+             if op=='bl':
+                 work.append((i.target,m)); s.callt.add(i.target); s.entries.add(i.target)
+                 regs={}
+@@ -115,6 +128,25 @@
+             if wpc:
+                 s.indirect.append(a)
+                 tb=None
++                if m=='T' and op=='dp' and i.opc==D.ADD and i.rd==15 and i.rm is not None and os.environ.get('TBH','1')=='1':
++                    # stage 8: LLVM's Thumb-1 TBB/TBH emulation (inline offset table):  [lsls rX,rX,#1;] add rX,pc; ldrb/ldrh rX,[rX,#4]; lsls rX,rX,#1; add pc,rX; <table of u8/u16>
++                    p1,p2,p3=s.ins.get(a-2),s.ins.get(a-4),s.ins.get(a-6)
++                    if p1 and p2 and p3 and p1.op=='dp' and p1.opc==D.MOV and p1.sh==D.LSL and p1.shamt==1 and p1.rd==i.rm and p2.op=='mem' and p2.ld and p2.sz in(1,2) and p2.rn==i.rm and p2.imm==4 and p3.op=='dp' and p3.opc==D.ADD and p3.rd==i.rm and p3.rm==15:
++                        base=p3.addr+8; n=None
++                        for k in range(8,40,2):
++                            q=s.ins.get(a-k)
++                            if q and q.op=='dp' and q.opc==D.CMP and q.imm is not None and q.rm is None: n=q.imm+1; break
++                        n=n if n is not None and n<=256 else 0
++                        got=0
++                        for k in range(n):
++                            e=img.rd16(base+2*k) if p2.sz==2 else (img.rd16(base+k)>>(8*(k&1)))&0xff if (base+k)&1==0 else (img.rd16(base+k-1)>>8)&0xff
++                            if e is None: break
++                            t=a+4+2*e
++                            if not inrange(t): break
++                            work.append((t,'T')); s.targets.add(t); s.entries.add(t); s.jt.add(t); got+=1
++                        s.tables[a]=(base,got); s.tbh=getattr(s,'tbh',0)+1
++                        if al: return
++                        a=nxt; continue
+                 if op=='dp' and i.opc==D.MOV and i.rm is not None and isinstance(regs.get(i.rm),tuple): tb=regs[i.rm][1]
+                 if op=='mem' and i.rn==15 and i.rm is not None and m=='A':     # ldr pc,[pc,rm,lsl #2] : table at addr+8
+                     tb=a+8
+@@ -159,9 +191,12 @@
+     # IWRAM seeds: literals and aligned ROM words pointing into the IWRAM code image
+     seeds=set()
+     for ea in list(P.lits):
++        if in_sf(ea): continue
+         v=img.rd32(ea)
+         if v is not None and 0x03000000<=v<IWCODE_END and (v&3==0 or v&1): seeds.add(v)
+-    for o in range(0,0x7ca00,4):
++    for lo_,hi_ in rspans():
++      for o in range(lo_,hi_+0x20,4):
++        if in_sf(ROMB+o): continue
+         v=struct.unpack_from('<I',rom,o)[0]
+         if 0x03000000<=v<IWCODE_END and (v&3==0 or v&1): seeds.add(v)
+     P.run([(v&~1,'T' if v&1 else 'A') for v in seeds])
+@@ -175,7 +210,7 @@
+     cov=covered()
+     P.orph=[]
+     cands=[]
+-    for o in range(0,0x7c9e0,2):
++    for o in [o_ for lo_,hi_ in rspans() for o_ in range(lo_,hi_,2)]:
+         a=ROMB+o
+         if a in cov: continue
+         h=struct.unpack_from('<H',rom,o)[0]
+@@ -190,9 +225,11 @@
+         P.lits|=Q.lits; P.targets|=Q.targets; P.entries|=Q.entries; P.callt|=Q.callt; P.indirect+=Q.indirect; P.jt|=Q.jt; P.tables.update(Q.tables)
+     P.dptr=set()
+     import numpy as np
+-    words=np.frombuffer(rom[:len(rom)//4*4],dtype='<u4')
++    words=np.frombuffer(rom[:min(len(rom),0x800000)//4*4],dtype='<u4')
+     vv=words&~np.uint32(1)
+-    cand_idx=np.nonzero((vv>=ROMB+0x100)&(vv<ROMB+0x7c9e0))[0]
++    m_=np.zeros(len(vv),bool)
++    for lo_,hi_ in rspans(): m_|=(vv>=ROMB+max(lo_,0x100))&(vv<ROMB+hi_)
++    cand_idx=np.nonzero(m_)[0]
+     cb=bytearray(0x800000)
+     for a,i in P.ins.items():
+         if a>>24==8: cb[a-ROMB:a-ROMB+i.size]=b'\1'*i.size

@@ -1,0 +1,23 @@
+--- /dev/fd/63	2026-11-15 18:02:13.416122161 +0000
++++ ../t/sim4.py	2026-11-15 16:11:39.341131125 +0000
+@@ -6,16 +6,18 @@
+ class Sim:
+     def __init__(s,exe,iso,elf):
+         e=open(exe,'rb').read(); pc0,gp,ta,ts=struct.unpack_from('<IIII',e,0x10)
+-        u=s.u=Uc(UC_ARCH_MIPS,UC_MODE_MIPS32|UC_MODE_LITTLE_ENDIAN); u.mem_map(0,0x1000000)
++        u=s.u=Uc(UC_ARCH_MIPS,UC_MODE_MIPS32|UC_MODE_LITTLE_ENDIAN); u.mem_map(0,0x200000 if os.environ.get("RAM2M") else 0x1000000)
+         d=open(iso,'rb').read(); u.mem_map(0x10000000,(len(d)+0xfff)&~0xfff); u.mem_write(0x10000000,d)
+         u.mem_write(ta&0x1fffffff,e[0x800:0x800+ts]); s.out=bytearray(); s.rc=0
+         def r(uc,off,size,ud):
+             a=0x1f801000+off
++            if a==0x1f801810 and s.mr is not None: return s.mr()
+             if a==0x1f801814: return 0x1c000000
+             if a==0x1f801070: return 1
+             if a==0x1f801110: s.rc=(s.rc+7)&0xffff; return s.rc
+             return 0
+-        u.mmio_map(0x1f801000,0x1000,r,None,lambda *a:None,None); u.mem_map(0x1f000000,0x10000)
++        s.mw=lambda off,val:None; s.mr=None
++        u.mmio_map(0x1f801000,0x1000,r,None,lambda uc,off,size,val,ud:s.mw(off,val),None); u.mem_map(0x1f000000,0x10000)
+         def a0(uc,addr,sz,ud):
+             if uc.reg_read(UC_MIPS_REG_9)==0x3c: s.out.append(uc.reg_read(UC_MIPS_REG_4)&0xff)
+             uc.reg_write(UC_MIPS_REG_PC,uc.reg_read(UC_MIPS_REG_31))

@@ -1,0 +1,34 @@
+--- ../s10_boot/ps1rt/hw_pad.h	2026-11-15 13:49:33.486371962 +0000
++++ ps1rt/hw_pad.h	2026-11-15 15:01:11.204025429 +0000
+@@ -37,15 +37,27 @@
+   if(p&(1u<<14)) k|=0x001; if(p&((1u<<13)|(1u<<15))) k|=0x002; if(p&1) k|=0x004; if(p&(1u<<3)) k|=0x008;
+   if(p&(1u<<5)) k|=0x010; if(p&(1u<<7)) k|=0x020; if(p&(1u<<4)) k|=0x040; if(p&(1u<<6)) k|=0x080;
+   if(p&(1u<<11)) k|=0x100; if(p&(1u<<10)) k|=0x200; return k; }
++/* one 0x42 poll as a single transaction whose length follows the id byte (stage 13): digital 0x41 = 5 bytes, DualShock analog 0x73 = 9 (buttons + sticks in the same transfer: the old code did two). */
++static int sio_pad_xfer(u8*rx){
++  static const u8 tx[9]={1,0x42,0,0,0,0,0,0,0}; sio_init(); JOY_CTRL=0x1003; ISTAT=~0x80u; for(volatile int d=0;d<300;d++){}
++  int n=9,i;
++  for(i=0;i<n;i++){
++    JOY_DATA=tx[i]; u32 s; for(s=0;s<20000;s++) if(JOY_STAT&2) break;
++    rx[i]=JOY_DATA; if(s==20000){ i++; break; }
++    if(i==1){ u32 id=rx[1]&0xff; n=3+2*(id&15); if(n>9) n=9; if(n<5) n=5; }
++    if(i<n-1){ for(s=0;s<40000;s++) if((ISTAT&0x80)||(JOY_STAT&0x200)) break; JOY_CTRL|=0x10; ISTAT=~0x80u; if(s==40000){ i++; break; } }
++  }
++  JOY_CTRL=0; for(volatile int d=0;d<100;d++){}
++  return i; }
+ u32 pad_poll(void){
+-  static const u8 tx[9]={1,0x42,0,0,0,0,0,0,0}; u8 rx[9]={0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}; pad_polls++;
+-  int n=sio_xfer(0,tx,rx,5);                               /* enough for the digital part; sticks need 9 */
++  u8 rx[9]={0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}; pad_polls++;
++  int n=sio_pad_xfer(rx);
+   u32 id=rx[1]&0xff; pad_id=id;
+   if(n<5||rx[2]!=0x5a||((id&0xf0)!=0x40&&(id&0xf0)!=0x70&&(id&0xf0)!=0x50&&(id&0xf0)!=0xf0)){ pad_fails++; pad_raw=0; pad_extra=0; pad_analog=0; return 0x3ff; }
+   if((id&0xf0)==0xf0){ pad_raw=0; return 0x3ff; }          /* pad is stuck in config mode */
+   pad_prev=pad_raw; pad_raw=(~(rx[3]|(rx[4]<<8)))&0xffff;
+-  if((id&0xf0)==0x70||(id&0xf0)==0x50){                    /* analog: second transfer reads the 4 stick bytes (a fresh poll gives the same buttons) */
+-    int m=sio_xfer(0,tx,rx,9); if(m==9&&rx[2]==0x5a){ for(int i=0;i<4;i++) pad_ax[i]=rx[5+i]; pad_analog=1;
++  if((id&0xf0)==0x70||(id&0xf0)==0x50){
++    if(n==9){ for(int i=0;i<4;i++) pad_ax[i]=rx[5+i]; pad_analog=1;
+       /* left stick -> d-pad (threshold 64 of 128 around 0x80) */
+       u32 lx=pad_ax[2], ly=pad_ax[3]; if(lx>=0xc0) pad_raw|=1u<<5; if(lx<=0x40) pad_raw|=1u<<7; if(ly<=0x40) pad_raw|=1u<<4; if(ly>=0xc0) pad_raw|=1u<<6; } }
+   else { if(!pad_analog&&(pad_polls&127)==1&&pad_cfg_tries<4&&(id&0xf0)==0x40) pad_try_analog(); pad_ax[0]=pad_ax[1]=pad_ax[2]=pad_ax[3]=128; }

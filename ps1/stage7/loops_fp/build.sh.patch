@@ -1,0 +1,11 @@
+--- /mnt/project-files/stunt-fox/ps1/stage7/integration/ps1rt/build.sh	2026-11-15 08:34:31.812547000 +0000
++++ ps1rt/build.sh	2026-11-15 09:00:41.552367120 +0000
+@@ -10,7 +10,7 @@
+ [ "$DEMO" = 1 ] && F="-DSF3_DEMO $F"
+ [ "$SNAP" = 1 ] && F="-DSF3_SNAP $F" && export NSNAP=${NSNAP:-14}
+ SFF="-DSF_NOLIBC --target=mipsel-none-elf -march=mips1 -mno-abicalls -mfp32 -msoft-float -fno-pic -O2 -ffreestanding -G0 -mno-gpopt -fomit-frame-pointer -mno-check-zero-division -Wno-unused-command-line-argument -Wno-unused-function -I../sf -mllvm -disable-mips-delay-filler $CFL"
+-RDF="--target=mipsel-none-elf -march=mips1 -mno-abicalls -mfp32 -msoft-float -fno-pic -O3 -mllvm -inline-threshold=500 -ffreestanding -G0 -mno-gpopt -fomit-frame-pointer -mno-check-zero-division -Wno-unused-command-line-argument -Wno-unused-function -mllvm -disable-mips-delay-filler -DRP_LEVEL=2 -DRP_NS_BASE=3 -DRP_NS_DIV=10 -DRP_NSMAX=6 -DRP_HINGE_LAST=1 -DRP_FAST=1"
++RDF="--target=mipsel-none-elf -march=mips1 -mno-abicalls -mfp32 -msoft-float -fno-pic -O3 -mllvm -inline-threshold=500 -ffreestanding -G0 -mno-gpopt -fomit-frame-pointer -mno-check-zero-division -Wno-unused-command-line-argument -Wno-unused-function -mllvm -disable-mips-delay-filler -DRP_LEVEL=2 -DRP_NS_BASE=3 -DRP_NS_DIV=10 -DRP_NSMAX=6 -DRP_HINGE_LAST=1 -DRP_FAST=1 -DRP_ITER=${RD_ITER:-2} -DRP_SLOW_NS=${RD_SLOW_NS:-2} -DRP_SLOW_C=4"
+ mkexe(){
+   python3 ../mkps1.py "$ROM" ../out/$PRD P ../out/$BOOT ../out/$PRD/rompages_P.pkl ../out/$BLD >/dev/null
+   clang $F $CFL ${RTOPT:--Os} -c rt.c -o ../out/$BLD/rt.o 2>&1 | grep -E 'error' || true

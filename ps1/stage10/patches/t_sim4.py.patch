@@ -1,0 +1,11 @@
+--- a/t/sim4.py
++++ b/t/sim4.py
+@@ -6,7 +6,7 @@
+ class Sim:
+     def __init__(s,exe,iso,elf):
+         e=open(exe,'rb').read(); pc0,gp,ta,ts=struct.unpack_from('<IIII',e,0x10)
+-        u=s.u=Uc(UC_ARCH_MIPS,UC_MODE_MIPS32|UC_MODE_LITTLE_ENDIAN); u.mem_map(0,0x1000000)
++        u=s.u=Uc(UC_ARCH_MIPS,UC_MODE_MIPS32|UC_MODE_LITTLE_ENDIAN); u.mem_map(0,0x200000 if os.environ.get("RAM2M") else 0x1000000)
+         d=open(iso,'rb').read(); u.mem_map(0x10000000,(len(d)+0xfff)&~0xfff); u.mem_write(0x10000000,d)
+         u.mem_write(ta&0x1fffffff,e[0x800:0x800+ts]); s.out=bytearray(); s.rc=0
+         def r(uc,off,size,ud):

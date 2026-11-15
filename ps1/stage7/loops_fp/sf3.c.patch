@@ -1,0 +1,99 @@
+--- sf/sf3.c.orig	2026-11-15 08:46:10.572239021 +0000
++++ sf/sf3.c	2026-11-15 08:58:55.676574961 +0000
+@@ -57,12 +57,13 @@
+ typedef struct { u8 x0, z0, x1, z1; s16 h0, h1; u8 dir, mat; } Ramp;
+ typedef struct { u16 x, z; u8 h, kind; s8 base; u8 r; } Tree;
+ typedef struct { s16 lo, hi; u8 shape, mat; } Cell;
++typedef struct { s32 x, z; u8 dir, pad; s16 r, w; s16 pad2; } Loop;   /* stage 7c: Star-FlyBack's loops (a helix of 24 quads), from the SF3W header words 18/19 */
+ typedef struct { u8 gmask[2048]; u16 slot_id[448]; u16 avg555[448]; u8 mesh[448]; u32 avgcol[448]; u32 flat[256]; u32 sky9[9]; u32 fog; } Side;   /* stage 7: the sin table (8 KB, the same in every map) lives in sint_tab, only the fields before it are per map (7144 bytes) */
+ static s16 sint_tab[4096];
+ static const Side *side;
+ static const Box *boxes; static const Ramp *ramps; static const u16 *sector, *items; static const u16 *cellidx; static const Cell *celldict;
+ static const Tree *trees; static const u16 *ctex, *btex, *dtex; static const u8 *deckl; static int ndeck;
+-static int nbox, nramp, ntree;
++static int nbox, nramp, ntree, nloop; static const Loop *loops;
+ 
+ static void world_init(void) {
+   const u8 *b = (const u8 *)SF_WORLD; const u32 *h = (const u32 *)b;
+@@ -70,6 +71,7 @@
+   boxes = (const Box *)(b + h[6]); ramps = (const Ramp *)(b + h[7]); sector = (const u16 *)(b + h[8]); items = (const u16 *)(b + h[9]);
+   trees = (const Tree *)(b + h[10]); ctex = (const u16 *)(b + h[11]); btex = (const u16 *)(b + h[12]); dtex = (const u16 *)(b + h[13]);
+   cellidx = (const u16 *)(b + h[14]); celldict = (const Cell *)(b + h[15]); deckl = b + h[16];
++  nloop = h[18] ? (int)h[19] : 0; loops = (const Loop *)(b + h[18]);   /* worlds packed before stage 7c have 18 header words: h[17] is then the end offset and h[18..19] read as 0 (zero padding) */
+   side = (const Side *)SF_SIDE;
+ }
+ static const s8 zero4[4];
+@@ -855,10 +857,40 @@
+     else { billboard(x, base, z, 12, 0, 520, flat_col(10, 2, 0), c.z); billboard(x, base, z, 50, 520, 560, flat_col(12, 3, 0), c.z); }
+   }
+ }
++/* ---- stage 7c: loops.  Same geometry as stuntfox/src/loops.c + citydraw.c draw_loop: a vertical circle of radius r whose centre line also moves sideways by the track width w over one turn
++   (the exit runs beside the entry); LOOP_SEG quads, sand (M_PLAZA) with every other piece one light level darker (two levels under 0.1 luminance apart: no flashing).  Not drawn before 7c (the item
++   sectors do not list loops: the GBA engine draws them from a separate list). */
++#define LOOP_SEG 24
++int sf3_loop_get(int k, s32 *x, s32 *z, int *d) { if (k < 0 || k >= nloop) return 0; *x = loops[k].x; *z = loops[k].z; *d = loops[k].dir & 3; return 1; }   /* test hook (rt.c LOOPTEST) */
++int sf3_nloops(void) { return nloop; }
++static void loop_pt(const Loop *lp, int i, int lat, V3 *o) {
++  static const s8 fx_[4] = { 0, 1, 0, -1 }, fz_[4] = { 1, 0, -1, 0 };
++  int d = lp->dir & 3, ang = i * (65536 / LOOP_SEG), r = lp->r;
++  int along = (r * fsin(ang)) >> 14, up = r - ((r * fcos(ang)) >> 14), side = lat + ((lp->w * (ang >> 2)) >> 14);
++  o->x = lp->x + fx_[d] * along + fz_[d] * side; o->y = up; o->z = lp->z + fz_[d] * along - fx_[d] * side;
++}
++static void draw_loop(int k) {
++  const Loop *lp = &loops[k]; int r = lp->r, w = lp->w;
++  if (dist_rect(lp->x - r - w, lp->z - r - w, lp->x + r + w, lp->z + r + w) > reach) return;
++  if (!in_view(lp->x, r, lp->z, r * 3 / 2 + w + 300)) return;
++  V3 a0, a1, b0, b1; loop_pt(lp, 0, -w / 2, &a0); loop_pt(lp, 0, w / 2, &a1);
++  for (int i = 0; i < LOOP_SEG; i++) {
++    loop_pt(lp, i + 1, -w / 2, &b0); loop_pt(lp, i + 1, w / 2, &b1);
++    int key = zdepth((a0.x + b1.x) >> 1, (a0.y + b1.y) >> 1, (a0.z + b1.z) >> 1);
++#ifdef LOOPDBG
++    dbg("L"); ddec(k); ddec(i); ddec(a0.x); ddec(a0.y); ddec(a0.z); ddec(key); dbg("\n");
++#endif
++    g_src = 8; quad_flat(a0, a1, b0, b1, flat_col(4, 2 - (i & 1), 0), key, 0);
++    a0 = b0; a1 = b1;
++  }
++}
+ static void city_draw(void) {
+ #ifdef NOCITY
+   return;
+ #endif
++#ifndef NOLOOPS
++  for (int k = 0; k < nloop && k < 4; k++) draw_loop(k);
++#endif
+   stamp++; if (!stamp) { for (int i = 0; i < 3072; i++) st_box[i] = 0; for (int i = 0; i < 1024; i++) st_ramp[i] = 0; for (int i = 0; i < 2304; i++) st_tree[i] = 0; stamp = 1; }
+   int csx = camx >> 13, csz = camz >> 13, vs = (reach + 1024 + 8191) >> 13;
+   for (int sx = csx - vs; sx <= csx + vs; sx++) for (int sz = csz - vs; sz <= csz + vs; sz++) {
+@@ -1122,11 +1154,14 @@
+     if (p) { p[1] = 0x28000000 | 0x90B0E0; p[2] = XY(hx - r, hy - r); p[3] = XY(hx + r, hy - r); p[4] = XY(hx - r, hy + r); p[5] = XY(hx + r, hy + r); link_ot(bucket(zdepth(rd_pos[di][3][0], rd_pos[di][3][1], rd_pos[di][3][2]) - 8), p, 5); } }
+ }
+ /* one frame of the city from the guest's player: position in units, heading in 65536 a turn (our convention), pkind 0 on foot 1 in a vehicle */
++int sf3_firstperson;   /* stage 7c: 1 = camera at the player's eyes (R3 toggles it in rt.c); the player's own body / car is not drawn */
+ int sf3_frame(int oy, s32 px, s32 py, s32 pz, int heading, int pkind, const SfEnt *ents, int nents, int hud) {
+   if (!sf3_have) return -1;
+   u32 t0 = HLINES();
+   car_x = px << 8; car_y = py << 8; car_z = pz << 8; car_h = heading & 0xffff;
+     s32 s = fsin(car_h), c = fcos(car_h); int back = pkind ? 820 : 520, up = pkind ? 300 : 260;
++  if (sf3_firstperson) { cpx = car_x; cpz = car_z; cpy = car_y + ((pkind ? 70 : 100) << 8); yaw = car_h; pitch = 0; cam_first = 0; }   /* eye height 1.1 m in a car, 1.6 m on foot (64 units a metre) */
++  else {
+   if (cam_first || iabs_(car_x - cpx) > (6000 << 8) || iabs_(car_z - cpz) > (6000 << 8)) {
+     cpx = car_x - (s * back >> 14 << 8); cpz = car_z - (c * back >> 14 << 8); cpy = car_y + (up << 8); yaw = car_h; cam_first = 0; }
+   { s32 tx = car_x - (s * back >> 14 << 8), tz = car_z - (c * back >> 14 << 8), ty = car_y + (up << 8);
+@@ -1137,6 +1172,7 @@
+       cpx = car_x + ((cpx - car_x) >> 1); cpz = car_z + ((cpz - car_z) >> 1);
+     }
+     int dy = (short)(car_h - yaw); yaw = (yaw + (dy >> 1)) & 0xffff; pitch = -2300; }
++  }
+   { static const s16 reachs[4] = { REACH, 11264, 10240, 8192 }; static const u8 errs[4] = { ERRPX, 3, 4, 6 }; 
+ #ifdef LODREACH
+     reach = reachs[lod];
+@@ -1153,7 +1189,8 @@
+   city_draw(); PH(2);
+ ground_draw();
+   PH(3);
+-  if (pkind) car_draw(px, py, pz, car_h);
++  if (sf3_firstperson) { }
++  else if (pkind) car_draw(px, py, pz, car_h);
+   else if (!sf3_hide_player) billboard(px, py, pz, 45, 0, 150, flat_col(7, 2, 0), zdepth(px, py, pz));
+   for (int i = 0; i < nents; i++) {
+     const SfEnt *e = &ents[i]; if (e->kind == 0) car_draw(e->x, e->y, e->z, e->yaw);

@@ -1,0 +1,26 @@
+--- /mnt/project-files/stunt-fox/ps1/stage4/ps1rt/rt.c	2026-11-13 17:54:49.350109000 +0000
++++ ps1rt/rt.c	2026-11-13 18:51:15.406886560 +0000
+@@ -371,7 +371,7 @@
+ /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
+ typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;
+ extern int sf3_init(void); extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
+-extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames;
++extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames; extern u32 sf3_ph[8], sf3_cnt[32], sf3_hash;
+ void sf3_cd_read(u32 lba,u32 nsec,u8*dst){ cd_read(lba,nsec,dst); }
+ #ifndef PRINT_EVERY_SF3
+ #define PRINT_EVERY_SF3 63
+@@ -447,7 +447,13 @@
+   if(sf3_ok){ s32 px,py,pz; int hd,pk,ne;
+     u32 g0=RC1_VAL; int ok=gather3(&px,&py,&pz,&hd,&pk,&ne); st3_gather_lines=(RC1_VAL-g0)&0xffff;
+     if(ok){ u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+-      if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("\n"); }
++      if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
++#ifdef PROFSPIN
++      /* TEST-ONLY profiling: freeze the guest at this state and spin the player's heading in 1/32 turns, 6 renders per heading (camera settles), print the last */
++      if(st3_render>=PROFSPIN){ for(u32 it=0;;it++){ int h2=(hd+(it/6)*2048)&0xffff; int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,px,py,pz,h2,pk,ents3,ne,1); u32 d2=(RC1_VAL-q0)&0xffff;
++          if(it%6==5){ dbg("SPIN "); dec(it/6); dbg("hd "); dec(h2); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("lod "); dec(sf3_stat_lod); dbg("hash "); hex(sf3_hash); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
++          gp0(0x03000000); while(!(GP1&0x04000000)){} vsync(); GP1=0x05000000|(o2<<10); buf^=1; } }
++#endif
+       goto flip; } }
+   gp0(0xE1000000|(5)|(2<<7)); gp0(0xE3000000|XY(0,oy)); gp0(0xE4000000|XY(319,oy+239)); gp0(0xE5000000|XY(0,oy));
+   gp0(0x02101018); gp0(XY(0,oy)); gp0(XY(320,240));

@@ -1,0 +1,16 @@
+4 keydown v
+4.4 keyup v
+4.6 keydown Right
+5 keyup Right
+5.2 keydown Down
+5.6 keyup Down
+5.8 keydown e
+6.2 keyup e
+6.4 keydown t
+6.8 keyup t
+7 keydown l
+8 keyup l
+8.2 keydown i
+9 keyup i
+9.2 keydown o
+9.8 keyup o

@@ -1,0 +1,74 @@
+--- /tmp/claude-0/-home-user/567ff2df-658a-593d-ba5b-58eb793419f5/scratchpad/rt.c.orig	2026-11-15 19:14:22.443119652 +0000
++++ ps1rt/rt.c	2026-11-15 19:44:49.040066817 +0000
+@@ -392,7 +392,8 @@
+ static u32 last_dl, last_rc, logic_lines, max_lines, tot_lines, nfr_meas; static int buf;
+ static u32 rd32g(u32 off){ return rom_read(0x08000000+off,4); }
+ /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
+-typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;
++typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare, look, pol; } SfEnt;   /* stage 17: look = descriptor +0x38 - 0x1a (vehicle look), pol = descriptor +0x27 (police) */
++extern u8 sf3_plook, sf3_ppol; extern u32 sf3_mt; extern int sf3_sin(int);
+ extern int rd_spawn(s32 ux,s32 uy,s32 uz,int yaw,s32 vx,s32 vy,s32 vz,int id,u32 shirt); extern void rd_set_car(int on,s32 ux,s32 uy,s32 uz,int h16,s32 vx,s32 vy,s32 vz); extern void rd_step_all(const void*w,s32 cx,s32 cz); extern int rd_active(void); extern int rd_has(int id); extern u32 rd_spawned, rd_steps, rd_hurt_max, rd_rejected; extern const char sf3_rpw[]; extern int sf3_hide_player;
+ extern int sf3_init(void); extern u32 sf3_first_map; extern int sf3_map_load(u32 n); extern u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
+ extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames; extern u32 sf3_ph[8], sf3_cnt[32], sf3_hash;
+@@ -425,11 +426,12 @@
+   *hd=((s32)*(const s16*)(e+0x12)*11651>>10)&0xffff;
+   sf3_score=*(const s32*)(e+0x90); sf3_hp=*(const s16*)(e+0x68); sf3_clock=*(volatile u32*)(EW+0x1e00)/30;
+   u32 d=*(const u32*)(e+0x1c); *pk=0; if(d-0x08354af4u<128*0x3c) *pk=(rom_byte((d+0x26)&0x01ffffff)==0);
++  sf3_plook=0; sf3_ppol=0; if(d-0x08354af4u<128*0x3c){ sf3_plook=(u8)(rom_byte((d+0x38)&0x01ffffff)-0x1a); sf3_ppol=rom_byte((d+0x27)&0x01ffffff)?1:0; }
+   int n=0;
+   for(s32 i=0;i<=nl&&n<40;i++){ if(i==ci) continue; const u8*o=entp(tab[i]); if(!o) continue;
+     u32 dd=*(const u32*)(o+0x1c); if(dd-0x08354af4u>=128*0x3c) continue; u32 cl=rom_byte((dd+0x26)&0x01ffffff); if(cl>1) continue;
+     s32 ox=*(const s32*)(o+4)>>1, oz=*(const s32*)(o+8)>>1; if(ox-*px>9000||*px-ox>9000||oz-*pz>9000||*pz-oz>9000) continue;
+-    ents3[n].x=ox; ents3[n].z=oz; ents3[n].y=(19904-(s32)*(const u16*)(o+0xc))>>1; ents3[n].yaw=((s32)*(const s16*)(o+0x12)*11651>>10)&0xffff; ents3[n].kind=cl?1:0; ents3[n].spare=(u8)i; n++; }
++    ents3[n].x=ox; ents3[n].z=oz; ents3[n].y=(19904-(s32)*(const u16*)(o+0xc))>>1; ents3[n].yaw=((s32)*(const s16*)(o+0x12)*11651>>10)&0xffff; ents3[n].kind=cl?1:0; ents3[n].spare=(u8)i; ents3[n].look=(u8)(rom_byte((dd+0x38)&0x01ffffff)-0x1a); ents3[n].pol=rom_byte((dd+0x27)&0x01ffffff)?1:0; n++; }
+   *nents=n; return 1;
+ }
+ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
+@@ -525,7 +527,7 @@
+ #endif
+     u32 g0=RC1_VAL; int ok=gather3(&px,&py,&pz,&hd,&pk,&ne); st3_gather_lines=(RC1_VAL-g0)&0xffff;
+     if(ok){ stage7_pre(&px,&py,&pz,&hd,&pk,&ne); u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+-      if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("map "); dec(sf3_map_cur); dbg("gmap "); dec(g3_map); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cnf "); dec(cold_conflicts); dbg("interp "); dec(ip_enters); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
++      if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("map "); dec(sf3_map_cur); dbg("gmap "); dec(g3_map); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cnf "); dec(cold_conflicts); dbg("interp "); dec(ip_enters); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<32;q++) dec(sf3_cnt[q]); dbg("\n"); }
+ #ifdef SPINTEST
+       /* TEST-ONLY (stage 13): once, after SPINTEST renders: 12 headings (1/12 turn apart), 6 renders each (the camera and the LOD governor settle), the guest frozen in this call; prints the 6th render of each heading and the summary, then goes on normally */
+       { static int spun; if(!spun&&st3_render>=SPINTEST){ spun=1; u32 sum=0,mx=0,over=0; for(int it=0;it<12;it++){ int h2=(hd+it*5461)&0xffff; u32 d2=0;
+@@ -533,10 +535,37 @@
+             dbg("SPIN "); dec(it); dbg("hd "); dec(h2); dbg("map "); dec(sf3_map_cur); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("\n"); sum+=d2; if(d2>mx) mx=d2; if(d2>456) over++; }
+           dbg("SPIN done map "); dec(sf3_map_cur); dbg("mean "); dec(sum/12); dbg("max "); dec(mx); dbg("over456 "); dec(over); dbg("\n"); } }
+ #endif
++#ifdef MODELTOUR
++      /* TEST-ONLY (stage 17): after MODELTOUR renders the guest is frozen and model scenes are shown, each held MT_HOLD renders (HUD "MT n"):
++         0..7 the line-up (10 vehicle classes, 6 walkers) from 8 angles round it; 8, 9 the player walks / runs on a circle; 10..19 one vehicle class each on a turntable with the player beside it;
++         20 walkers toward the camera, 21 walkers across the view.  Prints the mean lines of the last 16 renders of each scene.  Not part of the game. */
++      { static int tour; if(!tour&&st3_render>=MODELTOUR){ tour=1; int pk2=0;
++          static const u8 cl[10]={0,8,15,7,3,11,13,9,2,20};
++          s32 cx=px, cz=pz, cy=py;
++          for(int sc=0;;sc++){ int scn=sc%24; sf3_mt=scn; u32 sum=0,cnt=0,mxl=0;
++            for(int r=0;r<MT_HOLD;r++){ static u32 frame; frame++; int ne2=0; s32 qx=cx, qz=cz-1200; int qh=0; pk2=0;
++              if(scn<8){ int ang=scn*8192;
++                for(int i=0;i<10;i++){ int col=i%5,row=i/5; ents3[ne2].x=cx+(col-2)*430; ents3[ne2].z=cz+(row?330:-330); ents3[ne2].y=cy; ents3[ne2].yaw=row?0x8000+col*0x0800:0x0000+col*0x0800; ents3[ne2].kind=0; ents3[ne2].spare=i; ents3[ne2].look=cl[i]; ents3[ne2].pol=(cl[i]==9||cl[i]==20); ne2++; }
++                for(int i=0;i<6;i++){ int a2=(frame*(i==5?3000:1100)/50+i*10923)&0xffff; int rr=(i==5?110:60+i*8); ents3[ne2].x=cx+(sf3_sin(a2)*rr>>14); ents3[ne2].z=cz+(sf3_sin(a2+16384)*rr>>14); ents3[ne2].y=cy; ents3[ne2].yaw=(a2+16384)&0xffff; ents3[ne2].kind=1; ents3[ne2].spare=20+i; ents3[ne2].look=(i==0)?0xFE:0; ents3[ne2].pol=(i==1); ne2++; }
++                qx=cx-(sf3_sin(ang)*(MT_R)>>14); qz=cz-(sf3_sin(ang+16384)*(MT_R)>>14); qh=ang; }
++              else if(scn<10){ int a3=(frame*(scn==8?560:1500))&0xffff; qx=cx+(sf3_sin(a3)*1300>>14); qz=cz+(sf3_sin(a3+16384)*1300>>14); qh=(a3+16384)&0xffff; }
++              else if(scn<20){ int k=scn-10; ents3[ne2].x=cx; ents3[ne2].z=cz; ents3[ne2].y=cy; ents3[ne2].yaw=(frame*350)&0xffff; ents3[ne2].kind=0; ents3[ne2].spare=1; ents3[ne2].look=cl[k]; ents3[ne2].pol=(cl[k]==9||cl[k]==20); ne2++; qx=cx-250; qz=cz-330; qh=0; }
++              else if(scn>=22){ static const u8 lk[7]={0,13,15,9,7,3,5}; static const s16 lx[7]={-230,-230,-230,230,230,230,560}, bz[7]={600,1700,3000,1000,2300,3500,350};
++                for(int i=0;i<7;i++){ int zz=(i==6)?bz[i]:(i<3?(bz[i]-(int)(frame*7))%3800:(bz[i]+(int)(frame*5))%3800); if(zz<-300) zz+=3800; ents3[ne2].x=cx+lx[i]; ents3[ne2].z=cz+zz-300; ents3[ne2].y=cy; ents3[ne2].yaw=(i<3)?0x8000:0; ents3[ne2].kind=0; ents3[ne2].spare=i; ents3[ne2].look=lk[i]; ents3[ne2].pol=(lk[i]==9); ne2++; }
++                for(int i=0;i<4;i++){ int zz=(300+i*560+frame*4)%2600; ents3[ne2].x=cx-520; ents3[ne2].z=cz+zz-300; ents3[ne2].y=cy; ents3[ne2].yaw=0; ents3[ne2].kind=1; ents3[ne2].spare=40+i; ents3[ne2].look=0; ents3[ne2].pol=(i==2); ne2++; }
++                qx=cx; qz=cz-200; qh=0; if(scn==23){ pk2=1; sf3_plook=13; sf3_ppol=0; } }
++              else { for(int i=0;i<4;i++){ int along=(frame*(i==3?9:4)+i*130)%1000-500; int lat=(i-2)*130+(i==3?200:0); ents3[ne2].y=cy; ents3[ne2].kind=1; ents3[ne2].spare=30+i; ents3[ne2].look=(i==0)?0xFE:0; ents3[ne2].pol=(i==1);
++                  if(scn==20){ ents3[ne2].x=cx+lat; ents3[ne2].z=cz+400-along; ents3[ne2].yaw=0x8000; } else { ents3[ne2].x=cx+along; ents3[ne2].z=cz+i*110+300; ents3[ne2].yaw=0x4000; } ne2++; }
++                qx=cx; qz=cz-200; qh=0; }
++              int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,qx,cy,qz,qh,pk2,ents3,ne2,1); u32 d2=(RC1_VAL-q0)&0xffff;
++              if(r>=MT_HOLD-16){ sum+=d2; cnt++; if(d2>mxl) mxl=d2; }
++              gp0(0x03000000); while(!(GP1&0x04000000)){} vsync(); GP1=0x05000000|(o2<<10); buf^=1; }
++            dbg("MT scene "); dec(scn); dbg("mean "); dec(sum/cnt); dbg("max "); dec(mxl); dbg("prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("veh lines "); dec(sf3_cnt[28]); dbg("ped lines "); dec(sf3_cnt[29]); dbg("nveh "); dec(sf3_cnt[30]); dbg("nped "); dec(sf3_cnt[31]); dbg("\n"); } } }
++#endif
+ #ifdef PROFSPIN
+       /* TEST-ONLY profiling: freeze the guest at this state and spin the player's heading in 1/32 turns, 6 renders per heading (camera settles), print the last */
+       if(st3_render>=PROFSPIN){ for(u32 it=0;;it++){ int h2=(hd+(it/6)*2048)&0xffff; int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,px,py,pz,h2,pk,ents3,ne,1); u32 d2=(RC1_VAL-q0)&0xffff;
+-          if(it%6==5){ dbg("SPIN "); dec(it/6); dbg("hd "); dec(h2); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("lod "); dec(sf3_stat_lod); dbg("hash "); hex(sf3_hash); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
++          if(it%6==5){ dbg("SPIN "); dec(it/6); dbg("hd "); dec(h2); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("lod "); dec(sf3_stat_lod); dbg("hash "); hex(sf3_hash); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<32;q++) dec(sf3_cnt[q]); dbg("\n"); }
+           gp0(0x03000000); while(!(GP1&0x04000000)){} vsync(); GP1=0x05000000|(o2<<10); buf^=1; } }
+ #endif
+       goto flip; } }

@@ -1,0 +1,42 @@
+--- ps1rt/rt.c.orig	2026-11-15 08:46:43.876119889 +0000
++++ ps1rt/rt.c	2026-11-15 08:58:55.676958780 +0000
+@@ -374,6 +374,12 @@
+ /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
+ typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;
+ extern int rd_spawn(s32 ux,s32 uy,s32 uz,int yaw,s32 vx,s32 vy,s32 vz,int id,u32 shirt); extern void rd_set_car(int on,s32 ux,s32 uy,s32 uz,int h16,s32 vx,s32 vy,s32 vz); extern void rd_step_all(const void*w,s32 cx,s32 cz); extern int rd_active(void); extern int rd_has(int id); extern u32 rd_spawned, rd_steps, rd_hurt_max, rd_rejected; extern const char sf3_rpw[]; extern int sf3_hide_player;
++#ifndef LOOPK
++#define LOOPK 0
++#define LOOPDIST 4500
++#define LOOPSIDE 0
++#define LOOPYAW 0
++#endif
+ extern int sf3_init(void); extern int sf3_map_load(u32 n); extern u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
+ extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames; extern u32 sf3_ph[8], sf3_cnt[32], sf3_hash;
+ void sf3_cd_read(u32 lba,u32 nsec,u8*dst){ cd_read(lba,nsec,dst); }
+@@ -411,7 +417,12 @@
+     ents3[n].x=ox; ents3[n].z=oz; ents3[n].y=(19904-(s32)*(const u16*)(o+0xc))>>1; ents3[n].yaw=((s32)*(const s16*)(o+0x12)*11651>>10)&0xffff; ents3[n].kind=cl?1:0; ents3[n].spare=(u8)i; n++; }
+   *nents=n; return 1;
+ }
++extern int sf3_firstperson;
+ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
++  { static u32 pe3; u32 nw3=pad_extra&~pe3; pe3=pad_extra; if(nw3&16){ sf3_firstperson^=1; dbg("FIRSTPERSON "); dec(sf3_firstperson); dbg("\n"); } }   /* stage 7c: R3 toggles the first person view */
++#ifdef FPTEST
++  { static u32 ft; if(++ft==FPTEST_AT) sf3_firstperson=1; }
++#endif
+   s32 px=*pxp,py=*pyp,pz=*pzp; int hd=*hdp,pk=*pkq,ne=*nep;
+       { /* stage 7 map change: L2 / R2 = previous / next of the 11 maps, loaded from CD (SF3M.BIN); the view moves to the new map's start point, the guest (Payback's Freedom City logic) keeps running */
+         static u32 pe; u32 nw=pad_extra&~pe; pe=pad_extra; int req=-1;
+@@ -441,6 +452,13 @@
+         rd_set_car(pk==1,px,py,pz,hd,vx,vy,vz);
+         if(rd_active()){ u32 d0=RC1_VAL; rd_step_all(sf3_rpw,px,pz); u32 dl=(RC1_VAL-d0)&0xffff; static u32 dmax,dsum,dn; dn++; dsum+=dl; if(dl>dmax) dmax=dl; if((dn&15)==1){ dbg("RD lines "); dec(dl); dbg("max "); dec(dmax); dbg("avg "); dec(dsum/dn); dbg("active "); dec(rd_active()); dbg("steps "); dec(rd_steps); dbg("hurtmax "); dec(rd_hurt_max); dbg("\n"); } }
+         pkp=pk; ppx=px; ppy=py; ppz=pz; pvx=vx; pvy=vy; pvz=vz; }
++#ifdef LOOPTEST
++  /* TEST-ONLY (stage 7c): after frame LOOPTEST_AT the view is put LOOPDIST units in front of the current map's loop LOOPK, on foot, looking along the loop's direction (+ LOOPYAW), LOOPSIDE units to the side */
++  { static u32 lt; extern int sf3_loop_get(int k,s32*x,s32*z,int*d); s32 lx,lz; int ld;
++    if(++lt>=LOOPTEST_AT && sf3_loop_get(LOOPK,&lx,&lz,&ld)){ static const s8 fx_[4]={0,1,0,-1}, fz_[4]={1,0,-1,0};
++      px=lx-fx_[ld]*LOOPDIST+fz_[ld]*LOOPSIDE; pz=lz-fz_[ld]*LOOPDIST-fx_[ld]*LOOPSIDE; py=0; hd=(ld*16384+LOOPYAW)&0xffff; pk=0; ne=0;
++      if(lt==LOOPTEST_AT) { dbg("LOOPTEST view at "); dec(px); dec(pz); dbg("hd "); dec(hd); dbg("\n"); } } }
++#endif
+   *pxp=px;*pyp=py;*pzp=pz;*hdp=hd;*pkq=pk;*nep=ne; }
+ #ifdef SF3_SNAP
+ /* renderer check against real Payback memory: EWRAM+IWRAM captured from the stock game (mGBA) in a level are loaded from SNAP.BIN, one after the other, and drawn

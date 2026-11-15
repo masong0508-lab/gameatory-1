@@ -1,0 +1,11 @@
+Interpreter fallback (stage 8). Code only, no Payback code/assets.
+Base: stage7/integration + loops_fp + ragdoll_g2 (stage 7c).
+1. Copy interp/ (interp.c, interp.h, interp_asm.s) into ps1/interp/ and ps1rt/interp_glue.h into ps1/ps1rt/.
+2. Apply patches/rt.c.patch, build.sh.patch, mkps1.py.patch, sim4.py.patch (RAM2M env) to the matching files.
+   rt.c: RT_MISS -> h_miss -> cold_find; interpreter replaces the panic (define NO_INTERP for the old panic).
+   build.sh: compiles interp (CFL_IP) and links with --defsym=ip_stacks=0x8002c000.
+3. Build: tools7/mkdisc2.py --iso out/s8.iso --out DIR/NAME --default-tracks (Payback song 3 refused by name).
+Tests: interp/fuzz.py N seed [arm|thumb|both] (needs unicorn, builds test_host.so from test_host.c);
+ t/simdisc.sh builds the unicorn twin (CDSIM, NOSF3, no GTE); t/difftwin.py simt|simref FRAMES out.json SEED; t/cmph.py ref.h test.h.
+ Debug: t/wlog.py wcmp.py blktrace.py memcmp.py gdis.py (do not rename gdis.py to dis.py: shadows stdlib).
+Interpreter folds guest pointers only where produced (ip_map in MOV/LSL-by-immediate), not by blanket normalisation (IP_NORM_ALL is the old, divergent mode).

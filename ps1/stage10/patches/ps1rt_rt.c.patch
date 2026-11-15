@@ -1,0 +1,100 @@
+--- a/ps1rt/rt.c
++++ b/ps1rt/rt.c
+@@ -121,15 +121,22 @@
+ #ifdef SIMKEYS
+ volatile u32 sim_keys=0x3ff;
+ #endif
+-static u32 g_pres, g_gframes; static void present(void);
++static u32 pad_gba=0x3ff; static u32 g_pres, g_gframes; static void present(void);
+ /* GBA time base (stage 4): io_cyc = GBA cycles (16.78 MHz) since boot, advanced by VCOUNT/DISPSTAT polls (1232 cycles per scanline), by SWI 5 (to the next vblank) and by
+    96 cycles per timer/KEYINPUT poll.  Timers are derived from io_cyc (prescaler, cascade, reload) instead of the old +37-per-read counter, which made Payback's
+    timed wait loops (title slide show: 0x7000 counts of TM3:TM2) expire after two polls so a key press was never sampled. */
++#ifndef TESTTOURCAR
++#define TESTTOURCAR 0
++#endif
+ #ifdef KPLAN
+ #include "kplan.h"       /* KPL[][3] menu plan {frame0,frame1,pressed_mask} (GBA frames from power-on); KPL2[][3] in-level plan (frames since the level clock first runs); CAR_T */
+ static u32 lvl_f0;
+ static u32 kplan_keys(u32 f){
+-  if(*(volatile u32*)(EW+0x1e00)){ if(!lvl_f0) lvl_f0=f; u32 t=f-lvl_f0; for(u32 i=0;i<NKPL2;i++) if(t>=KPL2[i][0]&&t<KPL2[i][1]) return 0x3ff&~KPL2[i][2]; return 0x3ff; }
++  if(*(volatile u32*)(EW+0x1e00)){ if(!lvl_f0) lvl_f0=f;
++#ifdef TESTTOUR
++    u32 t=f-lvl_f0; for(u32 i=0;i<NKPL2;i++) if(t>=KPL2[i][0]&&t<KPL2[i][1]) return 0x3ff&~KPL2[i][2];
++#endif
++    return 0x3ff; }
+   for(u32 i=0;i<NKPL;i++) if(f>=KPL[i][0]&&f<KPL[i][1]) return 0x3ff&~KPL[i][2]; return 0x3ff; }
+ #endif
+ static u32 io_cyc, io_acc, tm_t0[4], tm_rl[4], tm_ovb[4], tm_en[4];
+@@ -271,7 +278,7 @@
+  io_keys=sim_keys;          /* TEST-ONLY (unicorn sim): the host script writes sim_keys */
+ #endif
+ #ifdef KPLAN
+- io_keys=kplan_keys(io_cyc/280896);   /* TEST-ONLY: pad plan keyed on GBA frames (cycles / 280896), generated from the stock game's menu timeline */
++ io_keys=pad_gba&kplan_keys(io_cyc/280896);   /* MENU ASSIST: the stock game's title -> rampage menu path (frames from power-on) OR-ed with the real pad (active low: AND); the in-level plan is TESTTOUR (test only) */
+ #endif
+ #ifdef AUTOKEYS
+  io_keys=auto_keys(io_nd);
+@@ -330,10 +337,11 @@
+ /* RT_MISS: a direct call/jump/function pointer reached a guest function that is not in the resident blob.  Overlay loader:
+    find it in the cold table, read the 16 KiB groups of COLD.BIN that cover the function (and its out-of-line stubs) into their fixed
+    home addresses, flush the I-cache, and return the host entry for RT_MISS to tail-jump to. */
+-u32 h_miss(u32 addr){
++/* cold_find: host entry of a function in the cold table (its groups are loaded from the disc), 0 if the address is not in the table */
++static u32 cold_find(u32 addr){
+   u32 g=addr&~1u; const u32*ct=(const u32*)coldtab; u32 n=ct[0]; const u32*r=ct+1; u32 lo=0,hi=n; cold_calls++;
+   while(lo<hi){ u32 m=(lo+hi)>>1; u32 v=r[m*4]; if(v==g){ lo=m; goto found; } if(v<g) lo=m+1; else hi=m; }
+-  gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0;
++  return 0;
+ found:;
+   u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3];
+   u32 g0=(hs-COLD_HOST)>>14, g1=(he-1-COLD_HOST)>>14, loaded=0;
+@@ -352,6 +360,13 @@
+   if(loaded){ flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
+   return host;
+ }
++#ifdef NO_INTERP
++u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
++#else
++#include "interp_glue.h"
++/* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts) */
++u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; interp_target=addr&~1u; return (u32)interp_enter; }
++#endif
+ 
+ /* ---------------------------------------------------------------- GPU */
+ static void gp0(u32 w){ while(!(GP1&0x04000000)){} GP0=w; }
+@@ -464,7 +479,7 @@
+ #endif
+ void h_vbl(void){
+ #ifdef KPLAN
+-  { static u32 poked; if(!poked&&CAR_T&&lvl_f0&&io_cyc/280896-lvl_f0>=CAR_T){ poked=1; *(volatile u16*)(EW+0x1db8)=6; dbg("TEST-ONLY: controlled entity index set to 6 (car)\n"); } }
++  { static u32 poked; if(TESTTOURCAR&&!poked&&CAR_T&&lvl_f0&&io_cyc/280896-lvl_f0>=CAR_T){ poked=1; *(volatile u16*)(EW+0x1db8)=6; dbg("TEST-ONLY: controlled entity index set to 6 (car)\n"); } }
+ #endif
+   { u32 n=(160+228-io_vc)%228; if(!n) n=228; io_cyc+=n*1232; } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; g_gframes++;
+   present();
+@@ -483,7 +498,7 @@
+   logic_lines=lines; if(lines>max_lines) max_lines=lines; tot_lines+=lines; nfr_meas++;
+   int oy=buf?240:0; cur_oy=oy;
+ #ifndef AUTOKEYS
+-  io_keys=pad_poll(); radio_poll();
++  pad_gba=pad_poll(); io_keys=pad_gba; radio_poll();
+ #ifdef PADDBG
+   { static u32 lp=0xffffffff; if(pad_raw!=lp){ lp=pad_raw; dbg("PADRAW "); hex(pad_raw); dbg("\n"); } }
+ #endif
+@@ -530,7 +545,7 @@
+     rect(236+px*5,6+py*5,5,5,(b<<16)|(g<<8)|r);   /* PS1 colour word is 0xBBGGRR */
+   }
+   /* ----- HUD: Payback state read from the translated game's RAM */
+-  text(4,4,"PAYBACK ON PS1  STAGE2",2,0xffffff);
++  text(4,4,"PAYBACK  ORIGINAL GAME  RC",2,0xffffff); text(4,92,"MENU 2D LAYER NOT DRAWN: SEE README",1,0xc0c0c0);
+   text(4,20,"GUEST TICK",1,0x80c0ff); num(60,20,io_nd,1,0xffffff);
+   text(4,28,"GUEST FRAMES",1,0x80c0ff); num(70,28,g_gframes,1,0xffffff); text(120,28,"PRESENTS",1,0x80c0ff); num(160,28,g_pres,1,0xffffff);
+   text(4,36,"BLITS THIS FRAME",1,0x80c0ff); num(100,36,nb,1,0xffffff);
+@@ -577,7 +592,7 @@
+   cd_read(CD_SNAPST_LBA+194,1,PCACHE+4096); memcpy(io,PCACHE+4096,0x400);
+   cd_read(CD_SNAPST_LBA+195,4,ee);
+   { /* the snapshot may be inside (or return into) overlay code: load the whole cold prefix of this disc (the scenario's groups, ahead of everything else, below the renderer buffers) */
+-    u32 ng=(CD_COLD_PAGES*2+7)/8; if(ng>COLDGROUPS) ng=COLDGROUPS;
++    u32 ng=(COLD_SECS_N+7)/8; if(ng>COLDGROUPS) ng=COLDGROUPS;
+     cd_read(CD_COLD_LBA,COLD_SECS_N,(u8*)COLD_HOST); for(u32 k=0;k<ng;k++) cold_loaded[k]=1; flush_icache(); dbg("cold prefix preloaded, groups "); dec(ng); { u32 sm=0; const u32*p=(const u32*)COLD_HOST; for(u32 q=0;q<136000;q++) sm=sm*31+p[q]; dbg("checksum "); hex(sm); } dbg("\n"); }
+   dbg("snapshot restored: gba frame "); dec(io_cyc/280896); dbg("tick "); dec(io_nd); dbg("\n");
+ }

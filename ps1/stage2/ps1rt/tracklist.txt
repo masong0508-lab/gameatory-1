@@ -1,0 +1,13 @@
+# CD-DA track order for the PS1 disc (track 2..12).  Source: finished "(PS1 remix final)" renders of the tracker modules; mp3 names only, no audio is stored in the repo.
+# Payback song 3 is never listed (mkdisc.py refuses it).  Originals (mods/originals) are alternates only: 51 min, they do not fit beside the remixes (46.7 min) on a 74 min disc.
+Bassbomb - Operation September (PS1 remix final).mp3
+Heatbeat - Street Jungle (PS1 remix final).mp3
+Hollywood - Spilt Milk (PS1 remix final).mp3
+Jogeir Liljedahl - Guitar Slinger (PS1 remix final).mp3
+Kevin Collier - Harley Music (PS1 remix final).mp3
+Marc - Generation Love (PS1 remix final).mp3
+Misty & Daeron - Reverie of Truth (PS1 remix final).mp3
+Moby - Groovy Thing (PS1 remix final).mp3
+Moby - Knulla Kuk (PS1 remix final).mp3
+Moby - Pelforth Blues (PS1 remix final).mp3
+Vinnie - The Groovy Element (PS1 remix final).mp3

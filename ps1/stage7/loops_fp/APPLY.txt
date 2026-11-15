@@ -1,0 +1,7 @@
+Stage 7c: Star-FlyBack loops + first person view on the PS1 sf3 renderer, ragdoll g2 settings. CODE ONLY (nothing from the ROM).
+Apply on top of stage7/integration (patch -p0 style, paths relative to integration/):
+  sf3.c.patch -> sf/sf3.c        draw_loop (24-quad helix, same geometry as stuntfox loops.c/citydraw.c), loops read from SF3W header words 18/19, sf3_firstperson camera
+  rt.c.patch  -> ps1rt/rt.c      R3 toggles first person; test-only LOOPTEST / FPTEST flags (put the view at map loop LOOPK; -DNOLOOPS drops loops, -DLOOPDBG logs quads)
+  mksf3.py.patch -> tools7/mksf3.py   keeps the world's loop table (header grows to 20 words); remksf3m.py rebuilds SF3M.BIN from existing sf3m/m<N> files without re-converting the maps
+  ragdoll_ps1.c.patch -> rd/ragdoll_ps1.c  (same as stage7/ragdoll_g2/src), build.sh.patch -> ps1rt/build.sh (RD_ITER=2, RD_SLOW_NS=2 defaults; RD_ITER=3 RD_SLOW_NS=0 gives the old solver)
+Rebuild: python3 -I tools7/remksf3m.py out/sf3m && cp out/sf3m/SF3M.BIN out/SF3M.BIN ; ROM=... bash t/disc7.sh NAME "" 1

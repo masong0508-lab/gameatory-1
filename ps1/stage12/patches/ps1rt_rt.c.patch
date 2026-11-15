@@ -1,0 +1,138 @@
+--- ps1rt/rt.c.s10	2026-11-15 15:06:50.377282883 +0000
++++ ps1rt/rt.c	2026-11-15 18:17:50.381413844 +0000
+@@ -118,10 +118,13 @@
+ #ifndef PRESENT_EVERY
+ #define PRESENT_EVERY 16
+ #endif
++#ifndef PRESENT_MENU
++#define PRESENT_MENU 2      /* menus: the 2D layer is cheap, present every 2nd guest frame */
++#endif
+ #ifdef SIMKEYS
+ volatile u32 sim_keys=0x3ff;
+ #endif
+-static u32 pad_gba=0x3ff; static u32 g_pres, g_gframes; static void present(void);
++static u32 pad_gba=0x3ff; static u32 g_pres, g_gframes; static void present(void); static void ppu_flush(void); static void pp_dispcnt(u32 v); static int sf3_ok;
+ /* GBA time base (stage 4): io_cyc = GBA cycles (16.78 MHz) since boot, advanced by VCOUNT/DISPSTAT polls (1232 cycles per scanline), by SWI 5 (to the next vblank) and by
+    96 cycles per timer/KEYINPUT poll.  Timers are derived from io_cyc (prescaler, cascade, reload) instead of the old +37-per-read counter, which made Payback's
+    timed wait loops (title slide show: 0x7000 counts of TM3:TM2) expire after two polls so a key press was never sampled. */
+@@ -140,7 +143,7 @@
+   for(u32 i=0;i<NKPL;i++) if(f>=KPL[i][0]&&f<KPL[i][1]) return 0x3ff&~KPL[i][2]; return 0x3ff; }
+ #endif
+ static u32 io_cyc, io_acc, tm_t0[4], tm_rl[4], tm_ovb[4], tm_en[4];
+-static void adv_lines(u32 n){ io_cyc+=n*1232; while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ g_gframes++; if((g_gframes&(PRESENT_EVERY-1))==0) present(); } } }
++static void adv_lines(u32 n){ io_cyc+=n*1232; while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ g_gframes++; ppu_flush(); if((g_gframes&(sf3_ok?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0) present(); } } }
+ static void adv_poll(void){ io_acc+=96; if(io_acc>=1232){ io_acc-=1232; adv_lines(1); } }
+ static u32 tm_cnt(u32 k,u32*ov){
+   u32 ctrl=io[0x102+4*k]|(io[0x103+4*k]<<8); u32 counts;
+@@ -298,7 +301,7 @@
+   for(u32 k=0;k<size;k++) io[off+k]=val>>(8*k);
+   for(u32 ch=0;ch<4;ch++){ u32 cnt=0xb0+12*ch+8; if(off<=cnt+2&&off+size>=cnt+4) dma_check(ch); }
+   if(off>=0x100&&off<0x110) tm_write_check();
+-  if(off==0&&size>=2){ g_dispcnt_writes++; tick(); }
++  if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick(); }
+ }
+ /* ---------------------------------------------------------------- C helpers called from RT_CC */
+ u32 h_memrd(u32 ea,u32 kind){
+@@ -331,7 +334,7 @@
+ #ifndef COLDGROUPS
+ #define COLDGROUPS 64
+ #endif
+-static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls;
++static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls; static u32 sf3_retry, last_cold_pres, sf3_clk0;   /* stage 12: renderer switched off by an overlay load (pause menu code) comes back once the level clock runs again (pause over) and no cold group was loaded for 6 presents */
+ static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;
+   __asm__ volatile("li $8,0xA0\n jalr $8\n nop":"+r"(t1)::"$1","$2","$3","$4","$5","$6","$7","$8","$10","$11","$12","$13","$14","$15","$24","$25","$31","memory"); }
+ /* RT_MISS: a direct call/jump/function pointer reached a guest function that is not in the resident blob.  Overlay loader:
+@@ -345,8 +348,16 @@
+ found:;
+   u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3];
+   u32 g0=(hs-COLD_HOST)>>14, g1=(he-1-COLD_HOST)>>14, loaded=0;
++  /* stage 12: a tiny, position-independent cold function (the bx rN veneers, 12 bytes) whose group lies inside the renderer's data window used to switch the 3D renderer off when the HUD/text code reached it
++     in a level (the group load would overwrite the world).  Its few words are read from the disc and kept in a small resident table instead; the group is not loaded. */
++  if(sf3_ok && g0==g1 && he-hs<=16 && he>SF_WORLD_LO && hs<0x8011b200u && !cold_loaded[g0]){
++    static u32 vene[24][4] __attribute__((aligned(16))); static u32 vene_g[24], nvene; static u32 vtmp[1024];
++    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g) return (u32)vene[q]+(host-hs);
++    if(nvene<24){ u32 dst=COLD_HOST+g0*16384, off=hs-dst, sec=off>>11, left=CD_COLD_PAGES*2-g0*8-sec; cd_read(CD_COLD_LBA+g0*8+sec,left<2?left:2,(u8*)vtmp);
++      const u32*src=(const u32*)((u8*)vtmp+(off&2047)); u32 nw=(he-hs)>>2, ok=1; for(u32 q=0;q<nw;q++){ u32 op=src[q]>>26; if(op==1||(op>=4&&op<=7)) ok=0; }
++      if(ok){ for(u32 q=0;q<4;q++) vene[nvene][q]=q<nw?src[q]:0; vene_g[nvene]=g; nvene++; flush_icache(); dbg("VENEER resident copy "); hex(g); dbg("\n"); return (u32)vene[nvene-1]+(host-hs); } } }
+   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){ u32 lo=COLD_HOST+k*16384, hi=lo+16384;      /* only a group that would really be loaded can hit the renderer's data (stage 7: groups already in memory used to trigger this too) */
+-    if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) { dbg("SF3 CONFLICT cold load over renderer data, renderer off: "); hex(addr); dbg("\n"); sf3_ok=0; } }
++    if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) { dbg("SF3 CONFLICT cold load over renderer data, renderer off: "); hex(addr); dbg("\n"); sf3_ok=0; sf3_retry=1; sf3_clk0=*(volatile u32*)(EW+0x1e00); } }
+   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){
+     u32 left=CD_COLD_PAGES*2-k*8, dst=COLD_HOST+k*16384;
+ #ifdef CDSIM
+@@ -357,7 +368,7 @@
+ #endif
+     cd_read(CD_COLD_LBA+k*8,left<8?left:8,(u8*)dst);
+     cold_loaded[k]=1; cold_loads++; loaded=1; }
+-  if(loaded){ flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
++  if(loaded){ last_cold_pres=g_pres; flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
+   return host;
+ }
+ #ifdef NO_INTERP
+@@ -385,6 +396,10 @@
+ }
+ static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; }
+ static u32 last_dl, last_rc, logic_lines, max_lines, tot_lines, nfr_meas; static int buf;
++#ifndef PPU_SF3HUD
++#define PPU_SF3HUD 0
++#endif
++#include "ppu12.h"
+ static u32 rd32g(u32 off){ return rom_read(0x08000000+off,4); }
+ /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
+ typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;
+@@ -481,7 +496,7 @@
+ #ifdef KPLAN
+   { static u32 poked; if(TESTTOURCAR&&!poked&&CAR_T&&lvl_f0&&io_cyc/280896-lvl_f0>=CAR_T){ poked=1; *(volatile u16*)(EW+0x1db8)=6; dbg("TEST-ONLY: controlled entity index set to 6 (car)\n"); } }
+ #endif
+-  { u32 n=(160+228-io_vc)%228; if(!n) n=228; io_cyc+=n*1232; } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; g_gframes++;
++  { u32 n=(160+228-io_vc)%228; if(!n) n=228; io_cyc+=n*1232; } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; g_gframes++; ppu_flush();
+   present();
+ }
+ static void present(void){
+@@ -490,8 +505,14 @@
+   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
+   { static int tried; if(!tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && *(volatile s16*)(EW+0x1d40)==0){ tried=1; dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
+       sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
++  if(sf3_retry && !sf3_ok && g_pres-last_cold_pres>=6 && *(volatile u32*)(EW+0x1e00)!=sf3_clk0){ sf3_retry=0; dbg("sf3 re-init after overlay load\n");
++    sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
++#endif
++  g_pres++;
++#ifndef PRES_DBG_EVERY
++#define PRES_DBG_EVERY 50
+ #endif
+-  g_pres++; if((g_pres%50)==1){ dbg("present "); dec(g_pres); dbg(" tick "); dec(io_nd); dbg("gf "); dec(g_gframes); dbg("clk "); dec(*(volatile u32*)(EW+0x1e00)); dbg("map "); dec(*(volatile u16*)(EW+0x1d40)); dbg("nent "); dec(*(volatile u16*)(IW+0xc)); dbg("dsp "); hex(io16(0)); dbg("keys "); hex(io_keys); dbg("\n"); }
++  if((g_pres%PRES_DBG_EVERY)==1){ dbg("present "); dec(g_pres); dbg(" tick "); dec(io_nd); dbg("gf "); dec(g_gframes); dbg("clk "); dec(*(volatile u32*)(EW+0x1e00)); dbg("map "); dec(*(volatile u16*)(EW+0x1d40)); dbg("nent "); dec(*(volatile u16*)(IW+0xc)); dbg("dsp "); hex(io16(0)); dbg("keys "); hex(io_keys); dbg("PPU n2 "); dec(pp_n2); dbg("n4 "); dec(pp_n4); dbg("up "); dec(pp_nup); dbg("rb "); dec(pp_nrb); dbg("rst "); dec(pp_nreset); dbg("lost "); dec(pp_lost); dbg("fade "); dec(pp_nfade); dbg("w "); dec(pp_fade_w); dbg("fb "); dec(pp_nfb); dbg("obj "); dec(pp_nobj); dbg("disp "); hex(pp_disp); dbg("\n"); }
+   u32 rc=RC1_VAL; u32 lines=(rc-last_rc)&0xffff;   /* scanlines of CPU time since the previous present = guest logic time */
+   /* ----- game-state tick (same clock as the lockstep proof): vblank = io_vc 160, IF bit0 */
+   u32 n=DL[0]; u32 from=last_dl; if(n-from>256) from=n-256; last_dl=n;
+@@ -505,7 +526,7 @@
+ #endif
+   if(sf3_ok){ s32 px,py,pz; int hd,pk,ne;
+     u32 g0=RC1_VAL; int ok=gather3(&px,&py,&pz,&hd,&pk,&ne); st3_gather_lines=(RC1_VAL-g0)&0xffff;
+-    if(ok){ stage7_pre(&px,&py,&pz,&hd,&pk,&ne); u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
++    if(ok){ stage7_pre(&px,&py,&pz,&hd,&pk,&ne); u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,PPU_SF3HUD); while(*(volatile u32*)0x1F8010A8&0x01000000){} pp_draw(oy,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+       if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
+ #ifdef PROFSPIN
+       /* TEST-ONLY profiling: freeze the guest at this state and spin the player's heading in 1/32 turns, 6 renders per heading (camera settles), print the last */
+@@ -514,8 +535,12 @@
+           gp0(0x03000000); while(!(GP1&0x04000000)){} vsync(); GP1=0x05000000|(o2<<10); buf^=1; } }
+ #endif
+       goto flip; } }
+-  gp0(0xE1000000|(5)|(2<<7)); gp0(0xE3000000|XY(0,oy)); gp0(0xE4000000|XY(319,oy+239)); gp0(0xE5000000|XY(0,oy));
++  gp0(0xE1000000|(5)|(2<<7)); gp0(0xE3000000|((u32)oy<<10)); gp0(0xE4000000|319u|((u32)(oy+239)<<10)); gp0(0xE5000000|((u32)oy<<11));
+   gp0(0x02101018); gp0(XY(0,oy)); gp0(XY(320,240));
++  pp_draw(oy,0);
++#ifndef PPU_DEBUG
++  goto flip;
++#else
+   /* the blit/effect draw calls the pruned renderer would have made: new ring entries go to a persistent scene list of the last 64 blits
+      (position/size from the draw call + the image descriptor in ROM); the whole list is drawn every frame, older ones darker */
+   static struct { s16 x,y,w,h; u8 id,age; } bl[64]; static u32 nbl;
+@@ -556,6 +581,7 @@
+   text(4,68,"OVERLAY LOADS",1,0x80c0ff); num(100,68,cold_loads,1,0xffffff); text(130,68,"MISS CALLS",1,0x80c0ff); num(180,68,cold_calls,1,0xffffff);
+   text(4,76,"DISPCNT",1,0x80c0ff); num(100,76,io16(0),1,0xffffff); text(130,76,"EW FRAMEVAR",1,0x80c0ff); num(190,76,*(volatile u16*)(EW+0x2632),1,0xffffff);
+   text(4,84,"BLITS TOTAL",1,0x80c0ff); num(100,84,nbl,1,0xffffff); text(130,84,"FX CALLS",1,0x80c0ff); num(180,84,ne,1,0xffffff);
++#endif
+   /* ----- present */
+  flip:
+   gp0(0x03000000); /* nothing; keeps GPU idle check */

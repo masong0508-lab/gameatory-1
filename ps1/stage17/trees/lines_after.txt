@@ -1,0 +1,13 @@
+TREEPOSE 0 r 5 host 611 prim 311 ovf 0 ct 0 
+TREEPOSE 0 r 239 host 611 prim 311 ovf 0 ct 0 
+TREEPOSE 1 r 5 host 419 prim 369 ovf 0 ct 0 
+TREEPOSE 1 r 239 host 445 prim 370 ovf 0 ct 0 
+TREEPOSE 2 r 5 host 323 prim 231 ovf 0 ct 0 
+TREEPOSE 2 r 239 host 416 prim 316 ovf 0 ct 0 
+TREEPOSE 3 r 5 host 480 prim 283 ovf 0 ct 0 
+TREEPOSE 3 r 239 host 421 prim 275 ovf 0 ct 0 
+TREEPOSE 4 r 5 host 224 prim 237 ovf 0 ct 0 
+TREEPOSE 4 r 239 host 352 prim 403 ovf 0 ct 0 
+TREEPOSE 5 r 5 host 727 prim 346 ovf 0 ct 0 
+TREEPOSE 5 r 239 host 843 prim 346 ovf 0 ct 0 
+TREEPOSE done

@@ -1,0 +1,32 @@
+--- tools7/mksf3.py.orig	2026-11-15 08:46:10.573756288 +0000
++++ tools7/mksf3.py	2026-11-15 08:46:25.652107936 +0000
+@@ -6,9 +6,9 @@
+ import sys,struct,array
+ w0,out=sys.argv[1],sys.argv[2]
+ d=open(w0+'/WORLD.SFW','rb').read()
+-h=struct.unpack('<25I',d[:100]); so=list(h[9:25]); nbox,nramp,ntree=h[1],h[3],h[7]
++h=struct.unpack('<25I',d[:100]); so=list(h[9:25]); nbox,nramp,ntree,nloop=h[1],h[3],h[7],h[4]
+ def seg(a,b): return d[a:b]
+-boxes=seg(so[0],so[1]); ramps=seg(so[2],so[3]); sector=seg(so[4],so[5]); items=seg(so[5],so[6]); trees=seg(so[9],so[10])
++boxes=seg(so[0],so[1]); ramps=seg(so[2],so[3]); sector=seg(so[4],so[5]); items=seg(so[5],so[6]); trees=seg(so[9],so[10]); loops=seg(so[3],so[3]+16*nloop)   # stage 7c: loops kept (16 bytes each: s32 x, z; u8 dir, pad; s16 r, w, pad)
+ ctex=seg(so[10],so[10]+32768); btex=seg(so[11],so[12]); dtex=seg(so[15],so[15]+32768)
+ cells=seg(so[6],so[6]+98304); dict_={}; idx=array.array('H')
+ for i in range(16384):
+@@ -20,12 +20,12 @@
+ for i in range(16384):
+     e=deck[4*i:4*i+4]
+     if any(e): dk+=struct.pack('<H',i)+e; nd+=1
+-parts=[('boxes',boxes),('ramps',ramps),('sector',sector),('items',items),('trees',trees),('ctex',ctex),('btex',btex),('dtex',dtex),('cellidx',idx.tobytes()),('celldict',cd),('deck',dk)]
+-off=18*4; offs=[]; body=b''
++parts=[('boxes',boxes),('ramps',ramps),('sector',sector),('items',items),('trees',trees),('ctex',ctex),('btex',btex),('dtex',dtex),('cellidx',idx.tobytes()),('celldict',cd),('deck',dk),('loops',loops)]
++off=20*4; offs=[]; body=b''
+ for n,b in parts:
+-    off=(off+3)&~3; body+=b'\0'*(off-18*4-len(body)); offs.append(off); body+=b; off+=len(b)
+-hdr=[0x57334653,nbox,nramp,ntree,len(dict_),nd]+offs+[off]
+-hb=struct.pack('<%dI'%len(hdr),*hdr).ljust(18*4,b'\0')
++    off=(off+3)&~3; body+=b'\0'*(off-20*4-len(body)); offs.append(off); body+=b; off+=len(b)
++hdr=[0x57334653,nbox,nramp,ntree,len(dict_),nd]+offs[:11]+[off,offs[11],nloop]     # words 6..16 section offsets, 17 end, 18 loops offset, 19 loop count
++hb=struct.pack('<%dI'%len(hdr),*hdr).ljust(20*4,b'\0')
+ blob=hb+body; blob+=b'\0'*((-len(blob))%2048)
+ open(out+'/SF3W.BIN','wb').write(blob)
+ print('SF3W.BIN',len(blob),'cells dict',len(dict_),'deck',nd,'offs',offs)

@@ -1,0 +1,39 @@
+--- stage7c/w/ps1rt/rt.c	2026-11-15 08:58:55.676958780 +0000
++++ s8a/prod/ps1rt/rt.c	2026-11-15 12:28:35.039970286 +0000
+@@ -330,10 +330,11 @@
+ /* RT_MISS: a direct call/jump/function pointer reached a guest function that is not in the resident blob.  Overlay loader:
+    find it in the cold table, read the 16 KiB groups of COLD.BIN that cover the function (and its out-of-line stubs) into their fixed
+    home addresses, flush the I-cache, and return the host entry for RT_MISS to tail-jump to. */
+-u32 h_miss(u32 addr){
++/* cold_find: host entry of a function in the cold table (its groups are loaded from the disc), 0 if the address is not in the table */
++static u32 cold_find(u32 addr){
+   u32 g=addr&~1u; const u32*ct=(const u32*)coldtab; u32 n=ct[0]; const u32*r=ct+1; u32 lo=0,hi=n; cold_calls++;
+   while(lo<hi){ u32 m=(lo+hi)>>1; u32 v=r[m*4]; if(v==g){ lo=m; goto found; } if(v<g) lo=m+1; else hi=m; }
+-  gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0;
++  return 0;
+ found:;
+   u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3];
+   u32 g0=(hs-COLD_HOST)>>14, g1=(he-1-COLD_HOST)>>14, loaded=0;
+@@ -352,6 +353,13 @@
+   if(loaded){ flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
+   return host;
+ }
++#ifdef NO_INTERP
++u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
++#else
++#include "interp_glue.h"
++/* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts) */
++u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; interp_target=addr&~1u; return (u32)interp_enter; }
++#endif
+ 
+ /* ---------------------------------------------------------------- GPU */
+ static void gp0(u32 w){ while(!(GP1&0x04000000)){} GP0=w; }
+@@ -595,7 +603,7 @@
+   cd_read(CD_SNAPST_LBA+194,1,PCACHE+4096); memcpy(io,PCACHE+4096,0x400);
+   cd_read(CD_SNAPST_LBA+195,4,ee);
+   { /* the snapshot may be inside (or return into) overlay code: load the whole cold prefix of this disc (the scenario's groups, ahead of everything else, below the renderer buffers) */
+-    u32 ng=(CD_COLD_PAGES*2+7)/8; if(ng>COLDGROUPS) ng=COLDGROUPS;
++    u32 ng=(COLD_SECS_N+7)/8; if(ng>COLDGROUPS) ng=COLDGROUPS;
+     cd_read(CD_COLD_LBA,COLD_SECS_N,(u8*)COLD_HOST); for(u32 k=0;k<ng;k++) cold_loaded[k]=1; flush_icache(); dbg("cold prefix preloaded, groups "); dec(ng); { u32 sm=0; const u32*p=(const u32*)COLD_HOST; for(u32 q=0;q<136000;q++) sm=sm*31+p[q]; dbg("checksum "); hex(sm); } dbg("\n"); }
+   dbg("snapshot restored: gba frame "); dec(io_cyc/280896); dbg("tick "); dec(io_nd); dbg("\n");
+ }

@@ -1,0 +1,120 @@
+--- a/ps1rt/rt.c	2026-11-15 14:03:21.432856938 +0000
++++ b/ps1rt/rt.c	2026-11-15 18:18:09.966154038 +0000
+@@ -132,6 +132,10 @@
+ #include "kplan.h"       /* KPL[][3] menu plan {frame0,frame1,pressed_mask} (GBA frames from power-on); KPL2[][3] in-level plan (frames since the level clock first runs); CAR_T */
+ static u32 lvl_f0;
+ static u32 kplan_keys(u32 f){
++#ifdef TESTUNLOCK
++  /* TEST-ONLY: unlock all 11 maps in the rampage setup (Payback's progress halfwords at EWRAM 0x020026d0) so the scripted path can pick a city/arena that a blank card does not offer */
++  if(!*(volatile u32*)(EW+0x1e00) && f>=TESTUNLOCK) for(int i=0;i<16;i++) *(volatile u16*)(EW+0x26d0+2*i)=5;
++#endif
+   if(*(volatile u32*)(EW+0x1e00)){ if(!lvl_f0) lvl_f0=f;
+ #ifdef TESTTOUR
+     u32 t=f-lvl_f0; for(u32 i=0;i<NKPL2;i++) if(t>=KPL2[i][0]&&t<KPL2[i][1]) return 0x3ff&~KPL2[i][2];
+@@ -331,7 +335,7 @@
+ #ifndef COLDGROUPS
+ #define COLDGROUPS 64
+ #endif
+-static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls;
++static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls, cold_conflicts;
+ static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;
+   __asm__ volatile("li $8,0xA0\n jalr $8\n nop":"+r"(t1)::"$1","$2","$3","$4","$5","$6","$7","$8","$10","$11","$12","$13","$14","$15","$24","$25","$31","memory"); }
+ /* RT_MISS: a direct call/jump/function pointer reached a guest function that is not in the resident blob.  Overlay loader:
+@@ -346,7 +350,8 @@
+   u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3];
+   u32 g0=(hs-COLD_HOST)>>14, g1=(he-1-COLD_HOST)>>14, loaded=0;
+   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){ u32 lo=COLD_HOST+k*16384, hi=lo+16384;      /* only a group that would really be loaded can hit the renderer's data (stage 7: groups already in memory used to trigger this too) */
+-    if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) { dbg("SF3 CONFLICT cold load over renderer data, renderer off: "); hex(addr); dbg("\n"); sf3_ok=0; } }
++    if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) {      /* stage 13: this group would be loaded over the renderer's world window (the function is in no scenario of the coverage runs): do not load it, the interpreter runs the function from the ROM image instead (h_miss, ip_lookup); the renderer stays on */
++      static u32 nconf; cold_conflicts++; if(nconf<24){ nconf++; dbg("SF3 cold group over renderer data: interpreting "); hex(addr); dbg("\n"); } return 0; } }
+   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){
+     u32 left=CD_COLD_PAGES*2-k*8, dst=COLD_HOST+k*16384;
+ #ifdef CDSIM
+@@ -389,7 +394,7 @@
+ /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
+ typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;
+ extern int rd_spawn(s32 ux,s32 uy,s32 uz,int yaw,s32 vx,s32 vy,s32 vz,int id,u32 shirt); extern void rd_set_car(int on,s32 ux,s32 uy,s32 uz,int h16,s32 vx,s32 vy,s32 vz); extern void rd_step_all(const void*w,s32 cx,s32 cz); extern int rd_active(void); extern int rd_has(int id); extern u32 rd_spawned, rd_steps, rd_hurt_max, rd_rejected; extern const char sf3_rpw[]; extern int sf3_hide_player;
+-extern int sf3_init(void); extern int sf3_map_load(u32 n); extern u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
++extern int sf3_init(void); extern u32 sf3_first_map; extern int sf3_map_load(u32 n); extern u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
+ extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames; extern u32 sf3_ph[8], sf3_cnt[32], sf3_hash;
+ void sf3_cd_read(u32 lba,u32 nsec,u8*dst){ cd_read(lba,nsec,dst); }
+ #ifndef PRINT_EVERY_SF3
+@@ -405,6 +410,7 @@
+ /* the level's player: Payback's entity list (IWRAM 0x03000c60, last index 0x0300000c), controlled index (EWRAM 0x02001db8), map 0x02001d40, clock 0x02001e00 */
+ /* an entity pointer in the guest's IWRAM table: a raw GBA address (0x02xxxxxx, as in the mGBA snapshots) or, in the translated guest, the host address inside the EWRAM window (stage 4: the translated game stores host pointers) */
+ static const u8 *entp(u32 p){ if((p>>24)==2) return EW+(p&0x3ffff); if(p>=(u32)EW&&p<(u32)EW+0x40000) return (const u8*)p; return 0; }
++static s32 g3_map=-1;      /* the guest's map id as gather3 last read it */
+ static int gather3(s32*px,s32*py,s32*pz,int*hd,int*pk,int*nents){
+ #ifdef SF3_DEMO
+   /* renderer test without a level: a car drives a scripted route through Freedom City (heading 0 = +z) */
+@@ -412,7 +418,7 @@
+     if(ph>=40&&ph<70) h+=300; if(ph>=110&&ph<150) h-=300; if(ph>=190&&ph<210) h+=300; h&=0xffff;
+     *px=x; *pz=z; *py=0; *hd=h; *pk=1; *nents=0; return 1; }
+ #endif
+-  if(*(volatile u32*)(EW+0x1e00)==0 || *(volatile s16*)(EW+0x1d40)!=0) return 0;      /* in a level, on map 0 (Freedom City) */
++  { s32 gm=*(volatile s16*)(EW+0x1e66); if(*(volatile u32*)(EW+0x1e00)==0 || gm<0 || gm>10) return 0; g3_map=gm; }      /* in a level, on one of Payback's 11 maps (the grid id the level loader 0x0803c580 was given, EWRAM 0x02001e66; rampage: = the setup's city/map 0x02001d40, 0 Freedom City, 1 Los Francos, 2 Corona, 3..10 the multiplayer maps; the story levels' own grid, 0x02001d40 stays 0 there) */
+   s32 nl=*(volatile s16*)(IW+0xc), ci=*(volatile s16*)(EW+0x1db8); if(nl<0||nl>100||ci<0||ci>nl) return 0;
+   const u32*tab=(const u32*)(IW+0xc60); const u8*e=entp(tab[ci]); if(!e) return 0;
+   *px=*(const s32*)(e+4)>>1; *pz=*(const s32*)(e+8)>>1; *py=((19904-(s32)*(const u16*)(e+0xc))>>1);
+@@ -428,15 +434,24 @@
+ }
+ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
+   s32 px=*pxp,py=*pyp,pz=*pzp; int hd=*hdp,pk=*pkq,ne=*nep;
+-      { /* stage 7 map change: L2 / R2 = previous / next of the 11 maps, loaded from CD (SF3M.BIN); the view moves to the new map's start point, the guest (Payback's Freedom City logic) keeps running */
+-        static u32 pe; u32 nw=pad_extra&~pe; pe=pad_extra; int req=-1;
+-        if(nw&4) req=(sf3_map_cur+1)%11; else if(nw&2) req=(sf3_map_cur+10)%11;
++      { /* stage 13 map follow + stage 7 map switch: the world drawn is the guest's own map (EWRAM 0x02001d40, loaded from the CD when a level starts on another map);
++           L2 / R2 = previous / next of the 11 maps as a viewer override (loaded from the CD (SF3M.BIN), the view moves to that map's start point, the guest keeps running its own map);
++           a new level on another map (the guest's id changes) drops the override */
++        static u32 pe; static s32 ovr=-1, lastg=-1; u32 nw=pad_extra&~pe; pe=pad_extra; int req=-1;
++        if(g3_map!=lastg){ lastg=g3_map; ovr=-1; }
++        int cur=sf3_map_loads?(int)sf3_map_cur:-1, base=ovr>=0?ovr:(int)g3_map, usr=0;
++        if(nw&4){ req=(base+1)%11; usr=1; } else if(nw&2){ req=(base+10)%11; usr=1; }
+ #ifdef MAPTEST
+-        { static u32 mt; if(++mt==MAPTEST_AT) req=MAPTEST_TO; }
++        { static u32 mt; if(++mt==MAPTEST_AT){ req=MAPTEST_TO; usr=1; } }
+ #endif
+-        if(req>=0){ u32 c0=cd_sectors; u32 m0=RC1_VAL; int r=sf3_map_load(req); dbg("MAPCHANGE to "); dec(req); dbg("rc "); dec(r); dbg("cd sectors "); dec(cd_sectors-c0); dbg("hlines "); dec((RC1_VAL-m0)&0xffff); dbg("start "); dec(sf3_map_x); dec(sf3_map_y); dec(sf3_map_z); dbg("from guest pos "); dec(px); dec(pz); dbg("\n");
+-          if(r==0){ map_dx=sf3_map_x-px; map_dz=sf3_map_z-pz; map_dy=sf3_map_y; if(req==0){ map_dx=map_dz=map_dy=0; } } } }
++        if(!usr&&cur!=base) req=base;       /* follow: the guest's map is not the one in the renderer */
++        { static s32 chk=-2; if(g3_map!=chk){ chk=g3_map; u32 gp=*(volatile u32*)(EW+0x7124); int gi=-1; for(int q=0;q<11;q++) if(rom_read(0x081aa8b4+4*q,4)<=gp) gi=q;   /* the loader leaves its read pointer at the end of the grid's data: the last table entry at or below it is the grid it decoded */
++            dbg("GRIDCHK id "); dec(g3_map); dbg("PB_MAP "); dec(*(volatile s16*)(EW+0x1d40)); dbg("decoded grid by pointer "); dec(gi); dbg(gi==g3_map?"match":"MISMATCH"); dbg("\n"); } }
++        if(req>=0){ u32 c0=cd_sectors; u32 m0=RC1_VAL; int r=sf3_map_load(req); dbg(usr?"MAPCHANGE to ":"MAPFOLLOW to "); dec(req); dbg("rc "); dec(r); dbg("cd sectors "); dec(cd_sectors-c0); dbg("hlines "); dec((RC1_VAL-m0)&0xffff); dbg("start "); dec(sf3_map_x); dec(sf3_map_y); dec(sf3_map_z); dbg("guest map "); dec(g3_map); dbg("guest pos "); dec(px); dec(pz); dbg("\n");
++          if(r==0){ if(usr){ ovr=(req==g3_map)?-1:req; } if(ovr>=0){ map_dx=sf3_map_x-px; map_dz=sf3_map_z-pz; map_dy=sf3_map_y; } else { map_dx=map_dz=map_dy=0; } } } }
+       px+=map_dx; pz+=map_dz; py+=map_dy; for(int q=0;q<ne;q++){ ents3[q].x+=map_dx; ents3[q].z+=map_dz; ents3[q].y+=map_dy; }
++      { extern int sf3_floor_at(int,int); int fl=sf3_floor_at(px,pz); if(fl<60000&&py<fl-1024) py=fl;      /* Little Chicago (guest map 4): the guest's start pose is 2048 units below this world's ground (camera under the floor); lift it to the floor */
++        for(int q=0;q<ne;q++){ int f2=sf3_floor_at(ents3[q].x,ents3[q].z); if(f2<60000&&ents3[q].y<f2-1024) ents3[q].y=f2; } }
+       { /* stage 7 ragdolls: events from the guest's state (bail-out = the driver leaves a moving car, or Triangle in a car; hit = a pedestrian within 3 m of the player's car doing > 4 m/s), the solver steps in renderer units */
+         static int pkp=-1; static s32 ppx,ppy,ppz,pvx,pvy,pvz,pmap=-1; static u8 conv[128]; static u32 cdn[128], pe2, nfr;
+         s32 vx=(px-ppx)*491520, vy=(py-ppy)*491520, vz=(pz-ppz)*491520; if(!nfr||pmap!=(s32)sf3_map_cur){ vx=vy=vz=0; pkp=-1; } pmap=sf3_map_cur; nfr++;
+@@ -488,7 +503,7 @@
+   sv_service(); cdda_service();
+ #ifdef SF3_DEFER
+   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
+-  { static int tried; if(!tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && *(volatile s16*)(EW+0x1d40)==0){ tried=1; dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
++  { static int tried; if(!tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && (u32)*(volatile s16*)(EW+0x1e66)<=10u){ tried=1; sf3_first_map=*(volatile s16*)(EW+0x1e66); dbg("guest map "); dec(sf3_first_map); dbg("\n"); dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
+       sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
+ #endif
+   g_pres++; if((g_pres%50)==1){ dbg("present "); dec(g_pres); dbg(" tick "); dec(io_nd); dbg("gf "); dec(g_gframes); dbg("clk "); dec(*(volatile u32*)(EW+0x1e00)); dbg("map "); dec(*(volatile u16*)(EW+0x1d40)); dbg("nent "); dec(*(volatile u16*)(IW+0xc)); dbg("dsp "); hex(io16(0)); dbg("keys "); hex(io_keys); dbg("\n"); }
+@@ -504,9 +519,20 @@
+ #endif
+ #endif
+   if(sf3_ok){ s32 px,py,pz; int hd,pk,ne;
++#ifdef TG_LOADS
++    /* TEST-ONLY: after TG_LOADS map loads, the guest's grid id is overwritten with TG_TO (as if a new level had loaded another grid): the renderer must follow it and drop the L2/R2 override */
++    { static u32 tgd; if(!tgd && sf3_map_loads>=TG_LOADS && st3_render>2){ tgd=1; *(volatile s16*)(EW+0x1e66)=TG_TO; dbg("TEST-ONLY: guest grid id set to "); dec(TG_TO); dbg("\n"); } }
++#endif
+     u32 g0=RC1_VAL; int ok=gather3(&px,&py,&pz,&hd,&pk,&ne); st3_gather_lines=(RC1_VAL-g0)&0xffff;
+     if(ok){ stage7_pre(&px,&py,&pz,&hd,&pk,&ne); u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+-      if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
++      if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("map "); dec(sf3_map_cur); dbg("gmap "); dec(g3_map); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cnf "); dec(cold_conflicts); dbg("interp "); dec(ip_enters); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<28;q++) dec(sf3_cnt[q]); dbg("\n"); }
++#ifdef SPINTEST
++      /* TEST-ONLY (stage 13): once, after SPINTEST renders: 12 headings (1/12 turn apart), 6 renders each (the camera and the LOD governor settle), the guest frozen in this call; prints the 6th render of each heading and the summary, then goes on normally */
++      { static int spun; if(!spun&&st3_render>=SPINTEST){ spun=1; u32 sum=0,mx=0,over=0; for(int it=0;it<12;it++){ int h2=(hd+it*5461)&0xffff; u32 d2=0;
++            for(int r6=0;r6<6;r6++){ int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,px,py,pz,h2,pk,ents3,ne,1); d2=(RC1_VAL-q0)&0xffff; gp0(0x03000000); while(!(GP1&0x04000000)){} vsync(); GP1=0x05000000|(o2<<10); buf^=1; }
++            dbg("SPIN "); dec(it); dbg("hd "); dec(h2); dbg("map "); dec(sf3_map_cur); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("\n"); sum+=d2; if(d2>mx) mx=d2; if(d2>456) over++; }
++          dbg("SPIN done map "); dec(sf3_map_cur); dbg("mean "); dec(sum/12); dbg("max "); dec(mx); dbg("over456 "); dec(over); dbg("\n"); } }
++#endif
+ #ifdef PROFSPIN
+       /* TEST-ONLY profiling: freeze the guest at this state and spin the player's heading in 1/32 turns, 6 renders per heading (camera settles), print the last */
+       if(st3_render>=PROFSPIN){ for(u32 it=0;;it++){ int h2=(hd+(it/6)*2048)&0xffff; int o2=buf?240:0; u32 q0=RC1_VAL; sf3_frame(o2,px,py,pz,h2,pk,ents3,ne,1); u32 d2=(RC1_VAL-q0)&0xffff;

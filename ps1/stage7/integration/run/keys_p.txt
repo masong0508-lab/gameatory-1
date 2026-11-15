@@ -1,0 +1,12 @@
+15 keydown c
+15.1 keydown r
+22 keyup r
+22.1 keyup c
+30 keydown e
+37 keyup e
+40 keydown z
+47 keyup z
+50 keydown x
+57 keyup x
+60 keydown v
+67 keyup v
