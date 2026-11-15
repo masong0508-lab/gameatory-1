@@ -34,7 +34,7 @@ void model_init(Model *md)
         for (int k = 0; k < f->n; k++)
             fx += md->v[f->idx[k]].x, fy += md->v[f->idx[k]].y, fz += md->v[f->idx[k]].z;
         fx = fx / f->n - cx, fy = fy / f->n - cy, fz = fz / f->n - cz;
-        if ((((n.x * fx + n.y * fy + n.z * fz) >> 4) < 0) != !!(f->flags & MF_IN))   /* outward (or in) */
+        if (!(f->flags & MF_WIND) && (((n.x * fx + n.y * fy + n.z * fz) >> 4) < 0) != !!(f->flags & MF_IN))   /* outward (or in) */
             n = v3(-n.x, -n.y, -n.z);
         md->normal[i] = (N3){(s16)n.x, (s16)n.y, (s16)n.z};
     }

@@ -12,113 +12,9 @@
 #define F5(m, fl, a, b, c, d, e) {5, m, fl, {a, b, c, d, e}}
 #define F6(m, fl, a, b, c, d, e, f) {6, m, fl, {a, b, c, d, e, f}}
 
-#define G (-58)                    /* the road */
-
-/* a wheel: a six-sided disc on the side of the car, radius 40 */
-#define HEX(x, z) {x, G + 80, z}, {x, G + 60, (z) + 35}, {x, G + 20, (z) + 35}, \
-                  {x, G, z}, {x, G + 20, (z) - 35}, {x, G + 60, (z) - 35}
-#define WHEELS(x, zf, zr) HEX(-(x), zf), HEX(x, zf), HEX(-(x), zr), HEX(x, zr)
-#define WHEEL_F(b) F6(M_ROAD, MF_TWO, b, b + 1, b + 2, b + 3, b + 4, b + 5)
-#define WHEEL_FACES(b) WHEEL_F(b), WHEEL_F(b + 6), WHEEL_F(b + 12), WHEEL_F(b + 18)
-
-/* A saloon, sealed: four stations along the body (nose, cowl, deck, tail), each a ring of
-   bottom and belt-line corners, a greenhouse of glass under a roof, a bar of headlights and
-   one of tail lights. L: half length, cf/cb: the cowl and the deck (where the glass starts and
-   ends), rf/rb: the roof's front and back, w: half width, hh/hd/ht: the belt line's height at
-   the cowl, the deck and the tail. */
-#define SALOON_V(L, cf, cb, rf, rb, w, hh, hd, ht)                                              \
-    {-((w) - 6), G + 26, L}, {(w) - 6, G + 26, L}, {(w) - 6, G + 62, L}, {-((w) - 6), G + 62, L}, \
-    {-(w), G + 22, cf}, {w, G + 22, cf}, {w, G + (hh), cf}, {-(w), G + (hh), cf},               \
-    {-(w), G + 22, cb}, {w, G + 22, cb}, {w, G + (hd), cb}, {-(w), G + (hd), cb},               \
-    {-((w) - 6), G + 24, -(L)}, {(w) - 6, G + 24, -(L)}, {(w) - 6, G + (ht), -(L)}, {-((w) - 6), G + (ht), -(L)}, \
-    {20 - (w), G + 150, rf}, {(w) - 20, G + 150, rf}, {(w) - 20, G + 150, rb}, {20 - (w), G + 150, rb}, \
-    {-((w) - 24), G + 38, (L) + 3}, {(w) - 24, G + 38, (L) + 3}, {(w) - 24, G + 52, (L) + 3}, {-((w) - 24), G + 52, (L) + 3}, \
-    {-((w) - 14), G + (ht) - 20, -(L) - 3}, {(w) - 14, G + (ht) - 20, -(L) - 3}, {(w) - 14, G + (ht) - 6, -(L) - 3}, {-((w) - 14), G + (ht) - 6, -(L) - 3}
-#define SALOON_NV 28
-static const MFace saloon_f[] = {
-    F4(M_STEEL, 0, 0, 1, 2, 3), F4(M_CREAM, 0, 20, 21, 22, 23),                    /* the nose, its lights */
-    F4(M_CAR, 0, 3, 2, 6, 7), F4(M_CAR, 0, 0, 4, 7, 3), F4(M_CAR, 0, 1, 5, 6, 2),   /* the bonnet and its sides */
-    F4(M_CAR, 0, 4, 8, 11, 7), F4(M_CAR, 0, 5, 9, 10, 6),                          /* the doors */
-    F4(M_CAR, 0, 8, 12, 15, 11), F4(M_CAR, 0, 9, 13, 14, 10), F4(M_CAR, 0, 11, 10, 14, 15),   /* the boot */
-    F4(M_CAR, 0, 12, 13, 14, 15), F4(M_BRICK, 0, 24, 25, 26, 27),                  /* the tail, its lights */
-    F4(M_STEEL, 0, 0, 1, 13, 12),                                                  /* the underside */
-    F4(M_GLASS, 0, 7, 6, 17, 16), F4(M_GLASS, 0, 11, 10, 18, 19),                  /* the windscreen, the back window */
-    F4(M_GLASS, 0, 7, 11, 19, 16), F4(M_GLASS, 0, 6, 10, 18, 17), F4(M_CAR, 0, 16, 17, 18, 19),
-    WHEEL_FACES(SALOON_NV),
-};
-static const MVert saloon_v[] = {SALOON_V(235, 70, -120, 30, -95, 112, 84, 86, 78), WHEELS(114, 150, -150)};
-static const MVert limo_v[] = {SALOON_V(340, 120, -230, 80, -205, 112, 84, 86, 78), WHEELS(114, 250, -250)};
-static const MVert pickup_v[] = {SALOON_V(245, 150, -20, 110, -10, 118, 84, 82, 82), WHEELS(120, 160, -160)};
-
-/* the Blue Falcon wedge (sports cars), with wheels, a bar of tail lights and a floor */
-static const MVert sport_v[] = {
-    {-115, -38, 235}, {115, -38, 235}, {125, -38, -225}, {-125, -38, -225},
-    {-105, 12, 140}, {105, 12, 140}, {118, 32, -225}, {-118, 32, -225},
-    {-26, -38, 238}, {26, -38, 238}, {-24, 12, 140}, {24, 12, 140},
-    {-55, 16, 95}, {55, 16, 95}, {0, 64, -40}, {-62, 28, -150}, {62, 28, -150},
-    {100, 32, -165}, {100, 98, -245}, {100, 32, -235},
-    {-100, 32, -165}, {-100, 98, -245}, {-100, 32, -235},
-    {-100, -4, -228}, {100, -4, -228}, {100, 18, -228}, {-100, 18, -228},
-    WHEELS(127, 160, -150),
-};
-static const MFace sport_f[] = {
-    F4(M_CAR, 0, 0, 8, 10, 4), F4(M_ACCENT, 0, 8, 9, 11, 10), F4(M_CAR, 0, 9, 1, 5, 11),
-    F4(M_CAR, 0, 4, 5, 6, 7), F4(M_CAR, 0, 0, 4, 7, 3), F4(M_CAR, 0, 1, 2, 6, 5),
-    F4(M_STEEL, 0, 3, 2, 6, 7),
-    F3(M_GLASS, 0, 12, 13, 14), F3(M_GLASS, 0, 13, 16, 14), F3(M_CAR, 0, 16, 15, 14), F3(M_GLASS, 0, 15, 12, 14),
-    F3(M_ACCENT, MF_TWO, 17, 18, 19), F3(M_ACCENT, MF_TWO, 20, 21, 22),
-    F4(M_STEEL, 0, 0, 1, 2, 3), F4(M_BRICK, 0, 23, 24, 25, 26),
-    WHEEL_FACES(27),
-};
-
-/* a van: a tall box with a sloping windscreen */
-static const MVert van_v[] = {
-    {-118, G + 22, 245}, {118, G + 22, 245}, {118, G + 22, -245}, {-118, G + 22, -245},
-    {-118, G + 110, 245}, {118, G + 110, 245}, {118, G + 215, -245}, {-118, G + 215, -245},
-    {-118, G + 205, 190}, {118, G + 205, 190},
-    WHEELS(120, 160, -160),
-};
-static const MFace van_f[] = {
-    F4(M_CAR, 0, 0, 1, 5, 4), F4(M_GLASS, 0, 4, 5, 9, 8), F4(M_CAR, 0, 8, 9, 6, 7),
-    F4(M_CAR, 0, 3, 2, 6, 7), F5(M_CAR, 0, 3, 0, 4, 8, 7), F5(M_CAR, 0, 1, 2, 6, 9, 5),
-    F4(M_STEEL, 0, 0, 1, 2, 3),
-    WHEEL_FACES(10),
-};
-
-/* a bus: long and tall, with a band of windows */
-#define BUS_X 130
-#define BUS_Z 520
-#define BUS_SIDE(x) {x, G + 22, BUS_Z}, {x, G + 170, BUS_Z}, {x, G + 250, BUS_Z}, {x, G + 290, BUS_Z}, \
-                    {x, G + 22, -BUS_Z}, {x, G + 170, -BUS_Z}, {x, G + 250, -BUS_Z}, {x, G + 290, -BUS_Z}
-static const MVert bus_v[] = {BUS_SIDE(-BUS_X), BUS_SIDE(BUS_X), WHEELS(132, 380, -380)};
-static const MFace bus_f[] = {
-    F4(M_CAR, 0, 0, 4, 5, 1), F4(M_GLASS, 0, 1, 5, 6, 2), F4(M_CAR, 0, 2, 6, 7, 3),
-    F4(M_CAR, 0, 8, 12, 13, 9), F4(M_GLASS, 0, 9, 13, 14, 10), F4(M_CAR, 0, 10, 14, 15, 11),
-    F4(M_CAR, 0, 0, 8, 9, 1), F4(M_GLASS, 0, 1, 9, 11, 3), F4(M_CAR, 0, 4, 12, 15, 7),
-    F4(M_CAR, 0, 3, 11, 15, 7), F4(M_STEEL, 0, 0, 8, 12, 4),
-    WHEEL_FACES(16),
-};
-
-/* a tank: hull, tracks, turret and gun */
-static const MVert tank_v[] = {
-    {-150, G + 30, 280}, {150, G + 30, 280}, {150, G + 30, -280}, {-150, G + 30, -280},
-    {-150, G + 105, 200}, {150, G + 105, 200}, {150, G + 105, -280}, {-150, G + 105, -280},
-    {-85, G + 105, 80}, {85, G + 105, 80}, {85, G + 105, -90}, {-85, G + 105, -90},
-    {-70, G + 165, 60}, {70, G + 165, 60}, {70, G + 165, -90}, {-70, G + 165, -90},
-    {-152, G, 290}, {-152, G, -290}, {-152, G + 75, -300}, {-152, G + 75, 300},
-    {152, G, 290}, {152, G, -290}, {152, G + 75, -300}, {152, G + 75, 300},
-    {-12, G + 138, 70}, {12, G + 138, 70}, {12, G + 138, 450}, {-12, G + 138, 450},
-    {0, G + 126, 70}, {0, G + 150, 70}, {0, G + 150, 450}, {0, G + 126, 450},
-};
-static const MFace tank_f[] = {
-    F4(M_CAR, 0, 0, 1, 5, 4), F4(M_CAR, 0, 3, 2, 6, 7), F4(M_CAR, 0, 3, 0, 4, 7),
-    F4(M_CAR, 0, 1, 2, 6, 5), F4(M_CAR, 0, 4, 5, 6, 7),
-    F4(M_ROAD, MF_TWO, 16, 17, 18, 19), F4(M_ROAD, MF_TWO, 20, 21, 22, 23),
-    F4(M_CAR, 0, 8, 9, 13, 12), F4(M_CAR, 0, 10, 11, 15, 14), F4(M_CAR, 0, 11, 8, 12, 15),
-    F4(M_CAR, 0, 9, 10, 14, 13), F4(M_CAR, 0, 12, 13, 14, 15),
-    F4(M_STEEL, MF_TWO, 24, 25, 26, 27), F4(M_STEEL, MF_TWO, 28, 29, 30, 31),
-    F4(M_STEEL, 0, 0, 1, 2, 3),
-};
+/* The vehicles (a body and its extras: wheels, lamps, signs, drawn only near and first: merge.c's looks) and the player
+   (three parts, four poses) are drawn by tools/mkcars.py, which writes cars.h; read its notes before changing a point. */
+#include "cars.h"
 
 /* A person: legs (model_legs), body and arms (model_body), head and hair. s: how far each
    foot is ahead of the hips, a: how far each hand swings. */
@@ -149,49 +45,31 @@ static const MVert punch_v[] = {
 };
 
 #define N(a) (sizeof a / sizeof a[0])
-/* The player: a better-made person. Shoes and trousers (model_legs), a jacket tapering from the
-   shoulders to the hips (model_body) with sleeves, hands, a face and hair; drawn as two models
-   (model_draw takes at most 64 points). s: how far each foot is ahead of the hips, a: how far
-   each hand swings. The punch has the right arm out in front. */
-#define HERO_LO(s)                                                                              \
-    BOX(-24, -5, 16, 100, s, 0, 11), BOX(5, 24, 16, 100, -(s), 0, 11),                          \
-    BOX(-25, -4, 0, 16, (s) + 5, (s) + 5, 16), BOX(4, 25, 0, 16, -(s) + 5, -(s) + 5, 16)
-#define HERO_TORSO                                                                              \
-    {-28, 96, -15}, {28, 96, -15}, {28, 96, 15}, {-28, 96, 15},                                  \
-    {-38, 178, -17}, {38, 178, -17}, {38, 178, 17}, {-38, 178, 17},                              \
-    BOX(-15, 15, 182, 224, 2, 2, 15), BOX(-17, 17, 210, 234, -4, -4, 17)
-#define HERO_HI(a)                                                                              \
-    HERO_TORSO, BOX(-48, -38, 108, 176, -(a), 0, 8), BOX(38, 48, 108, 176, a, 0, 8),             \
-    BOX(-48, -38, 92, 108, -(a) * 5 / 4, -(a), 7), BOX(38, 48, 92, 108, (a) * 5 / 4, a, 7)
-#define TOP(m, b) F4(m, 0, b + 4, b + 5, b + 6, b + 7)
-static const MFace hero_lo_f[] = {
-    SIDES(M_SKY, 0), SIDES(M_SKY, 8), SIDES(M_ROAD, 16), TOP(M_ROAD, 16), SIDES(M_ROAD, 24), TOP(M_ROAD, 24),
+/* The player: a better-made person (cars.h): shoes and trousers (model_legs) with knees, a jacket from belt to shoulders in
+   rings, a head with eyes, a fringe and hair, then the arms in three parts (sleeves model_body, hands skin). Three models
+   (model_draw takes at most 56 points), each pose with its own normals: the limbs lean, so a model's centre is no help to
+   find which way a face looks and every one of his faces carries its winding (MF_WIND). */
+enum {
+    HN_LO0 = 0, HN_LO1 = HN_LO0 + N(hero_lo_f0), HN_LO2 = HN_LO1 + N(hero_lo_f1), HN_LO3 = HN_LO2 + N(hero_lo_f2),
+    HN_MID = HN_LO3 + N(hero_lo_f3), HN_ARM0 = HN_MID + N(hero_mid_f), HN_ARM1 = HN_ARM0 + N(hero_arm_f0),
+    HN_ARM2 = HN_ARM1 + N(hero_arm_f1), HN_ARM3 = HN_ARM2 + N(hero_arm_f2), HN_END = HN_ARM3 + N(hero_arm_f3)
 };
-static const MFace hero_hi_f[] = {
-    SIDES(M_CAR, 0), TOP(M_CAR, 0), SIDES(M_CREAM, 8), SIDES(M_ROAD, 16), TOP(M_ROAD, 16),
-    SIDES(M_CAR, 24), SIDES(M_CAR, 32), SIDES(M_CREAM, 40), SIDES(M_CREAM, 48),
-};
-static const MVert hero_lo_v[4][32] = {{HERO_LO(0)}, {HERO_LO(36)}, {HERO_LO(-36)}, {HERO_LO(22)}};
-static const MVert hero_hi_v[4][56] = {{HERO_HI(0)}, {HERO_HI(26)}, {HERO_HI(-26)}, {
-    HERO_TORSO, BOX(-48, -38, 116, 176, 26, 0, 8),
-    {38, 166, 0}, {48, 166, 0}, {48, 180, 0}, {38, 180, 0},       /* the right arm, out straight */
-    {38, 166, 110}, {48, 166, 110}, {48, 180, 110}, {38, 180, 110},
-    BOX(-48, -38, 100, 116, 32, 26, 7),
-    {37, 164, 110}, {49, 164, 110}, {49, 182, 110}, {37, 182, 110},  /* the fist */
-    {37, 164, 128}, {49, 164, 128}, {49, 182, 128}, {37, 182, 128},
-}};
+#define HERO(i) {{hero_lo_v##i, hero_lo_f##i, N(hero_lo_v##i), N(hero_lo_f##i), 130, hero_n + HN_LO##i},                  \
+                 {hero_mid_v, hero_mid_f, N(hero_mid_v), N(hero_mid_f), 150, hero_n + HN_MID},                           \
+                 {hero_arm_v##i, hero_arm_f##i, N(hero_arm_v##i), N(hero_arm_f##i), 150, hero_n + HN_ARM##i}}
 #ifndef NORMALS_HOST
 /* RAM is short: the normals were worked out at build time (tools/mkconst.py) */
-extern const N3 gen_hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)], gen_tnbuf[];
+extern const N3 gen_hero_n[HN_END], gen_tnbuf[];
 #include "constlen.h"
-_Static_assert(N(hero_lo_f) + 2 * N(hero_hi_f) == GEN_HERO_N, "the player's normals: traffic.c and tools/mkconst.py differ");
+_Static_assert(HN_END == GEN_HERO_N, "the player's normals: traffic.c and tools/mkconst.py differ");
 #define hero_n ((N3 *)gen_hero_n)
 #define tnbuf ((N3 *)gen_tnbuf)
 #define model_init(md)
 #else
-static N3 hero_n[N(hero_lo_f) + 2 * N(hero_hi_f)] EWRAM_BSS;
-static N3 tnbuf[400] EWRAM_BSS;
+static N3 hero_n[HN_END] EWRAM_BSS;
+static N3 tnbuf[600] EWRAM_BSS;
 #endif
+#define TOP(m, b) F4(m, 0, b + 4, b + 5, b + 6, b + 7)
 /* The player swimming, as much of him as is over the water (at 0): the top of his back, then
    his head and hair (two models, so each box's faces turn the right way); merge.c draws his
    arms and the ripple round him */
@@ -201,10 +79,11 @@ static const MFace swim_back_f[] = {SIDES(M_CAR, 0), TOP(M_CAR, 0)};
 static const MFace swim_head_f[] = {SIDES(M_CREAM, 0), SIDES(M_ROAD, 8), TOP(M_ROAD, 8)};
 
 #ifdef NORMALS_HOST
-Model mdl_hero[4][2];
+Model mdl_hero[4][3];
 Model mdl_swim[2];
 
 Model mdl_saloon, mdl_limo, mdl_pickup, mdl_sport, mdl_van, mdl_bus, mdl_tank;
+Model mdl_saloon_x, mdl_taxi_x, mdl_police_x, mdl_limo_x, mdl_pickup_x, mdl_sport_x, mdl_van_x, mdl_bus_x;
 Model mdl_stand, mdl_stride_a, mdl_stride_b, mdl_punch;
 
 static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int radius, N3 **nb)
@@ -222,56 +101,77 @@ static void setup(Model *md, const MVert *v, int nv, const MFace *f, int nf, int
 void traffic_init(void)
 {
     N3 *nb = tnbuf;
-    setup(&mdl_saloon, saloon_v, N(saloon_v), saloon_f, N(saloon_f), 290, &nb);
-    setup(&mdl_limo, limo_v, N(limo_v), saloon_f, N(saloon_f), 390, &nb);
-    setup(&mdl_pickup, pickup_v, N(pickup_v), saloon_f, N(saloon_f), 300, &nb);
-    setup(&mdl_sport, sport_v, N(sport_v), sport_f, N(sport_f), 300, &nb);
-    setup(&mdl_van, van_v, N(van_v), van_f, N(van_f), 340, &nb);
-    setup(&mdl_bus, bus_v, N(bus_v), bus_f, N(bus_f), 600, &nb);
-    setup(&mdl_tank, tank_v, N(tank_v), tank_f, N(tank_f), 520, &nb);
-    setup(&mdl_stand, stand_v, N(stand_v), person_f, N(person_f), 140, &nb);
-    setup(&mdl_stride_a, stride_a_v, N(stride_a_v), person_f, N(person_f), 140, &nb);
-    setup(&mdl_stride_b, stride_b_v, N(stride_b_v), person_f, N(person_f), 140, &nb);
-    setup(&mdl_punch, punch_v, N(punch_v), person_f, N(person_f), 150, &nb);
-    setup(&mdl_swim[0], swim_back_v, N(swim_back_v), swim_back_f, N(swim_back_f), 60, &nb);
-    setup(&mdl_swim[1], swim_head_v, N(swim_head_v), swim_head_f, N(swim_head_f), 70, &nb);
-    /* the walking poses share the standing one's normals (the limbs only lean a little; it is
-       set up last, so its normals are the ones kept) */
-    for (int i = 3; i >= 0; i--) {
-        N3 *lo = hero_n, *hi = hero_n + N(hero_lo_f) + (i == 3) * N(hero_hi_f);
-        setup(&mdl_hero[i][0], hero_lo_v[i], 32, hero_lo_f, N(hero_lo_f), 130, &lo);
-        setup(&mdl_hero[i][1], hero_hi_v[i], 56, hero_hi_f, N(hero_hi_f), 150, &hi);
-    }
+#define SET(m, v, f, r) setup(&m, v, N(v), f, N(f), r, &nb)
+    SET(mdl_saloon, saloon_b_v, saloon_b_f, 290);
+    SET(mdl_limo, limo_b_v, limo_b_f, 390);
+    SET(mdl_pickup, pickup_b_v, pickup_b_f, 300);
+    SET(mdl_sport, sport_b_v, sport_b_f, 300);
+    SET(mdl_van, van_b_v, van_b_f, 340);
+    SET(mdl_bus, bus_b_v, bus_b_f, 600);
+    SET(mdl_tank, tank_b_v, tank_b_f, 520);
+    SET(mdl_stand, stand_v, person_f, 140);
+    SET(mdl_stride_a, stride_a_v, person_f, 140);
+    SET(mdl_stride_b, stride_b_v, person_f, 140);
+    SET(mdl_punch, punch_v, person_f, 150);
+    SET(mdl_swim[0], swim_back_v, swim_back_f, 60);
+    SET(mdl_swim[1], swim_head_v, swim_head_f, 70);
+    SET(mdl_saloon_x, saloon_x_v, saloon_x_f, 290);
+    SET(mdl_taxi_x, taxi_x_v, taxi_x_f, 290);
+    SET(mdl_police_x, police_x_v, police_x_f, 290);
+    SET(mdl_limo_x, limo_x_v, limo_x_f, 390);
+    SET(mdl_pickup_x, pickup_x_v, pickup_x_f, 300);
+    SET(mdl_sport_x, sport_x_v, sport_x_f, 300);
+    SET(mdl_van_x, van_x_v, van_x_f, 340);
+    SET(mdl_bus_x, bus_x_v, bus_x_f, 600);
+#define HSET(i)                                                                                                       \
+    do {                                                                                                              \
+        N3 *lo = hero_n + HN_LO##i, *mid = hero_n + HN_MID, *arm = hero_n + HN_ARM##i;                                \
+        setup(&mdl_hero[i][0], hero_lo_v##i, N(hero_lo_v##i), hero_lo_f##i, N(hero_lo_f##i), 130, &lo);               \
+        setup(&mdl_hero[i][1], hero_mid_v, N(hero_mid_v), hero_mid_f, N(hero_mid_f), 150, &mid);                      \
+        setup(&mdl_hero[i][2], hero_arm_v##i, N(hero_arm_v##i), hero_arm_f##i, N(hero_arm_f##i), 150, &arm);          \
+    } while (0)
+    HSET(0);
+    HSET(1);
+    HSET(2);
+    HSET(3);
 }
 #else
 /* the models are ROM const too: each one's normals are the next N(faces) of gen_tnbuf, in this order (tests/s2/models.py
    compares them with what start-up built in RAM) */
 enum {
-    O_SALOON, O_LIMO = O_SALOON + N(saloon_f), O_PICKUP = O_LIMO + N(saloon_f), O_SPORT = O_PICKUP + N(saloon_f),
-    O_VAN = O_SPORT + N(sport_f), O_BUS = O_VAN + N(van_f), O_TANK = O_BUS + N(bus_f), O_STAND = O_TANK + N(tank_f),
+    O_SALOON, O_LIMO = O_SALOON + N(saloon_b_f), O_PICKUP = O_LIMO + N(limo_b_f), O_SPORT = O_PICKUP + N(pickup_b_f),
+    O_VAN = O_SPORT + N(sport_b_f), O_BUS = O_VAN + N(van_b_f), O_TANK = O_BUS + N(bus_b_f), O_STAND = O_TANK + N(tank_b_f),
     O_STRIDE_A = O_STAND + N(person_f), O_STRIDE_B = O_STRIDE_A + N(person_f), O_PUNCH = O_STRIDE_B + N(person_f),
-    O_SWIM = O_PUNCH + N(person_f)
+    O_SWIM = O_PUNCH + N(person_f), O_SALOON_X = O_SWIM + N(swim_back_f) + N(swim_head_f), O_TAXI_X = O_SALOON_X + N(saloon_x_f),
+    O_POLICE_X = O_TAXI_X + N(taxi_x_f), O_LIMO_X = O_POLICE_X + N(police_x_f), O_PICKUP_X = O_LIMO_X + N(limo_x_f),
+    O_SPORT_X = O_PICKUP_X + N(pickup_x_f), O_VAN_X = O_SPORT_X + N(sport_x_f), O_BUS_X = O_VAN_X + N(van_x_f),
+    O_END = O_BUS_X + N(bus_x_f)
 };
-_Static_assert(O_SWIM + N(swim_back_f) + N(swim_head_f) == GEN_TNBUF_N, "traffic.c's list and tools/mkconst.py's differ in length");
-#define MODEL(m, v, nv, f, nf, r, o) const Model m = {v, f, nv, nf, r, tnbuf + (o)}
-MODEL(mdl_saloon, saloon_v, N(saloon_v), saloon_f, N(saloon_f), 290, O_SALOON);
-MODEL(mdl_limo, limo_v, N(limo_v), saloon_f, N(saloon_f), 390, O_LIMO);
-MODEL(mdl_pickup, pickup_v, N(pickup_v), saloon_f, N(saloon_f), 300, O_PICKUP);
-MODEL(mdl_sport, sport_v, N(sport_v), sport_f, N(sport_f), 300, O_SPORT);
-MODEL(mdl_van, van_v, N(van_v), van_f, N(van_f), 340, O_VAN);
-MODEL(mdl_bus, bus_v, N(bus_v), bus_f, N(bus_f), 600, O_BUS);
-MODEL(mdl_tank, tank_v, N(tank_v), tank_f, N(tank_f), 520, O_TANK);
-MODEL(mdl_stand, stand_v, N(stand_v), person_f, N(person_f), 140, O_STAND);
-MODEL(mdl_stride_a, stride_a_v, N(stride_a_v), person_f, N(person_f), 140, O_STRIDE_A);
-MODEL(mdl_stride_b, stride_b_v, N(stride_b_v), person_f, N(person_f), 140, O_STRIDE_B);
-MODEL(mdl_punch, punch_v, N(punch_v), person_f, N(person_f), 150, O_PUNCH);
+_Static_assert(O_END == GEN_TNBUF_N, "traffic.c's list and tools/mkconst.py's differ in length");
+#define MODEL(m, v, f, r, o) const Model m = {v, f, N(v), N(f), r, tnbuf + (o)}
+MODEL(mdl_saloon, saloon_b_v, saloon_b_f, 290, O_SALOON);
+MODEL(mdl_limo, limo_b_v, limo_b_f, 390, O_LIMO);
+MODEL(mdl_pickup, pickup_b_v, pickup_b_f, 300, O_PICKUP);
+MODEL(mdl_sport, sport_b_v, sport_b_f, 300, O_SPORT);
+MODEL(mdl_van, van_b_v, van_b_f, 340, O_VAN);
+MODEL(mdl_bus, bus_b_v, bus_b_f, 600, O_BUS);
+MODEL(mdl_tank, tank_b_v, tank_b_f, 520, O_TANK);
+MODEL(mdl_stand, stand_v, person_f, 140, O_STAND);
+MODEL(mdl_stride_a, stride_a_v, person_f, 140, O_STRIDE_A);
+MODEL(mdl_stride_b, stride_b_v, person_f, 140, O_STRIDE_B);
+MODEL(mdl_punch, punch_v, person_f, 150, O_PUNCH);
+MODEL(mdl_saloon_x, saloon_x_v, saloon_x_f, 290, O_SALOON_X);
+MODEL(mdl_taxi_x, taxi_x_v, taxi_x_f, 290, O_TAXI_X);
+MODEL(mdl_police_x, police_x_v, police_x_f, 290, O_POLICE_X);
+MODEL(mdl_limo_x, limo_x_v, limo_x_f, 390, O_LIMO_X);
+MODEL(mdl_pickup_x, pickup_x_v, pickup_x_f, 300, O_PICKUP_X);
+MODEL(mdl_sport_x, sport_x_v, sport_x_f, 300, O_SPORT_X);
+MODEL(mdl_van_x, van_x_v, van_x_f, 340, O_VAN_X);
+MODEL(mdl_bus_x, bus_x_v, bus_x_f, 600, O_BUS_X);
 const Model mdl_swim[2] = {
     {swim_back_v, swim_back_f, N(swim_back_v), N(swim_back_f), 60, tnbuf + O_SWIM},
     {swim_head_v, swim_head_f, N(swim_head_v), N(swim_head_f), 70, tnbuf + O_SWIM + N(swim_back_f)},
 };
-/* the walking poses share the standing one's normals (the limbs only lean a little): pose 3, the punch, has its own body's */
-#define HERO(i, hi) {{hero_lo_v[i], hero_lo_f, 32, N(hero_lo_f), 130, hero_n}, \
-                     {hero_hi_v[i], hero_hi_f, 56, N(hero_hi_f), 150, hero_n + N(hero_lo_f) + (hi)}}
-const Model mdl_hero[4][2] = {HERO(0, 0), HERO(1, 0), HERO(2, 0), HERO(3, N(hero_hi_f))};
+const Model mdl_hero[4][3] = {HERO(0), HERO(1), HERO(2), HERO(3)};
 void traffic_init(void) {}
 #endif

@@ -6,10 +6,11 @@
 typedef struct { s16 x, y, z; } N3;              /* a unit vector, 1.14 */
 typedef struct { s16 x, y, z; } MVert;
 typedef struct { u8 n, mat, flags, idx[6]; } MFace;
-enum { MF_TWO = 1, MF_GLOW = 2, MF_IN = 4, MF_BACK = 8 };
+enum { MF_TWO = 1, MF_GLOW = 2, MF_IN = 4, MF_BACK = 8, MF_WIND = 16 };
 /* MF_TWO: two-sided (thin fins and wings); MF_GLOW: self-lit; MF_IN: faces into the model (the
    walls of a room you can fly into); MF_BACK: sorted by its farthest point, so whatever stands
-   on it or in front of it is drawn over it (floors, walls, decals on them) */
+   on it or in front of it is drawn over it (floors, walls, decals on them); MF_WIND: the normal is the winding's (the points run
+   counter-clockwise seen from outside), not turned away from the model's middle (limbs, whose middles lie far off it) */
 
 typedef struct {
     const MVert *v;

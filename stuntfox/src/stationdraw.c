@@ -73,7 +73,7 @@ void st_draw_room(void)
         person(pose[c[i].model % 3], 0, fp, v3(c[i].x, 0, c[i].z), c[i].yaw, c[i].body, c[i].legs);
     }
     int p = stw.moving ? 1 + (stw.phase >> 3 & 1) : 0;
-    person(&mdl_hero[p][0], &mdl_hero[p][1], 0, v3(stw.x, 0, stw.z), stw.yaw, M_GLOW, M_GLASS);   /* (the stunt fox: orange jacket, jeans) */
+    person(&mdl_hero[p][0], &mdl_hero[p][1], &mdl_hero[p][2], v3(stw.x, 0, stw.z), stw.yaw, M_GLOW, M_GLASS);   /* (the stunt fox: orange jacket, jeans) */
     model_body = M_CAR;
     model_legs = M_ROAD;
 }

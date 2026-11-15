@@ -2087,35 +2087,35 @@ static void ship_events(void)
 /* Payback's vehicles, in the order of its descriptor table: the model, the paint and how
    far back the exhaust is. A descriptor's look (D_LOOK) picks its entry; the police cars and
    vans of every city share two. (WP1's drawn sizes in build.py go by the same entries.) */
-typedef struct { const Model *md; u8 paint, scale; s16 rear, roof; } VehicleLook;   /* roof: model units up */
+typedef struct { const Model *md, *x; u8 paint, scale; s16 rear, roof; } VehicleLook;   /* x: its extras; roof: model units up */
 static const VehicleLook looks[] = {
-    {&mdl_saloon, M_TEAL, 0, -235, 92},      /* Mundaneo */
-    {&mdl_saloon, M_BRICK, 224, -235, 92},   /* Pug */
-    {&mdl_sport, M_STUNT, 0, -232, 70},      /* Diblo */
-    {&mdl_bus, M_ACCENT, 0, -520, 232},      /* bus */
-    {&mdl_saloon, M_CONCRETE, 0, -235, 92},  /* Vapour */
-    {&mdl_saloon, M_CAR, 224, -235, 92},     /* Pug GTI */
-    {&mdl_saloon, M_CREAM, 0, -235, 92},     /* Fjord */
-    {&mdl_van, M_SHIP, 0, -245, 152},        /* van */
-    {&mdl_limo, M_ROAD, 0, -340, 92},        /* limo */
-    {&mdl_saloon, M_SHIP, 0, -235, 92},      /* police car */
-    {&mdl_sport, M_CAR, 0, -232, 70},        /* Scooby */
-    {&mdl_tank, M_GRASS, 0, -280, 107},      /* tank */
-    {&mdl_sport, M_SHIP, 0, -232, 70},       /* Evo */
-    {&mdl_saloon, M_ACCENT, 0, -235, 92},    /* taxi */
-    {&mdl_van, M_CREAM, 0, -245, 152},       /* ice cream van */
-    {&mdl_pickup, M_BRICK, 0, -245, 92},     /* pickup */
-    {&mdl_sport, M_GLOW, 0, -232, 70},       /* hot rod */
-    {&mdl_heli, M_CAR, 0, 0, 150},           /* helicopter (it stands on its skids, not on wheels) */
+    {&mdl_saloon, &mdl_saloon_x, M_TEAL, 0, -235, 92},      /* Mundaneo */
+    {&mdl_saloon, &mdl_saloon_x, M_BRICK, 224, -235, 92},   /* Pug */
+    {&mdl_sport, &mdl_sport_x, M_STUNT, 0, -232, 70},      /* Diblo */
+    {&mdl_bus, &mdl_bus_x, M_ACCENT, 0, -520, 232},      /* bus */
+    {&mdl_saloon, &mdl_saloon_x, M_CONCRETE, 0, -235, 92},  /* Vapour */
+    {&mdl_saloon, &mdl_saloon_x, M_CAR, 224, -235, 92},     /* Pug GTI */
+    {&mdl_saloon, &mdl_saloon_x, M_CREAM, 0, -235, 92},     /* Fjord */
+    {&mdl_van, &mdl_van_x, M_SHIP, 0, -245, 152},        /* van */
+    {&mdl_limo, &mdl_limo_x, M_ROAD, 0, -340, 92},        /* limo */
+    {&mdl_saloon, &mdl_police_x, M_SHIP, 0, -235, 92},      /* police car */
+    {&mdl_sport, &mdl_sport_x, M_CAR, 0, -232, 70},        /* Scooby */
+    {&mdl_tank, 0, M_GRASS, 0, -280, 107},      /* tank */
+    {&mdl_sport, &mdl_sport_x, M_SHIP, 0, -232, 70},       /* Evo */
+    {&mdl_saloon, &mdl_taxi_x, M_ACCENT, 0, -235, 92},    /* taxi */
+    {&mdl_van, &mdl_van_x, M_CREAM, 0, -245, 152},       /* ice cream van */
+    {&mdl_pickup, &mdl_pickup_x, M_BRICK, 0, -245, 92},     /* pickup */
+    {&mdl_sport, &mdl_sport_x, M_GLOW, 0, -232, 70},       /* hot rod */
+    {&mdl_heli, 0, M_CAR, 0, 0, 150},           /* helicopter (it stands on its skids, not on wheels) */
     /* the other cities' vehicles */
-    {&mdl_saloon, M_CAR, 224, -235, 92},     /* a small blue saloon (desc 18) */
-    {&mdl_bus, M_CREAM, 0, -520, 232},       /* coach (19: radius 728, longer than the bus) */
-    {&mdl_van, M_SHIP, 0, -245, 152},        /* police van (20, and 47, 48): white, light bar */
-    {&mdl_van, M_TEAL, 0, -245, 152},        /* van (21) */
-    {&mdl_sport, M_GLOW, 92, -232, 70},      /* a tiny one (22: radius 112, 168 long) */
-    {&mdl_tank, M_PLAZA, 0, -280, 107},      /* desert tank (23: armoured, like the tank) */
-    {&mdl_pickup, M_CAR, 0, -245, 92},       /* long blue pickup, white load bed (24 to 26) */
-    {&mdl_saloon, M_STEEL, 0, -235, 92},     /* saloon (27) */
+    {&mdl_saloon, &mdl_saloon_x, M_CAR, 224, -235, 92},     /* a small blue saloon (desc 18) */
+    {&mdl_bus, &mdl_bus_x, M_CREAM, 0, -520, 232},       /* coach (19: radius 728, longer than the bus) */
+    {&mdl_van, &mdl_van_x, M_SHIP, 0, -245, 152},        /* police van (20, and 47, 48): white, light bar */
+    {&mdl_van, &mdl_van_x, M_TEAL, 0, -245, 152},        /* van (21) */
+    {&mdl_sport, &mdl_sport_x, M_GLOW, 92, -232, 70},      /* a tiny one (22: radius 112, 168 long) */
+    {&mdl_tank, 0, M_PLAZA, 0, -280, 107},      /* desert tank (23: armoured, like the tank) */
+    {&mdl_pickup, &mdl_pickup_x, M_CAR, 0, -245, 92},       /* long blue pickup, white load bed (24 to 26) */
+    {&mdl_saloon, &mdl_saloon_x, M_STEEL, 0, -235, 92},     /* saloon (27) */
 };
 #define POLICE_CAR 9
 #define HELI_LOOK 17
@@ -2250,6 +2250,7 @@ static APART void draw_swimmer(void)
         if (model_place(&pl, swim_at, &m, 256, 0, 150)) {
             draw_wet(&mdl_hero[0][0], &pl, w - swim_at.y, 96);
             draw_wet(&mdl_hero[0][1], &pl, w - swim_at.y, 96);
+            draw_wet(&mdl_hero[0][2], &pl, w - swim_at.y, 96);
         }
     } else if (model_place(&pl, swim_at, &m, 256, 0, 160)) {
         model_draw(&mdl_swim[0], &pl);
@@ -2495,17 +2496,14 @@ static void draw_entities(const u8 *me)
             model_body = dead ? M_ROAD : lk->paint;
             s32 w;
             if (world_water(p.x, p.z, &w) && p.y - 58 < w) {
+                if (lk->x)
+                    draw_wet(lk->x, &pl, w - p.y, 0);
                 draw_wet(lk->md, &pl, w - p.y, 0);        /* going under */
                 continue;
             }
-            if (pl.t.z > 2800 && lk->md != &mdl_tank && k != HELI_LOOK) {
-                Model far = *lk->md;                   /* far away: no wheels (the last 24 points, 4 faces) */
-                far.nv -= 24;
-                far.nf -= 4;
-                model_draw(&far, &pl);
-            } else {
-                model_draw(lk->md, &pl);
-            }
+            if (lk->x && pl.t.z <= 2400)               /* (far away: no wheels, lamps and the like; they go first, over the body) */
+                model_draw(lk->x, &pl);
+            model_draw(lk->md, &pl);
             if ((k == POLICE_CAR || k == POLICE_VAN) && pl.t.z < 9000 && !dead) {
                 Place lp = pl;                         /* (the bar sits on a saloon's roof: up to the van's) */
                 s32 up = lk->roof - 92;
@@ -2540,7 +2538,7 @@ static void draw_entities(const u8 *me)
             continue;
         dress(e, &model_body, &model_legs);
         u32 a = (entity_desc(e) - PED_DESC0) / VEH_SIZE;   /* Payback's animation for them */
-        const Model *md = &mdl_ped;
+        const Model *md = &mdl_ped, *arms = 0;
         if (pl.t.z < 1800 || e == hero) {
             const s32 *w = (const s32 *)e;
             int moving = w[E_X / 4] != w[E_PREV1 / 4] || w[E_Y / 4] != w[E_PREV1 / 4 + 1];
@@ -2553,6 +2551,7 @@ static void draw_entities(const u8 *me)
                 else
                     model_draw(&mdl_hero[pose][0], &pl);
                 md = &mdl_hero[pose][1];
+                arms = &mdl_hero[pose][2];
             } else {
                 md = crowd[pose];
             }
@@ -2563,6 +2562,12 @@ static void draw_entities(const u8 *me)
             draw_wet(md, &pl, wl - p.y, 0);
         else
             model_draw(md, &pl);
+        if (arms) {
+            if (wet)
+                draw_wet(arms, &pl, wl - p.y, 0);
+            else
+                model_draw(arms, &pl);
+        }
     }
     model_body = M_CAR;
     model_legs = M_ROAD;
@@ -3143,12 +3148,17 @@ static void draw_car(void)
     model_body = dead ? M_ROAD : lk->paint;
     s32 w;
     if (car.in_water && world_water(p.x, p.z, &w)) {
+        if (lk->x)
+            draw_wet(lk->x, &pl, w - p.y, 0);
         draw_wet(lk->md, &pl, w - p.y, 0);
         model_body = M_CAR;
         return;
     }
-    if (!fp_view)
+    if (!fp_view) {
+        if (lk->x)
+            model_draw(lk->x, &pl);                   /* (wheels, lamps: first, so they lie over the body) */
         model_draw(lk->md, &pl);
+    }
     model_body = M_CAR;
     if ((dead || (car_ent && car_ent[E_STATE] == 5 && mode == DRIVE)) && car_boom < 24) {
         /* on fire (get out!), then the blast (once: it grows and dies away, nothing blinks) */

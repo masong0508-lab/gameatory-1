@@ -208,6 +208,11 @@ Hold SELECT + START to see the frame rate.
   act where they happen, so the car pitches, rolls, flips and falls off the loop when it is
   too slow. Nothing is scripted.
 - `src/space.c`, `src/models.c`: sky by altitude, stars, the station and asteroids.
+- `src/traffic.c`, `src/cars.h`: Payback's vehicles and the player. `tools/mkcars.py` draws them and writes `cars.h`
+  (`python3 tools/mkcars.py > src/cars.h`; the notes at its top say how the order of the faces decides what lies over what).
+  A vehicle is a body (arches, glass, panels) and its extras (wheels with hubs, lamps, a taxi's sign, a police car's stripes)
+  that merge.c draws first and only when the car is near; the player is three models (legs, body and head, arms) in four
+  poses, whose faces carry their winding (`MF_WIND`) because a limb's middle lies far from the model's.
 - `src/station.c`, `src/stationdraw.c` (stage 2, merge build): Fox Station on foot: the walker, the rooms' cameras and doors, the crew's talk and the consoles; the rooms and the talk are the ROM blob `tools/content/station.py` builds.
 - `src/spacewalk.c` (merge build): the space walk: the man out of the Arwing high up (the slow fall, floating, the jet pack), the moon, rocks and beacons.
 - `tools/sim/`: runs the physics on a PC for testing (`tools/sim/run.sh loop 200`).

@@ -205,7 +205,7 @@ def merge_looks():
     import re
     src = open(os.path.join(SRC, 'merge.c')).read()
     body = re.search(r'VehicleLook looks\[\] = \{(.*?)\n\};', src, re.S).group(1)
-    looks = [(m.group(1), int(m.group(2)) or 256) for m in re.finditer(r'\{&mdl_(\w+),\s*\w+,\s*(\d+),', body)]
+    looks = [(m.group(1), int(m.group(2)) or 256) for m in re.finditer(r'\{&mdl_(\w+),\s*(?:0|&mdl_\w+),\s*\w+,\s*(\d+),', body)]
     pol = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define (POLICE_CAR|POLICE_VAN) (\d+)', src)}
     kind = re.search(r'static int vehicle_kind\(const u8 \*e\)\n\{(.*?)\n\}', src, re.S).group(1)
     assert 'POLICE_CAR' in kind and ('POLICE_VAN' in kind) == ('POLICE_VAN' in pol), 'vehicle_kind changed: mirror it here'

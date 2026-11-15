@@ -1654,9 +1654,11 @@ static __attribute__((noinline)) void hangar_draw(void)
     M3 m;
     myaw(&m, 16384);
     model_body = M_STUNT;
+    place_draw(&mdl_sport_x, vadd(deck, v3(-560, 58, -250)), &m, 256);
     place_draw(&mdl_sport, vadd(deck, v3(-560, 58, -250)), &m, 256);
     myaw(&m, -16384);
     model_body = M_TEAL;
+    place_draw(&mdl_van_x, vadd(deck, v3(580, 58, -200)), &m, 256);
     place_draw(&mdl_van, vadd(deck, v3(580, 58, -200)), &m, 256);
     myaw(&m, 0);
     for (int i = 0; i < 4; i++)
