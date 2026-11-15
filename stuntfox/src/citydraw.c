@@ -409,6 +409,8 @@ static inline int in_the_way(V3 p, s32 halfw)
 #else
 #define in_the_way(p, halfw) ((p).z < 64)
 #endif
+#define TREE_NEAR 2600            /* trees nearer than this get all their pieces, nearer than TREE_MID most */
+#define TREE_MID 4200
 #ifdef MERGE
 #define DASH_FAR 6000              /* centre line dashes nearer than this */
 #define ZEBRA_FAR 3500             /* zebra crossings nearer than this */
@@ -601,19 +603,66 @@ static void draw_tree(const Tree *t)
     s32 r = h * 3 >> 3, tw = h >> 4;
     if (r < t->r << 2)
         r = t->r << 2;
-    V3 c = cadd(p, 0, h - r, 0), top = cadd(p, 0, h - r, 0);
-    static const s8 ring[6][2] = {{0, 16}, {14, 8}, {14, -8}, {0, -16}, {-14, -8}, {-14, 8}};
-    V3 crown[6], lit[6];
-    for (int i = 0; i < 6; i++) {
-        crown[i] = v3(c.x + ring[i][0] * r / 16, c.y + ring[i][1] * r / 16, c.z);
-        lit[i] = v3(c.x - r / 5 + ring[i][0] * r / 28, c.y + r / 5 + ring[i][1] * r / 28, c.z);
+    int tz = p.z;
+    /* detail by distance: all of it near, the old two-piece shape far (the same shapes' cost per frame as
+       before: a few near trees, many far ones) */
+    int near = tz < TREE_NEAR, mid = tz < TREE_MID;
+    /* pieces are submitted last-drawn first (same depth key: the last submitted is drawn first) */
+    if (t->kind) {
+        /* a fir: three tiers of triangles, each with its left half lit, on a trunk */
+        /* {bottom, top (25ths of the height), half width (16ths of the crown), level} of each tier, top first */
+        static const u8 tiers3[3][4] = {{16, 25, 8, 2}, {10, 19, 12, 1}, {4, 13, 16, 0}};
+        static const u8 tiers2[2][4] = {{11, 25, 10, 2}, {4, 17, 16, 0}};
+        static const u8 tiers1[1][4] = {{4, 25, 16, 1}};
+        const u8(*tr)[4] = near ? tiers3 : mid ? tiers2 : tiers1;
+        for (int k = 0, n = near ? 3 : mid ? 2 : 1; k < n; k++) {
+            s32 hw = r * tr[k][2] >> 4, yb = h * tr[k][0] / 25, yt = h * tr[k][1] / 25;
+            V3 apex = v3(p.x, p.y + yt, tz);
+            V3 bl = v3(p.x - hw, p.y + yb, tz), br = v3(p.x + hw, p.y + yb, tz), bm = v3(p.x, p.y + yb + (hw >> 4), tz);
+            V3 tier[3] = {apex, br, bl};
+            if (near || mid) {
+                V3 lit[3] = {apex, bl, bm};
+                r_poly(lit, 3, COLOR(M_GRASS, tr[k][3] + 1, f), tz, 0);
+            }
+            r_poly(tier, 3, COLOR(M_GRASS, tr[k][3], f), tz, 0);
+        }
+        s32 th = near || mid ? h * 6 / 25 : h * 5 / 25;
+        V3 trunk[4] = {v3(p.x - tw, p.y, tz), v3(p.x + tw, p.y, tz), v3(p.x + tw, p.y + th, tz), v3(p.x - tw, p.y + th, tz)};
+        r_poly(trunk, 4, COLOR(M_BRICK, 0, f), tz, 0);
+    } else {
+        /* a broad tree: a dark crown, two lighter clumps and two lit ones, on a trunk */
+        V3 c = v3(p.x, p.y + h - r, tz), top = c;
+        static const s8 oct[8][2] = {{0, 16}, {11, 11}, {16, 0}, {11, -11}, {0, -16}, {-11, -11}, {-16, 0}, {-11, 11}};
+        static const s8 hex[6][2] = {{0, 16}, {14, 8}, {14, -8}, {0, -16}, {-14, -8}, {-14, 8}};
+        V3 q[8];
+        if (near) {
+            static const s8 clump[4][4] = {{-7, 3, 8, 1}, {5, 2, 8, 1}, {-3, 6, 7, 2}, {4, 7, 5, 3}};   /* {x, y, radius, level} (16ths of the crown) */
+            for (int k = 3; k >= 0; k--) {
+                const s8 *cl = clump[k];
+                for (int i = 0; i < 6; i++)
+                    q[i] = v3(c.x + cl[0] * r / 16 + hex[i][0] * cl[2] * r / 256, c.y + cl[1] * r / 16 + hex[i][1] * cl[2] * r / 256, tz);
+                r_poly(q, 6, COLOR(M_GRASS, cl[3], f), tz, 0);
+            }
+        } else if (mid) {
+            for (int i = 0; i < 6; i++)
+                q[i] = v3(c.x - r / 5 + hex[i][0] * r / 28, c.y + r / 5 + hex[i][1] * r / 28, tz);
+            r_poly(q, 6, COLOR(M_GRASS, 2, f), tz, 0);
+        }
+        if (near || mid) {
+            for (int i = 0; i < 8; i++)
+                q[i] = v3(c.x + oct[i][0] * r / 16, c.y + oct[i][1] * r / 16, tz);
+            r_poly(q, 8, COLOR(M_GRASS, 0, f), tz, 0);
+        } else {
+            for (int i = 0; i < 6; i++)
+                q[i] = v3(c.x - r / 5 + hex[i][0] * r / 28, c.y + r / 5 + hex[i][1] * r / 28, tz);
+            r_poly(q, 6, COLOR(M_GRASS, 2, f), tz, 0);
+            for (int i = 0; i < 6; i++)
+                q[i] = v3(c.x + hex[i][0] * r / 16, c.y + hex[i][1] * r / 16, tz);
+            r_poly(q, 6, COLOR(M_GRASS, 0, f), tz, 0);
+        }
+        V3 trunk[4] = {v3(p.x - tw, p.y, tz), v3(p.x + tw, p.y, tz), v3(top.x + tw, top.y, tz), v3(top.x - tw, top.y, tz)};
+        r_poly(trunk, 4, COLOR(M_BRICK, 0, f), tz, 0);
     }
-    /* same depth key: the last submitted is drawn first */
-    r_poly(lit, 6, COLOR(M_GRASS, t->kind ? 3 : 2, f), p.z, 0);
-    r_poly(crown, 6, COLOR(M_GRASS, t->kind ? 1 : 0, f), p.z, 0);
-    V3 trunk[4] = {v3(p.x - tw, p.y, p.z), v3(p.x + tw, p.y, p.z), v3(top.x + tw, top.y, top.z),
-                   v3(top.x - tw, top.y, top.z)};
-    r_poly(trunk, 4, COLOR(M_BRICK, 0, f), p.z, 0);
 }
 
 /* A loop: a helix of LOOP_SEG quads, sand with every other piece a light level darker. (Red and white
