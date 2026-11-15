@@ -1,0 +1,59 @@
+--- s16_models/sf/models.h	2026-11-15 19:53:25.901013426 +0000
++++ s18_b/sf/models.h	2026-11-15 22:26:54.904404412 +0000
+@@ -63,7 +63,7 @@
+ static int msoft;   /* words of primitive buffer a model may still use (set per entity) */
+ static int mg[5], mL[3];          /* shade of the local +x, -x, +y, +z, -z faces; the sun in the entity's frame (1.14) */
+ static XF mxf;                    /* the entity's world transform (fallback and clip path) */
+-static inline int mgs(int d) { if (d < 0) d = 0; if (d > 16384) d = 16384; return 50 + ((d * 72) >> 14); }
++static inline int mgs(int d) { if (d < 0) d = 0; if (d > 16384) d = 16384; return 34 + ((d * 104) >> 14); }
+ static int mshade(s32 nx, s32 ny, s32 nz) {   /* shade of a local normal (sloped strips) */
+   s32 mx = iabs_(nx), md = iabs_(ny), mn = iabs_(nz), t;
+   if (md > mx) { t = mx; mx = md; md = t; } if (mn > mx) { t = mx; mx = mn; mn = t; } if (mn > md) { t = md; md = mn; mn = t; }
+@@ -159,7 +159,7 @@
+ typedef struct { const Stn *st; u8 ns, pm, tside, tup, capf, capr, mxl; s16 ox, oy, oz; } Ring;    /* mxl: the coarsest detail level it is still drawn at */    /* pm 255 = the body paint, else a palette row (material) */
+ typedef struct { const Ring *rg; u8 nr; s16 wx, wzf, wzr; u8 wheels, tall; } VSpec;
+ #define MAXST 10
+-#define MAXT0V 3      /* full-detail vehicles / people per frame (nearest first); the rest use the cheap levels */
++#define MAXT0V 2      /* full-detail vehicles / people per frame (nearest first); the rest use the cheap levels */
+ #define MAXT0P 4
+ #define SALOON(L, cf, cb, rf, rb, w, hh, hd, ht, bed) { { L, 26, 62, 62, (w) - 6, (w) - 6, 3, 0 }, { (L) - 32, 22, (62 + (hh)) / 2, (62 + (hh)) / 2, w, w, 1, 0 }, { cf, 22, hh, hh, w, w, 1, 1 }, \
+   { rf, 22, hh, 146, w, (w) - 18, 3, 0 }, { rb, 22, hd, 146, w, (w) - 18, 3, 1 }, { cb, 22, hd, hd, w, w, 1, (bed) ? 2 : 0 }, { -(L) + 22, 22, (ht) + 2, (ht) + 2, (w) - 3, (w) - 3, 0, (bed) ? 2 : 0 }, { -(L), 24, ht, ht, (w) - 6, (w) - 6, 3, 0 } }
+@@ -200,11 +200,12 @@
+ static const VLook *vlook(int k) { return &vlooks[k < 0 || k > 25 ? 0 : k]; }
+ /* a wheel: a box on the +-x side whose outer face is the round hub texture (corners transparent); far away one flat quad */
+ static void mwheel(int sx, int cz, int rad, int row, int lod, int wx) {
+-  if (lod) { int x1 = sx * wx; V3 w[4] = { { x1, 2 * rad, cz + rad }, { x1, 2 * rad, cz - rad }, { x1, 0, cz - rad }, { x1, 0, cz + rad } };
+-    if (sx > 0) { V3 t = w[0]; w[0] = w[1]; w[1] = t; t = w[2]; w[2] = w[3]; w[3] = t; }
+-    mface(w, 0, T_FLAT + 6, row, 16, 0, 0); return; }
+-  u8 tf[5] = { T_FLAT + 6, T_FLAT + 6, T_FLAT + 6, T_FLAT + 6, T_FLAT + 6 }; tf[sx > 0 ? 3 : 2] = T_WHEEL;
+-  mbox(sx > 0 ? wx - 24 : -wx, sx > 0 ? wx : 24 - wx, 0, 2 * rad, cz - rad, cz + rad, tf, row, 12);
++  /* stage 18: the wheel is a flat disc quad on the body side (outer face 2 proud, textured hub at lod 0, flat dark far away) plus, at lod 0, a 12 unit tread top; was a 24 unit thick 5-face slab */
++  int x1 = sx * (wx + 2), x0 = sx * (wx - 12), t2 = 2 * rad;
++  V3 w[4] = { { x1, t2, cz + rad }, { x1, t2, cz - rad }, { x1, 0, cz - rad }, { x1, 0, cz + rad } };
++  if (sx > 0) { V3 t = w[0]; w[0] = w[1]; w[1] = t; t = w[2]; w[2] = w[3]; w[3] = t; }
++  mface(w, 0, lod ? T_FLAT + 6 : T_WHEEL, row, 16, 12, 1);
++  if (!lod) { V3 tp[4] = { { x0, t2, cz + rad }, { x1, t2, cz + rad }, { x1, t2, cz - rad }, { x0, t2, cz - rad } }; mface(tp, 0, T_FLAT + 6, row, 3, 12, 1); }
+ }
+ static const s8 rface[5][9] = {   /* per strip: 4 x (station 0|1, vertex) ; kind 0 lower side, 1 upper side, 2 top */
+   { 0, 1, 1, 1, 1, 0, 0, 0, 0 }, { 1, 4, 0, 4, 0, 5, 1, 5, 0 }, { 0, 2, 1, 2, 1, 1, 0, 1, 1 }, { 1, 3, 0, 3, 0, 4, 1, 4, 1 }, { 0, 2, 0, 3, 1, 3, 1, 2, 2 } };
+@@ -238,16 +239,17 @@
+   if (!in_view(x, y + 100, z, 600)) return;
+   if (pol) look = (look == 20) ? 20 : 9;
+   const VLook *lk = vlook(look); const VSpec *sp = lk->vs;
+-  int sc = lk->scale ? lk->scale : 256, lod = dist > 2400 ? 2 : dist > 1000 ? 1 : 0;
++  int sc = lk->scale ? lk->scale : 256, lod = dist > 1800 ? 2 : dist > 800 ? 1 : 0;
+   if (lod == 0 && n_t0v >= MAXT0V) lod = 1; if (lod == 0) n_t0v++;
+   int room = (int)(pbe - pb); if (room < 700) return; if (room < 1500 && lod < 1) lod = 1;
+   msoft = room - 500; if (lod) { if (msoft > 330) msoft = 330; } else if (msoft > 700) msoft = 700;
+   int s = fsin(ya), c = fcos(ya); XF f = { x, y, z, c * sc >> 8, s * sc >> 8, sc };
+   int row = lk->paint;
+   mx_begin(&f); mx_light(ya);
+-  mshadow(sp->tall ? 140 : 135, sp == &vs_bus ? 560 : sp == &vs_tank ? 300 : 260);
++  if (lod < 2) mshadow(sp->tall ? 140 : 135, sp == &vs_bus ? 560 : sp == &vs_tank ? 300 : 260);
+   for (int i = 0; i < sp->nr; i++) mring(&sp->rg[i], row, lod);
+-  if (sp->wheels && lod < 2) { for (int i = 0; i < 4; i++) mwheel((i & 1) ? 1 : -1, (i & 2) ? sp->wzr : sp->wzf, sp == &vs_sport ? 28 : 38, row, lod, sp->wx); }
++  if (sp->wheels && lod < 2) { int cside = ((camx - x) * c - (camz - z) * s) >= 0 ? 1 : -1;
++    for (int i = 0; i < 4; i++) { int sg = (i & 1) ? 1 : -1; if (lod && sg != cside) continue; mwheel(sg, (i & 2) ? sp->wzr : sp->wzf, sp == &vs_sport ? 25 : 31, row, lod, sp->wx); } }
+   if (lk->extra == 1 && lod < 2) {   /* a light bar, red and blue, steady (no flashing) */
+     static const u8 tr[5] = { T_FLAT + 10, T_FLAT + 10, T_FLAT + 10, T_FLAT + 10, T_FLAT + 10 }, tb[5] = { T_FLAT + 15, T_FLAT + 15, T_FLAT + 15, T_FLAT + 15, T_FLAT + 15 };
+     int ry = sp == &vs_van ? 214 : 146; mbox(-62, -4, ry, ry + 14, -40, -8, tr, row, 14); mbox(4, 62, ry, ry + 14, -40, -8, tb, row, 14); }
