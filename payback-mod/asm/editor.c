@@ -9,6 +9,8 @@ typedef unsigned int u32;
 #define KEYS (*(volatile u16 *)0x04000130)
 #define PREV (*(volatile u16 *)0x0203fff8)      /* cleared by the game at level load */
 #define GRID (*(u32 **)0x03000d60)              /* 128*128 column pointers, index x*128+y */
+#define ENTS ((u8 **)0x03000c60)
+#define CONTROLLED (*(s16 *)0x02001db8)          /* entity the player controls: 0 on foot, else the vehicle */
 #define GRID_PTR (*(u32 *)0x03000d60)
 #define ENTITY_COUNT (*(volatile s16 *)0x0300000c)
 static int world_ready(void)
@@ -26,8 +28,7 @@ static u8 *controlled_entity(void)
         return (u8 *)0;
     return (u8 *)ptr;
 }
-#define ENTS ((u8 **)0x03000c60)
-#define CONTROLLED (*(s16 *)0x02001db8)          /* entity the player controls: 0 on foot, else the vehicle */
+
 
 /* Filled in by build.py: flat columns for heights 0x100 + 0x20*i (i < 17), then ramps
    rising toward +y, +x, -y, -x from 0x100 + 0x20*k (k < 16). */
