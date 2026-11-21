@@ -119,12 +119,16 @@ class BitWriter:
 
 def encode(grid_idx):
     """Encode 16384 column numbers (relative to the column base) into a grid bitstream."""
+    if len(grid_idx) != W * W:
+        raise ValueError(f'expected {W * W} cells, got {len(grid_idx)}')
     bw = BitWriter()
     grid = [None] * (W * W)
     prev = 0
     for row in range(W):
         for x in range(W):
             c = grid_idx[row * W + x]
+            if not isinstance(c, int) or not 0 <= c < (1 << 15):
+                raise ValueError(f'invalid column index {c!r} at ({row}, {x}); must be 0..32767')
             nb = neighbours(grid, row, x, 37)
             if nb and (row or x) and nb[0] == c:
                 bw.write(0, 1)
