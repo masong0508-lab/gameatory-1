@@ -28,10 +28,12 @@ class BpsTest(unittest.TestCase):
         self.assertEqual(bps.apply(src, patch), bytes(tgt))
 
     def test_target_copy_overlap(self):
-        src = b''
-        tgt = b'AB' * 1000
-        patch = bps.encode(src, tgt)
-        self.assertEqual(bps.apply(src, patch), tgt)
+        # A literal "AB", followed by a TargetCopy pointing two bytes backward.
+        # The copy must repeat the already-built output without reading future bytes.
+        src, tgt = b'', b'AB' * 6
+        commands = (bps._num(((2 - 1) << 2) | bps.TARGET_READ) + b'AB'
+                    + bps._num(((10 - 1) << 2) | bps.TARGET_COPY) + bps._signed(0))
+        self.assertEqual(bps.apply(src, crafted_patch(src, tgt, commands)), tgt)
 
     def test_wrong_source_and_bad_patch_crc(self):
         patch = bps.encode(b'abcdefghijk', b'HELLO')
