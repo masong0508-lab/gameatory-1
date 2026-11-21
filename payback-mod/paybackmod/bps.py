@@ -92,10 +92,26 @@ def encode(source, target, moves=()):
 
 
 def apply(source, patch):
+    """Apply a BPS patch, rejecting malformed offsets, truncated commands and CRC failures.
+
+    Validate every command against both its source and its declared target bounds:
+    bytearray slice assignment otherwise silently grows/shrinks the output on corrupt
+    patches, making debugging an invalid ROM unnecessarily difficult.
+    """
+    if len(patch) < 19 or patch[:4] != b'BPS1':
+        raise ValueError('not a complete BPS patch')
+    if zlib.crc32(patch[:-4]) != int.from_bytes(patch[-4:], 'little'):
+        raise ValueError('BPS patch checksum mismatch')
+
+    end = len(patch) - 12  # source CRC, target CRC, patch CRC
+    p = 4
+
     def num():
         nonlocal p
         data, shift = 0, 1
-        while True:
+        for _ in range(10):
+            if p >= end:
+                raise ValueError('truncated BPS integer')
             x = patch[p]
             p += 1
             data += (x & 0x7f) * shift
@@ -103,22 +119,29 @@ def apply(source, patch):
                 return data
             shift <<= 7
             data += shift
+        raise ValueError('BPS integer is too large')
 
-    assert patch[:4] == b'BPS1', 'not a BPS patch'
-    assert zlib.crc32(patch[:-4]) == int.from_bytes(patch[-4:], 'little'), 'patch is corrupt'
-    p = 4
     src_size, tgt_size, meta = num(), num(), num()
+    if meta > end - p:
+        raise ValueError('BPS metadata extends beyond command stream')
     p += meta
     if len(source) != src_size or zlib.crc32(source) != int.from_bytes(patch[-12:-8], 'little'):
         raise ValueError('this patch is for a different source file')
+
     t = bytearray(tgt_size)
     o = src_rel = tgt_rel = 0
-    while p < len(patch) - 12:
+    while p < end:
         x = num()
         cmd, n = x & 3, (x >> 2) + 1
+        if n > tgt_size - o:
+            raise ValueError('BPS command exceeds declared output size')
         if cmd == SOURCE_READ:
+            if o + n > src_size:
+                raise ValueError('BPS SourceRead exceeds source size')
             t[o:o + n] = source[o:o + n]
         elif cmd == TARGET_READ:
+            if n > end - p:
+                raise ValueError('BPS TargetRead exceeds command stream')
             t[o:o + n] = patch[p:p + n]
             p += n
         else:
@@ -126,19 +149,23 @@ def apply(source, patch):
             d = -(d >> 1) if d & 1 else d >> 1
             if cmd == SOURCE_COPY:
                 src_rel += d
+                if src_rel < 0 or src_rel + n > src_size:
+                    raise ValueError('BPS SourceCopy is outside the source file')
                 t[o:o + n] = source[src_rel:src_rel + n]
                 src_rel += n
             else:
                 tgt_rel += d
+                if tgt_rel < 0 or tgt_rel >= o:
+                    raise ValueError('BPS TargetCopy must reference earlier output')
                 dist = o - tgt_rel
                 if dist >= n:
                     t[o:o + n] = t[tgt_rel:tgt_rel + n]
-                elif dist > 0:              # overlapping copy repeats the last `dist` bytes
+                else:  # overlapping copy repeats existing output
                     t[o:o + n] = (bytes(t[tgt_rel:o]) * (n // dist + 1))[:n]
-                else:
-                    for k in range(n):
-                        t[o + k] = t[tgt_rel + k]
                 tgt_rel += n
         o += n
-    assert zlib.crc32(t) == int.from_bytes(patch[-8:-4], 'little'), 'output CRC mismatch'
+    if o != tgt_size:
+        raise ValueError(f'BPS patch produced {o} bytes, expected {tgt_size}')
+    if zlib.crc32(t) != int.from_bytes(patch[-8:-4], 'little'):
+        raise ValueError('BPS output checksum mismatch')
     return bytes(t)
