@@ -152,7 +152,7 @@ static const short sin24[25] = {                   /* 256 * sin(2*pi*i/24) */
     0, 66, 128, 181, 222, 247, 256, 247, 222, 181, 128, 66, 0,
     -66, -128, -181, -222, -247, -256, -247, -222, -181, -128, -66, 0};
 
-static int heading4(u8 *e)
+__attribute__((optnone,noinline)) static int heading4(u8 *e)
 {
     int a = *(s16 *)(e + 0x12) + 720, d = 0;      /* heading: 5760 per turn, 0 = +y */
     while (a >= 1440) a -= 1440, d++;
@@ -345,7 +345,7 @@ static void cursor_on(int x, int y)
     }
 }
 
-static char *put_num(char *o, int n)                /* decimal without division */
+__attribute__((optnone,noinline)) static char *put_num(char *o, int n)                /* decimal without division */
 {
     static const int pw[] = {100000, 10000, 1000, 100, 10, 1};
     if (n < 0) *o++ = '-', n = -n;
