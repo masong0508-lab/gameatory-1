@@ -72,9 +72,10 @@ class PaybackRom:
     """A Payback ROM extended to 16 MiB with the column table relocated so new columns fit."""
 
     def __init__(self, data, check=True):
+        if len(data) != 0x800000:
+            raise ValueError(f'expected an 8 MiB Payback GBA ROM, got {len(data)} bytes')
         if check and hashlib.sha1(data).hexdigest() != PAYBACK_EU_SHA1:
             raise ValueError('not Payback (Europe) (En,Fr,De,Es,It); expected SHA-1 ' + PAYBACK_EU_SHA1)
-        assert len(data) == 0x800000
         self.orig = bytes(data)
         self.d = bytearray(data) + bytearray(0x800000)
         tbl = data[OLD_TABLE_START:OLD_TABLE_END]
@@ -106,10 +107,12 @@ class PaybackRom:
 
     def add_column(self, data60):
         """Append a column (deduplicated) and return its number."""
-        assert len(data60) == 60
+        if len(data60) != 60:
+            raise ValueError(f'map columns must be 60 bytes, got {len(data60)}')
         if data60 in self.new_columns:
             return self.new_columns[data60]
-        assert self.ncols < MAX_COLUMNS
+        if self.ncols >= MAX_COLUMNS:
+            raise ValueError('map column index limit (32768 columns) exceeded')
         o = NEW_BASE + 60 * self.ncols
         self.d[o:o + 60] = data60
         self.new_columns[data60] = self.ncols
@@ -123,14 +126,15 @@ class PaybackRom:
 
     def set_grid(self, level, idx):
         bs = encode(idx)
-        o = self.free
-        self.d[o:o + len(bs)] = bs
-        self.free += (len(bs) + 3) & ~3
+        o = self.alloc(bs)
         struct.pack_into('<I', self.d, LEVEL_TABLE + 4 * level, GBA + o)
 
     def paint(self, level, cells):
         """Replace cells of a level: cells maps (x, y) -> 60-byte column."""
         g = list(self.painted.get(level) or self.grid(level))   # (a level may be painted more than once)
+        for x, y in cells:
+            if not (0 <= x < 128 and 0 <= y < 128):
+                raise ValueError(f'paint cell ({x}, {y}) is outside the 128x128 map')
         for (x, y), col in cells.items():
             g[x * 128 + y] = self.add_column(col)
         self.set_grid(level, g)
@@ -152,10 +156,13 @@ class PaybackRom:
     # Text: every UI and mission string is reached through a table of u32 offsets from STRING_BASE.
     # Replacement strings go in free space and only the English entries are repointed.
     def alloc(self, data, align=4):
-        self.free = (self.free + align - 1) & ~(align - 1)
-        o = self.free
+        if align < 1 or align & (align - 1):
+            raise ValueError('allocation alignment must be a positive power of two')
+        o = (self.free + align - 1) & ~(align - 1)
+        if o + len(data) > len(self.d):
+            raise ValueError('mod exceeds the 16 MiB ROM capacity')
         self.d[o:o + len(data)] = data
-        self.free += len(data)
+        self.free = o + len(data)
         return o
 
     def english_strings(self):
