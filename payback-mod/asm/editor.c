@@ -9,6 +9,23 @@ typedef unsigned int u32;
 #define KEYS (*(volatile u16 *)0x04000130)
 #define PREV (*(volatile u16 *)0x0203fff8)      /* cleared by the game at level load */
 #define GRID (*(u32 **)0x03000d60)              /* 128*128 column pointers, index x*128+y */
+#define GRID_PTR (*(u32 *)0x03000d60)
+#define ENTITY_COUNT (*(volatile s16 *)0x0300000c)
+static int world_ready(void)
+{
+    u32 grid = GRID_PTR;
+    return !(grid & 3) && grid >= 0x02000000 && grid <= 0x02030000;
+}
+static u8 *controlled_entity(void)
+{
+    int idx = CONTROLLED, count = ENTITY_COUNT;
+    if (idx < 0 || count <= 0 || count > 256 || idx >= count)
+        return (u8 *)0;
+    u32 ptr = (u32)ENTS[idx];
+    if (ptr < 0x02000000 || ptr > 0x0203fe98 || (ptr & 3))
+        return (u8 *)0;
+    return (u8 *)ptr;
+}
 #define ENTS ((u8 **)0x03000c60)
 #define CONTROLLED (*(s16 *)0x02001db8)          /* entity the player controls: 0 on foot, else the vehicle */
 
@@ -56,7 +73,8 @@ static void maps_update(void)
         load_map(NEO_MAP);
         IN_NEO = 1;
     }
-    u8 *e = ENTS[CONTROLLED];
+    u8 *e = controlled_entity();
+    if (!e) return;
     int flying = *(u32 *)(e + 0x1c) == ARWING_DESC;
     if (flying && !IN_SPACE && (IN_NEO || is_city())) {
         load_map(SPACE_MAP);
@@ -195,15 +213,18 @@ static void stunts(void)
         }
         roll_screen(ROLL);
     }
-    if (CONTROLLED < 0)
+    u8 *e = controlled_entity();
+    if (!e)
         return;
-    u8 *e = ENTS[CONTROLLED];
     u32 desc = *(u32 *)(e + 0x1c);
     if (desc < CAR_DESC_FIRST || desc >= ARWING_DESC)  /* cars only (index 0 can be a car too) */
         return;
     s16 *v = (s16 *)(e + 0x40);
     int *x = (int *)(e + 4), *y = (int *)(e + 8), *z = (int *)(e + 0xc);
-    u32 col = GRID[(*x >> 11) * 128 + (*y >> 11)];
+    int cx = *x >> 11, cy = *y >> 11;
+    if (cx < 0 || cx >= 128 || cy < 0 || cy >= 128)
+        return;
+    u32 col = GRID[cx * 128 + cy];
     int speed = (v[0] < 0 ? -v[0] : v[0]) + (v[1] < 0 ? -v[1] : v[1]);
     if (LOOP_ON == 0xff && col != LOOP_PAD)
         LOOP_ON = 0;
@@ -300,7 +321,7 @@ static void cursor_off(void)
 {
     if (CUR_I) {
         int i = CUR_I - 1;
-        if (GRID[i] == CURSOR || GRID[i] == CURSOR2 || (GRID[i] >> 24) != 0x02)
+        if (GRID[i] == CURSOR || GRID[i] == CURSOR2)
             GRID[i] = CUR_C;
         CUR_I = 0;
     }
@@ -344,9 +365,9 @@ static char *put_str(char *o, const char *t)
 
 static void cheats(u16 keys, u16 hit)
 {
-    if (CONTROLLED < 0)
+    u8 *e = controlled_entity();
+    if (!e)
         return;
-    u8 *e = ENTS[CONTROLLED];
     u32 desc = *(u32 *)(e + 0x1c);
     s16 *v = (s16 *)(e + 0x40);
     int *z = (int *)(e + 0xc);
@@ -397,6 +418,10 @@ void editor(u8 *buttons)
 {
     u16 keys = ~KEYS & 0x3ff, hit = keys & ~PREV;
     PREV = keys;
+    if (!world_ready()) {
+        CUR_I = 0;
+        return;
+    }
     maps_update();
     stunts();
     if (!(keys & KSEL))
@@ -407,16 +432,20 @@ void editor(u8 *buttons)
     }
     for (int i = 0; i < 8; i++)      /* the game sees no buttons while SELECT is held */
         buttons[i] = 0;
-    if (CONTROLLED < 0)
+    if (!controlled_entity())
         return;
     if (hit & KSEL)
         ticker("Build mode. A ramp, B block, R raise, L clear, UP loop, DOWN dash plate.");
 
-    u8 *e = ENTS[CONTROLLED];
+    u8 *e = controlled_entity();
     int x = *(int *)(e + 4) >> 11, y = *(int *)(e + 8) >> 11;
     int d = heading4(e);
     int dx = d == 1 ? 1 : d == 3 ? -1 : 0, dy = d == 0 ? 1 : d == 2 ? -1 : 0;
     int tx = x + 2 * dx, ty = y + 2 * dy;
+    if (tx < 1 || tx >= 127 || ty < 1 || ty >= 127) {
+        cursor_off();
+        return;
+    }
     cursor_on(tx, ty);
     if (!(hit & (KA | KB | KR | KL | KUP | KDOWN)))
         return;
