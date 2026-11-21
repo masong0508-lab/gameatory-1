@@ -24,6 +24,21 @@ jobs:
         run: python -m compileall -q payback-mod
       - name: Map codec, ROM bounds, and BPS patch regression tests
         run: python -m unittest discover -s payback-mod/tests -p "test_*.py" -v
+      - name: Compile ARM7TDMI in-game editor
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld llvm
+          sh payback-mod/asm/build.sh
+          python - <<'PY'
+          import json, os
+          symbols = json.load(open('payback-mod/paybackmod/editor.json'))
+          blob = 'payback-mod/paybackmod/editor.bin'
+          assert 0 < os.path.getsize(blob) < 0x10000
+          assert 0x081b0000 <= (symbols['hook'] & ~1) < 0x081c0000
+          assert symbols['cols'] >= 0x081b0000 + os.path.getsize(blob)
+          assert symbols['maps'] == symbols['cols'] + 85 * 4
+          print('ARM editor linkage and reserved tables validated')
+          PY
       - name: Package source-only offline toolkit
         run: |
           tar -czf payback-mod-toolkit.tar.gz \
