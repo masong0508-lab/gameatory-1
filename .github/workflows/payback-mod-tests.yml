@@ -24,3 +24,13 @@ jobs:
         run: python -m compileall -q payback-mod
       - name: Map codec, ROM bounds, and BPS patch regression tests
         run: python -m unittest discover -s payback-mod/tests -p "test_*.py" -v
+      - name: Package source-only offline toolkit
+        run: |
+          tar -czf payback-mod-toolkit.tar.gz \
+            --exclude='*.gba' --exclude='*.sav' --exclude='__pycache__' \
+            payback-mod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: payback-mod-offline-toolkit
+          path: payback-mod-toolkit.tar.gz
+          retention-days: 7
