@@ -790,7 +790,7 @@ int st_view(void)
         return 0;
     }
     if (stw.room == R_HANGAR) {
-        sprites(!s2f.paused && cp_ending() >= CP_END_COMPLETE);
+        sprites(!s2f.menu && cp_ending() >= CP_END_COMPLETE);   /* (the card: Payback's sprites only for its pause menu, not its HUD in the fade after it) */
         if (s2f.paused)
             return 0;
         if (stw.cd)

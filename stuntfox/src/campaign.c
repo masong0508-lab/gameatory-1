@@ -822,6 +822,8 @@ static void ending_draw(void)
     int page = C.ending - CP_END_COMPLETE;
     d_fill(0, 0, 240, 160, PANEL);
     d_rect(6, 8, 228, 144, DIM);
+    if (s2f.menu)                      /* (Payback's pause menu reads on the plain card) */
+        return;
     d_text(14, 16, "FOX STATION / FLIGHT LOG", HELP);
     d_text(14, 32, title[page], TITLE);
     d_hline(14, 225, 46, HI);

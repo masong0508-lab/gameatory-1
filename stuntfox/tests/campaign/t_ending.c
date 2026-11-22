@@ -148,6 +148,9 @@ int main(void)
     CHECK(pbm.level_end == 0 && pbm.goals[PBG_A] == HOLD_A);
     s2f.docked = 0; card(); CHECK(!seen("CAMPAIGN COMPLETE"));
     s2f.docked = 1; card(); CHECK(seen("CAMPAIGN COMPLETE"));
+    s2f.paused = s2f.menu = 1; card(); CHECK(!text_count);   /* Payback's pause menu: the plain card */
+    s2f.menu = 0; card(); CHECK(seen("CAMPAIGN COMPLETE"));  /* (the fade after it: the card is back) */
+    s2f.paused = 0;
     u32 signature = cp_sig();
     cp_dock_keys(KEY_A, KEY_A, 1); CHECK(cp_ending() == CP_END_COMPLETE);
     age(); cp_dock_keys(0, KEY_A, 1); CHECK(cp_ending() == CP_END_COMPLETE);
