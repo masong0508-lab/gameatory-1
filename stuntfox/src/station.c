@@ -591,7 +591,9 @@ static void term_key(u16 hit, u16 keys)
             stw.confirm = stw.cur + 1;                   /* (one A must not spend every credit: it asks first) */
         } else {
             stw.confirm = 0;
-            news(p <= 0 ? "ALREADY THE BEST" : sg_credits() < p ? "NOT ENOUGH CREDITS" : sg_buy(stw.cur) ? "FITTED!" : "NOT NOW");
+            /* (nothing to buy: the answer says what the page says on the line, FITTED, FULL or BEST) */
+            news(p <= 0 ? (stw.cur == SGB_PACK ? "THE JET PACK IS ALREADY FITTED" : stw.cur == SGB_MISSILES ? "THE RACK IS FULL" : "ALREADY THE BEST") :
+                 sg_credits() < p ? "NOT ENOUGH CREDITS" : sg_buy(stw.cur) ? "FITTED!" : "NOT NOW");
         }
         break;
     }
@@ -1051,8 +1053,8 @@ static void screen(void)
             num(p, popc(cp_prog.medals[stw.cur]));
             d_text(130, 102, b, HELP);
         }
-        help(stw.term == T_MAP ? "A: TRAVEL  >: SPACE WALKS  B: BACK" :
-             cp_active() ? "A: TRAVEL   B: BACK" : "START THE CAMPAIGN TO TRAVEL");
+        help(!cp_active() ? "START THE CAMPAIGN TO TRAVEL" :
+             stw.term == T_MAP ? "A: TRAVEL  >: SPACE WALKS  B: BACK" : "A: TRAVEL   B: BACK");
         break;
     case T_EVA: {
         static const char *const name[3] = {"BEACON PATROL", "MOON SURVEY", "ORBITAL RELAY"};
@@ -1077,7 +1079,8 @@ static void screen(void)
                              stw.cur < 3 ? brief[stw.cur] : "CANCEL KEEPS YOUR EARNED REWARDS.";
         d_text(14, 98, detail, INK);
         d_text(14, 110, stw.cur < 3 ? "FLY THERE. HOLD SELECT TO BAIL OUT." : "* = CLEARED. REPLAYS STILL PAY.", HELP);
-        help("A: TAKE + LAUNCH  <: MAP  B: BACK");
+        help(stw.cur < 3 ? "A: TAKE + LAUNCH  <: MAP  B: BACK" :      /* (what A does on the line under the cursor) */
+             current ? "A: CANCEL WALK  <: MAP  B: BACK" : "A: BACK  <: MAP  B: BACK");
         break;
     }
     case T_SHOP:
