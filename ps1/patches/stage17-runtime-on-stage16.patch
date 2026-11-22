@@ -1,6 +1,6 @@
 --- a/ps1rt/rt.c
 +++ b/ps1rt/rt.c
-@@ -472,7 +472,8 @@
+@@ -478,7 +478,8 @@
  #include "ppu12.h"
  static u32 rd32g(u32 off){ return rom_read(0x08000000+off,4); }
  /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
@@ -10,7 +10,7 @@
  extern int rd_spawn(s32 ux,s32 uy,s32 uz,int yaw,s32 vx,s32 vy,s32 vz,int id,u32 shirt); extern void rd_set_car(int on,s32 ux,s32 uy,s32 uz,int h16,s32 vx,s32 vy,s32 vz); extern void rd_step_all(const void*w,s32 cx,s32 cz); extern int rd_active(void); extern int rd_has(int id); extern u32 rd_spawned, rd_steps, rd_hurt_max, rd_rejected; extern const char sf3_rpw[]; extern int sf3_hide_player;
  extern int sf3_init(void); extern u32 sf3_first_map; extern int sf3_map_load(u32 n); extern u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
  extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames; extern u32 sf3_ph[8], sf3_cnt[32], sf3_hash;
-@@ -505,11 +506,12 @@
+@@ -511,11 +512,12 @@
    *hd=((s32)*(const s16*)(e+0x12)*11651>>10)&0xffff;
    sf3_score=*(const s32*)(e+0x90); sf3_hp=*(const s16*)(e+0x68); sf3_clock=*(volatile u32*)(EW+0x1e00)/30;
    u32 d=*(const u32*)(e+0x1c); *pk=0; if(d-0x08354af4u<128*0x3c) *pk=(rom_byte((d+0x26)&0x01ffffff)==0);
@@ -24,7 +24,7 @@
    *nents=n; return 1;
  }
  static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
-@@ -660,7 +662,7 @@
+@@ -666,7 +668,7 @@
  #endif
      u32 g0=RC1_VAL; int ok=gather3(&px,&py,&pz,&hd,&pk,&ne); st3_gather_lines=(RC1_VAL-g0)&0xffff;
      if(ok){ stage7_pre(&px,&py,&pz,&hd,&pk,&ne); hpx=px; hpy=py; hpz=pz; hhd=hd; hpk=pk; hne=ne; hvalid=1; u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,PPU_SF3HUD); while(*(volatile u32*)0x1F8010A8&0x01000000){} pp_draw(oy,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
@@ -33,7 +33,7 @@
  #ifdef SPINTEST
        /* TEST-ONLY (stage 13): once, after SPINTEST renders: 12 headings (1/12 turn apart), 6 renders each (the camera and the LOD governor settle), the guest frozen in this call; prints the 6th render of each heading and the summary, then goes on normally */
        { static int spun; if(!spun&&st3_render>=SPINTEST){ spun=1; u32 sum=0,mx=0,over=0; for(int it=0;it<12;it++){ int h2=(hd+it*5461)&0xffff; u32 d2=0;
-@@ -668,10 +670,46 @@
+@@ -674,10 +676,46 @@
              dbg("SPIN "); dec(it); dbg("hd "); dec(h2); dbg("map "); dec(sf3_map_cur); dbg("host "); dec(d2); dbg("prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("\n"); sum+=d2; if(d2>mx) mx=d2; if(d2>456) over++; }
            dbg("SPIN done map "); dec(sf3_map_cur); dbg("mean "); dec(sum/12); dbg("max "); dec(mx); dbg("over456 "); dec(over); dbg("\n"); } }
  #endif

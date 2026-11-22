@@ -2159,6 +2159,8 @@ void sg_give(int n)
 }
 void sgi_pay(int n) { sg_give(n); }
 
+_Static_assert(3 + OPT_PROGRESS_BYTES == sizeof(((SgProgress *)0)->spare), "SgProgress option extension");
+
 void sg_get_progress(void *out)
 {
     SgProgress *p = out;
@@ -2168,8 +2170,12 @@ void sg_get_progress(void *out)
     p->laser = laser_lv, p->engine = engine_lv, p->rack = rack_lv, p->shield = shield_lv;
     p->missiles = missiles, p->paint = paint, p->jobs = jobs_done;
     p->flags = sg_invert | sg_autoaim << 1;
-    for (int i = 0; i < 16; i++)
-        p->spare[i] = 0;
+    /* The existing 32-byte image keeps its layout. Old images have zero spare
+       bytes; 'S', version 1 adds the equipment and options previously kept only
+       in the volatile RAM mirror. The outer campaign CRC protects these too. */
+    p->spare[0] = 'S', p->spare[1] = 1;
+    p->spare[2] = sw_pack | rag_on << 1 | rag_fall << 2 | rag_wacky << 3 | rag_unlock << 4 | radio_mode() << 5;
+    opt_get_progress(p->spare + 3);
 }
 
 void sg_set_progress(const void *in)
@@ -2181,6 +2187,15 @@ void sg_set_progress(const void *in)
     laser_lv = p->laser, engine_lv = p->engine, rack_lv = p->rack, shield_lv = p->shield;
     missiles = p->missiles, paint = p->paint, jobs_done = p->jobs;
     sg_invert = p->flags & 1, sg_autoaim = p->flags >> 1 & 1;
+    if (p->spare[0] == 'S' && p->spare[1] == 1) {
+        u8 f = p->spare[2];
+        sw_pack = f & 1;
+        rag_on = f >> 1 & 1, rag_fall = f >> 2 & 1;
+        rag_wacky = f >> 3 & 1, rag_unlock = f >> 4 & 1;
+        int radio = f >> 5 & 3;
+        radio_set_mode(radio < 3 ? radio : 0);
+        opt_set_progress(p->spare + 3);
+    }
     sg_sane();
 }
 
@@ -2188,7 +2203,7 @@ int sg_price(int item)
 {
     if (item >= SGB_PAINT)
         return item - SGB_PAINT < (int)NPAINT && (paints_got >> (item - SGB_PAINT) & 1) ? 0 : -1;
-    return item >= 0 && item < 5 ? yard_price(item) : -1;
+    return item >= 0 && item <= SGB_PACK ? yard_price(item) : -1;
 }
 
 int sg_buy(int item)

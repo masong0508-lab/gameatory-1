@@ -105,6 +105,25 @@ def main() -> int:
                "--defsym=ip_stacks=0x8002c000", "-T", "ps1rt/ps1.ld", *modules, oversized,
                "-o", "native-check/invalid-scratch.elf")
         print("Rejected partial CD-fetch groups, cache/ragdoll overlap and ragdoll/scratch overlap.")
+        # Discovery runs all translated cold code in a 16 MiB simulator. Its
+        # deliberate virtual cache is legal only in the simulator linker, and
+        # the full-cold profile does not need interpreter fallback.
+        simulator = ["-Os", "-DNO_INTERP", "-DCDSIM", "-DNOSF3", "-DKPLAN", "-Iout/kp",
+                     "-DTESTFAST", "-DPRESENT_EVERY=2", "-DCOLDGROUPS=512", "-DNSLOT=512"]
+        sim_runtime = compile_source("ps1rt/rt.c", "simulator_runtime",
+                                     [*simulator, "-DPCACHE_ADDR=0x80600000"])
+        sim_modules = [sim_runtime, modules[1], *modules[4:]]
+        run("full-cold simulator layout", names["ld"], "-T", "ps1rt/ps1_f.ld",
+            *sim_modules, "-o", "native-check/simulator.elf")
+        for script in ("ps1rt/ps1.ld", "ps1rt/ps1_probe.ld"):
+            reject("virtual cache in physical layout", "ROM page cache overlaps ragdoll code", names["ld"],
+                   "-T", script, *sim_modules, "-o", "native-check/invalid-physical.elf")
+        too_high = compile_source("ps1rt/rt.c", "invalid_simulator_runtime",
+                                  [*simulator, "-DPCACHE_ADDR=0x807ff000"])
+        reject("virtual cache beyond simulator window", "simulator page cache must", names["ld"],
+               "-T", "ps1rt/ps1_f.ld", too_high, *sim_modules[1:],
+               "-o", "native-check/invalid-simulator.elf")
+        print("Full-cold simulator links; both physical linkers reject its virtual cache, and its upper bound is enforced.")
         print("Generated tables/assets are placeholders. This is not a game boot, speed or final disc test.")
     return 0
 

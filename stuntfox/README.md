@@ -11,6 +11,18 @@ Two ways to play it, both built from your own Payback ROM:
   lines and zebra crossings (from Payback's own lane data), and the parks have trees.
 - **Stunt Fox** on its own: the stunt arena, the city and space without Payback's game.
 
+### Current completion milestone
+
+The merged game now finishes its final act with a three-card epilogue, returns
+to Fox Station, and keeps completed chapters open for postgame travel and jobs.
+The station's **SPACE WALKS** board exposes Beacon Patrol, Moon Survey and
+Orbital Relay, with first-clear records and replay rewards. Campaign EEPROM
+saves now retain the purchased jet pack, all 31 game settings, ragdoll and radio
+choices, including continuing a stopped campaign after a cold boot.
+
+See [completion milestone and validation](../docs/completion-milestone.md) for
+controls, save behavior, exact validation scope and remaining port work.
+
 ## Stunt Fox x Payback
 
 From this directory, install the base Python dependencies (NumPy and Pillow)
@@ -127,8 +139,23 @@ and the camera stays on him. Hold SELECT near it to climb aboard, far from it to
 is no trap, a new one comes. The jet pack is bought at Fox Station's shipyard (JET PACK, 900 CR, kept with the other
 upgrades): D-pad forward / back / turn, A up, B down, L brake, no fuel, a top speed of 14 units a tick, gentle
 braking when you let go, and weaker in the thin air under 24000. Out there are a small moon (land on it, walk and jump in its
-low gravity), six rocks and four beacons, all solid, and three sample objectives the debug mailbox starts (stage2.h, 80..95). `src/spacewalk.c`;
-`tests/s2/walk*.py`.
+low gravity), six rocks and four beacons, all solid. To take an assignment, start
+the campaign, buy the 900-credit jet pack at the shipyard or workshop, enter
+the station and choose **L → SPACE WALKS**. Nav's holo map also opens this board
+with Right. Accepting a walk launches the Arwing; follow its marker, hold SELECT
+to bail out, and use the pack to reach the objective. The board preserves an
+existing job and asks twice before cancelling it.
+
+| Space walk | Objective | First clear | Replay |
+| --- | --- | ---: | ---: |
+| Beacon Patrol | Reach beacon A while outside the Arwing | 150 CR | 50 CR |
+| Moon Survey | Land beside the moon survey post | 300 CR | 75 CR |
+| Orbital Relay | Visit B, then C, then board the Arwing safely | 500 CR | 100 CR |
+
+First-clear stars, credits and the pack survive native campaign saves. Active
+walks restart from the board after a map change or death; partial relay progress
+does not earn a payment. The diagnostic mailbox remains available for tests.
+`src/spacewalk.c`; `tests/emulator/eva.py`; historical `tests/s2/walk*.py`.
 
 In the hangar Up / Down choose, A takes a job or buys (a second A confirms a purchase), B goes
 back. There is no barrel roll and no rudder here: L and R are the guns.

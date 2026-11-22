@@ -2,8 +2,10 @@
 
 The repository now has a reproducible, ROM-free assembly of the **stage16 runtime
 plus stage17 models/trees and stage18 model refinements**. The combined native
-modules compile and link with checked RAM allocations. This is preparation for
-finishing the port; it is not a newly validated PlayStation game or release disc.
+modules compile and link with checked RAM allocations. A private 8 MiB baseline
+now also builds with the strict physical linker and boots to Payback's language
+selection in PCSX-ReARMed HLE. Gameplay on that physical layout remains
+unverified; this is a boot checkpoint before finishing the port.
 
 The source manifest starts from repository commit
 `109c747067bc4ab6ced2d9713656c658f00c9441` and explicitly records the integration
@@ -63,6 +65,9 @@ orchestration entry point.
 | PPU OBJ uploads overwrote model textures/palettes; the PPU page overwrote world atlas page 6. | Shared VRAM allocations move the models and PPU page into separate regions. All persistent regions are checked for bounds and overlap. |
 | The direct build's default 64-page cache overlapped ragdoll code. | The default is eight pages. Partial four-page CD fetch groups are rejected, and the actual compiled cache bounds are checked against resident pages and the actual ragdoll location. |
 | A larger merged ROM could be passed to an eight-MiB runtime window. | The build rejects ROM sizes other than 8 MiB. Extending the merged Stunt Fox address space is explicit remaining port work. |
+| Physical cache bounds were also applied to the extended-memory discovery simulator. | Only the simulator linker permits a bounded virtual cache below `0x80800000`; both physical linkers still reject that address space. The 512-page discovery cache is explicitly tested. |
+| The interpreter-disabled discovery build referenced an interpreter-only diagnostic counter. | Its diagnostic reports zero without interpreter code; normal physical runtime allocations are unchanged. |
+| The discovery translator's old cold-code gap began after the new PPU scratch reservation. | Translation excludes `0x8017a000..0x80200000`, and the simulator's CD copy predicate uses the linker's `__ppu_start`. A straddling 16 KiB CD group preserves scratch and guest RAM. |
 
 The PPU backdrop cache now uses two pages. Opaque blits copy their pixels into
 the guest framebuffer immediately, so eviction cannot erase a previously drawn
@@ -97,7 +102,7 @@ the earlier [PS1 plan](PS1_PLAN.md) must be read alongside these later sources.
 
 ## Validation and its limits
 
-The cleanup's ROM-free unit suite passes **20 tests**. The native module check
+The current ROM-free unit suite passes **22 tests**. The native module check
 was also run with **LLVM 19.1.7**, using the real production linker script and
 normal interpreter-enabled title-boot configuration:
 
@@ -111,24 +116,56 @@ normal interpreter-enabled title-boot configuration:
 
 The same check deliberately rejects an invalid three-page cache, the old
 64-page cache overlapping ragdoll code, and a ragdoll allocation growing into
-PPU scratch. The host tests verify the shared entity ABI and nonoverlapping
+PPU scratch. It also links the full-cold simulator with a 512-page virtual
+cache, rejects that cache under both physical linker scripts, and rejects a
+cache that exceeds the simulator's upper bound. The host tests verify the
+real simulator copy predicate at both scratch boundaries, the shared entity ABI and nonoverlapping
 VRAM layout. These checks exercise real compilers and linker assertions; the
 build-publication tests separately use mocked tools to reproduce failure paths.
 
-Generated guest tables and game assets are placeholders in the native check.
-Their final sizes, cold-code/world placement, disc sectors and real frame cost
-must still be tested with the private inputs. The runtime and renderer have
-limited free space, so a complete image must pass the same linker assertions.
-No new PS1 boot, gameplay, save, audio, real-BIOS or hardware test is claimed
-here. Historical stage17/18 results were recorded with PCSXR HLE; they do not
-establish acceptance for this newly combined source tree.
+Generated guest tables and game assets are placeholders in the ROM-free native
+check. A separate private build below uses real inputs and passes the physical
+linker assertions. The runtime, renderer and world allocations have limited
+free space, so subsequent changes must pass those same assertions. Historical
+stage17/18 results used PCSXR HLE; they do not replace the current evidence.
+
+### Private baseline boot checkpoint
+
+The supplied original 8 MiB guest was rediscovered and paired with all eleven
+converted worlds. Three ARM-versus-MIPS boot snapshots matched without I/O or
+memory differences. The discovery simulator first exposed a real scratch
+collision: a cold function at `0x8017a25c` occupied the PPU reservation. Moving
+the translation gap to the actual scratch boundary fixed that exception.
+
+| Private check | Observed result |
+| --- | --- |
+| Guest discovery | 220,981 instructions |
+| World pack | Eleven worlds, 5,847,040 bytes |
+| Boot lockstep | Three matching snapshots, 3,196 I/O events each |
+| Extended-memory discovery | Level starts at frame 1103; gameplay snapshot at 1165.7; run completes at frame 1501.7 with level clock 201 and ten entities |
+| Cold-code exclusion | All 3,299 generated spans avoid `0x8017a000..0x80200000` |
+| Physical EXE and ISO | Strict `ps1.ld` link passes; translated prefixes match; both disc passes agree on sector locations |
+| PCSX-ReARMed HLE | Real language-selection screen rendered during a bounded 3,600-frame run |
+
+The physical image uses 96,320 of the runtime region's 98,304 bytes, leaving
+1,984 bytes. Its largest world fills the 239,616-byte world window. The actual
+private EXE SHA-256 is
+`9bd2ac66025e5e29d6e314b3533665a56cdb77708576c92a9c2a00a68f0ee075`;
+the ISO SHA-256 is
+`bdc0bd648d7fadea4c4390c7a85f6a033eff3206d6f04e3354f665fb40daedbc`.
+Game-containing artifacts are not stored in this repository.
+
+The HLE run ended at language selection with the guest level clock still zero.
+It establishes boot and title-screen rendering, not physical-layout gameplay,
+menu/controller acceptance, memory-card persistence, audio, performance, a
+real BIOS or hardware behavior. Discovery's gameplay clock belongs to its
+extended-memory simulator and is not substituted for that missing evidence.
 
 ## Next port milestone
 
-1. Produce one matching private translation/map set from the chosen 8-MiB
-   Payback baseline and build through the hardened driver. Keep game-containing
-   outputs outside the repository.
-2. Run the combined image through title, saved-card menu paths, every city,
+1. Continue from the matching private 8 MiB translation/map set and the verified
+   physical-layout boot image. Preserve its manifest and two-pass disc checks.
+2. Advance beyond language selection, then run saved-card menu paths, every city,
    pause/resume, restart, vehicles/people, HUD, audio and map transitions; record
    screenshots and frame timing. Check texture persistence after both 4-bit and
    8-bit OBJ uploads.

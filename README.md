@@ -13,6 +13,12 @@ The [pre-port validation notes](docs/pre-port-validation.md) record the repaired
 standalone build, full-world simulator, native-save compatibility and actual
 GBA emulator checks, with artifact hashes and remaining acceptance work.
 
+The larger merged game now has a [completion milestone](docs/completion-milestone.md):
+an actual campaign ending and postgame, three station space-walk assignments,
+and native campaign saves that retain the jet pack and all game settings.
+Use that milestone's instructions for the new features; the stadium target
+below has its own controls and save format.
+
 ## GBA playability milestone
 
 A Payback (GBA, Europe) mod with a stadium stunt park, a rebuilt free-roam city,

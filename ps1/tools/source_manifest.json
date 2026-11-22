@@ -207,7 +207,7 @@
     {
       "source": "stage16/merge/ps1rt/ps1_f.ld",
       "target": "ps1rt/ps1_f.ld",
-      "sha256": "dbb0fe5d6339500c184bac5188f376bac0f4b9b6a7a2983e597f7110ac99fee4"
+      "sha256": "ab589f4054f780b795e15219870e67bc55ab7319b29fef63d74653694319a6d5"
     },
     {
       "source": "stage16/merge/ps1rt/ps1_probe.ld",
@@ -217,7 +217,7 @@
     {
       "source": "stage16/merge/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "67704230d540c4437ea9a38cd6f71581ffe1d9560d1f3e5e660d6292ee1ba4fa"
+      "sha256": "1626eb6637493e326a03a46605e3352cc3206b386e1a19b73e5664b870dce44e"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -352,7 +352,7 @@
     {
       "source": "stage7/integration/t/boot_chain.sh",
       "target": "t/boot_chain.sh",
-      "sha256": "b1a34959a1715fae760b647c0940c3044db0c74f4cdb95d712c933af4b4710e1"
+      "sha256": "3874df2fee65b2b864a8d86ec29bd573c20a9bcdc8331996aa2b3a73ed148743"
     },
     {
       "source": "stage7/integration/t/covloop.sh",
@@ -377,7 +377,7 @@
     {
       "source": "stage7/integration/t/final.sh",
       "target": "t/final.sh",
-      "sha256": "99ec28a315c2fbef701ea7c5c05f5d3e0cb268b977a8177906f4131b336314e5"
+      "sha256": "c44a3d6df87e4ac168c3bd70ca8644ef5dde5bd9913d495033dea666937153da"
     },
     {
       "source": "stage7/integration/t/mk_disc.sh",
@@ -768,9 +768,9 @@
     {
       "source": "patches/stage17-runtime-on-stage16.patch",
       "target": "ps1rt/rt.c",
-      "sha256": "0e59f85fef31558a88e11dd34d73c77c07c61a2e35b67f6743ad3334e153eba7",
-      "input_sha256": "67704230d540c4437ea9a38cd6f71581ffe1d9560d1f3e5e660d6292ee1ba4fa",
-      "result_sha256": "e14e82bddf715959b5ffd690a5e2dd13eb6a6a94a4a36a196f5911b591a3768a"
+      "sha256": "2168e17d062f08ef196d662f80f59dba6f0786967ad1e0a5fed7700f462e57d0",
+      "input_sha256": "1626eb6637493e326a03a46605e3352cc3206b386e1a19b73e5664b870dce44e",
+      "result_sha256": "3930a5ebfee3ef29023b7d65c09659192cad8710a0c9299b9b78e52fa442067a"
     },
     {
       "source": "patches/stage17-renderer-on-stage16.patch",

@@ -26,6 +26,7 @@
 #define REL_WAIT 60                /* Payback's clock (30 a second): the act's banner is read before the level ends */
 #define REL_FALLBACK 90            /* ... and a level that has not ended by then is ended by e08 */
 #define PULSE 3                    /* ticks SELECT is held in 16 when travelling through "Press select" */
+#define END_READ_TICKS 30          /* a held fire button must not skip the arrival or the next card */
 
 Prog cp_prog;
 
@@ -40,19 +41,25 @@ static struct {
     u8 q, cur, top, at;            /* the quick menu: page, line, first line shown, the code's letter */
     u8 confirm, main_ok;           /* "A again" asked; the hangar's main menu is up (the menu may open) */
     u8 sv;                         /* 0 nothing, 1 saving, 2 saved, 3 failed */
+    u8 ending, postgame;            /* CP_END_*; a completed chapter stays open for the postgame */
     u8 proved;                     /* the chip was asked to prove itself 64 Kbit (once a boot: it writes) */
+    u8 resume_sg;                  /* a stopped image loaded this boot: restore its inventory only on CONTINUE */
     u16 saved_crc;
     u32 sv_t;                      /* (the tick a save ended: a u32 like s2f.ticks, or the back-off ends after 45 minutes) */
+    u32 end_at;                    /* when the current ending card opened (not saved) */
     s32 m_arg, m_ret;              /* the last sf_menu question and answer (the harness reads them) */
     u8 pwi[PW_LEN];                /* the code being entered, as alphabet indices */
 } C = {.chap = -1, .tgt = -1};
 static SvW sw;
 static SvPick spick;
 enum { Q_OFF, Q_MAIN, Q_TRAVEL, Q_CODE, Q_ENTER };
+extern int st_enter(void) __attribute__((weak));   /* a build without the station can still continue in the hangar */
 
 
 static int on(void) { return cp_prog.flags & CPF_ON; }
 int cp_active(void) { return on(); }
+int cp_ending(void) { return C.ending; }
+int cp_postgame(void) { return C.postgame; }
 
 /* ---- the chapters ---- */
 static int nchap(void) { int n = ms_nchap(); return n < CP_CHAPS ? n : CP_CHAPS; }
@@ -131,15 +138,17 @@ static void unhold(void);
 
 static void enter(int map)
 {
-    if (C.hold)
+    if (C.hold || C.postgame)
         unhold();                  /* (a campaign stopped or started over in the level: the target back where Payback had it) */
     C.hold = C.rel = C.seen = C.gi = 0;
+    C.ending = C.postgame = 0;
     C.sub = PB_RAMPAGE ? 0 : PB_SUB;
     int c = on() ? chap_find(map, !PB_RAMPAGE) : -1;
     C.chap = c >= 0 && c <= cp_prog.chap_unlocked ? c : -1;       /* (a chapter not yet open is played free) */
     if (C.chap >= 0)
         cp_prog.chap_cur = C.chap;
     arm_here();
+    C.postgame = C.chap >= 0 && cp_flag(CP_FLAG_FINALE) && chap_done(C.chap);
 }
 
 /* ---- the progress: in and out ---- */
@@ -161,10 +170,13 @@ static void load(void)
     C.loaded = 1;
     C.tgt = -1;
     C.saved_crc = 0;
+    C.resume_sg = 0;
     if (sv_mode() == SV_64K && sv_load(&sv_eeprom, (u8 *)&cp_prog, sizeof cp_prog, &spick)) {
         if (prog_ok(&cp_prog)) {
             if (on())
                 apply();       /* (a campaign that was stopped leaves what the player owns now alone) */
+            else
+                C.resume_sg = 1;
             C.saved_crc = sv_img_crc((u8 *)&cp_prog, sizeof cp_prog);
             return;
         }
@@ -285,8 +297,24 @@ static void card_next(int c)
 static void act_done(int c, int i)
 {
     const Chapter *ch = chp(c);
+    if (cp_prog.acts[c] & (1 << i))
+        return;                   /* repeated completion events never restart an ending or a level release */
     int was = chap_done(c);
     cp_prog.acts[c] |= 1 << i;
+    if (!was && chap_done(c) && (ch->flags & CH_FINAL) && c == C.chap) {
+        /* The stage-2 gateway has no next map. Finish this campaign here, with
+           its existing finale/Ace rewards, instead of falling into Payback's
+           unrelated game menu. The mission engine already paid this act. */
+        cp_set(CP_FLAG_FINALE, 1);
+        C.hold = C.rel = C.trav = C.snap = 0;
+        C.postgame = 1;
+        C.tgt = -1;
+        C.q = Q_OFF;
+        C.ending = CP_END_RETURN;
+        if (C.drop)
+            pl_drop_end(), C.drop = 0;
+        return;
+    }
     if (!was && chap_done(c)) {
         int n = ch->next != 0xffff ? ch->next : c + 1;
         if (n < nchap() && !(ms_chap(n)->flags & CH_RESERVED) && n > cp_prog.chap_unlocked) {
@@ -453,17 +481,16 @@ int cp_menu(int arg)
     return C.m_ret;
 }
 
-/* travel: a rampage level can be left at any time (the level is ended, SELECT is pressed for the player through the
-   "Press select" screen, and the trophies that ending paid go back); a story level only when it ends of itself, so the
-   place is booked and cp_menu takes it there */
+/* Travel leaves a rampage or completed postgame level now (SELECT is pressed through its end screen, and the trophies
+   that ending paid go back). An unfinished story level books the place until its own end; cp_menu takes it there. */
 int cp_travel(int c)
 {
-    if (!on() || !chp(c) || c > cp_prog.chap_unlocked || (chp(c)->flags & CH_RESERVED))
+    if (C.ending || !on() || !chp(c) || c > cp_prog.chap_unlocked || (chp(c)->flags & CH_RESERVED))
         return 0;
     C.tgt = c;
     if (C.trav)
         return 1;                  /* (asked twice: the trophies of the first ask are the ones to put back, not what the ending paid) */
-    if (PB_RAMPAGE || PB_LEVEL_END == 3) {
+    if (C.postgame || PB_RAMPAGE || PB_LEVEL_END == 3) {
         for (int i = 0; i < 6; i++)
             C.trophy[i] = PB_TROPHIES[i];
         C.snap = 1;
@@ -507,8 +534,19 @@ void cp_tick(void)
     if (!C.loaded)
         return;
     if (!s2f.paused) {
-        if (C.hold)
+        if (C.hold || C.postgame)
             hold_goal();
+        if (C.ending == CP_END_RETURN && !PB_LEVEL_END && PB_RESPAWN <= 0) {
+            if (s2f.mode == FLY && !s2f.walk) {
+                s2_dock_start();
+                hl_clear();
+                C.ending = CP_END_COMPLETE;
+                C.end_at = s2f.ticks;
+            } else {
+                hl_text("RETURN TO ARWING");
+                hl_stat(HLS_NONE, 0, 0);
+            }
+        }
         if (C.rel)
             release_tick();
         if (C.trav == 1 && !PB_LEVEL_END && PB_RESPAWN <= 0)
@@ -535,13 +573,18 @@ static void camp_start(int reset)
     }
     unsave();
     prove();
+    int resume = !reset && C.resume_sg && prog_ok(&cp_prog);
     if (reset || !prog_ok(&cp_prog)) {
         for (u8 *p = (u8 *)&cp_prog; p < (u8 *)&cp_prog + sizeof cp_prog; p++)
             *p = 0;
         cp_prog.flags = CPF_ON;
     } else
         cp_prog.flags |= CPF_ON;       /* (a stopped campaign goes on where it was) */
-    sg_get_progress(cp_prog.sg);       /* (what you own stays yours) */
+    if (resume)
+        apply();                      /* explicit CONTINUE after a cold boot restores the stopped campaign's equipment */
+    else
+        sg_get_progress(cp_prog.sg);   /* new games and same-session Stop/Continue keep what the player owns now */
+    C.resume_sg = 0;
     prog_seal(&cp_prog);
     enter(s2f.map);
     note(C.chap >= 0 ? "CAMPAIGN STARTED" : "CAMPAIGN STARTED: TRAVEL TO A CHAPTER");
@@ -551,6 +594,7 @@ static void camp_start(int reset)
    switch it on again */
 static void camp_stop(void)
 {
+    C.resume_sg = 0;
     cp_prog.flags &= ~CPF_ON;
     unsave();
     enter(s2f.map);
@@ -575,6 +619,7 @@ int cp_pw_apply(const char *s)
     for (int i = 12; i < 16; i++)      /* (missiles, paint, jobs, flags: SgProgress's last four) */
         t.sg[i] = ((u8 *)&cur)[i];
     cp_prog = t;
+    C.resume_sg = 0;
     cp_prog.flags |= CPF_ON | CPF_PW;
     prog_seal(&cp_prog);
     apply();
@@ -607,6 +652,24 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
 {
     (void)keys;
     C.main_ok = main_ok;
+    if (C.ending) {
+        /* The same real key edges as the hangar; no automatic advance and no
+           buffered A from flying through the final gate. B revisits a card. */
+        if (C.ending == CP_END_RETURN || s2f.paused || s2f.ticks - C.end_at < END_READ_TICKS)
+            return 1;
+        if ((hit & KEY_B) && C.ending > CP_END_COMPLETE)
+            C.ending--, C.end_at = s2f.ticks;
+        else if (hit & KEY_A) {
+            if (C.ending < CP_END_STATION)
+                C.ending++, C.end_at = s2f.ticks;
+            else {
+                C.ending = 0;
+                if (st_enter)
+                    st_enter();
+            }
+        }
+        return 1;                 /* the dismissing press cannot also buy, launch or enter a station terminal */
+    }
     if (!C.q) {
         if (main_ok && (hit & KEY_L) && !st_active())     /* (in the station's rooms the walker's L is its own quick menu, which opens ours) */
             cp_open();
@@ -711,8 +774,9 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
 
 u32 cp_sig(void)
 {
-    return C.q | C.cur << 4 | C.top << 8 | C.at << 12 | C.confirm << 16 | C.sv << 17 | C.pwi[C.at] << 20 | (u32)on() << 26 |
-           (u32)(msg && s2f.ticks < msg_end) << 27 | ((u32)msg & 0xff) << 28;
+    u32 h = C.q | C.cur << 4 | C.top << 8 | C.at << 12 | C.confirm << 16 | C.sv << 17 | C.pwi[C.at] << 20 | (u32)on() << 26 |
+            (u32)(msg && s2f.ticks < msg_end) << 27 | ((u32)msg & 0xff) << 28;
+    return h ^ (u32)C.ending * 0x9e3779b1u;
 }
 
 static void code_text(char *l1, char *l2)   /* the code as two lines: "ABCD EFGH" and "JKLM NPQR" */
@@ -740,8 +804,40 @@ static int news_draw(int y)          /* the line of news, if there is one now: u
     return 1;
 }
 
+static void ending_draw(void)
+{
+    static const char *const title[] = {"CAMPAIGN COMPLETE", "ACE MODE UNLOCKED", "WELCOME HOME, FOX"};
+    static const char *const lines[][5] = {
+        {"THE LAST GATE FALLS SILENT.", "THE STOLEN CORES ARE HOME.", "ROOK: NICE FLYING, FOX.",
+         "YOUR CREW IS WAITING AT FOX STATION.", ""},
+        {"TOUGHER FOES. TIGHTER PAR TIMES.", "YOUR UPGRADES AND CREDITS STAY.", "REVISIT EVERY OPEN CITY.",
+         "BEAT KESTREL'S CHALLENGE BOARD.", "YOUR CAMPAIGN PROGRESS IS KEPT."},
+        {"MEET THE CREW. CHASE EVERY MEDAL.", "THE CITY BOARD STILL HAS WORK.", "TRY SPACE WALKS ON THE NAV BOARD.",
+         "TRAVEL IS OPEN. KEEP EXPLORING.", "THANK YOU FOR FLYING."},
+    };
+    int page = C.ending - CP_END_COMPLETE;
+    d_fill(0, 0, 240, 160, PANEL);
+    d_rect(6, 8, 228, 144, DIM);
+    d_text(14, 16, "FOX STATION / FLIGHT LOG", HELP);
+    d_text(14, 32, title[page], TITLE);
+    d_hline(14, 225, 46, HI);
+    for (int i = 0; i < 5; i++)
+        d_text(14, 56 + i * 12, lines[page][i], i == 4 ? HI : INK);
+    d_text(14, 124, page == 2 ? "A: ENTER FOX STATION" : "A: CONTINUE", HI);
+    if (page)
+        d_text(14, 137, "B: PREVIOUS", HELP);
+    char n[8];
+    char *p = d_num(n, page + 1);
+    d_cat(p, " / 3");
+    d_text(192, 137, n, HELP);
+}
+
 void cp_hud(void)
 {
+    if (C.ending >= CP_END_COMPLETE) {
+        ending_draw();
+        return;
+    }
     if (!C.q) {
         int news = news_draw(124);
         if (!news && C.main_ok && s2f.docked && !st_active())
@@ -765,10 +861,14 @@ void cp_hud(void)
         }
         const Chapter *ch = on() ? chp(cp_prog.chap_cur) : 0;
         if (ch) {
-            p = d_cat(b, "CH ");
-            p = d_num(p, cp_prog.chap_cur + 1);
-            p = d_cat(p, " ");
-            d_cat(p, ms_text(ch->title));
+            if (cp_flag(CP_FLAG_FINALE))
+                d_cat(b, "COMPLETE - ACE MODE");
+            else {
+                p = d_cat(b, "CH ");
+                p = d_num(p, cp_prog.chap_cur + 1);
+                p = d_cat(p, " ");
+                d_cat(p, ms_text(ch->title));
+            }
         } else
             d_cat(b, "NOT STARTED");
         d_text(x, y0 + 84, b, HELP);
@@ -787,7 +887,7 @@ void cp_hud(void)
                 d_text(x - 2, y, ">", HI);
             d_text(x + 6, y, b, i == C.cur ? HI : INK);
         }
-        d_text(x, y0 + 84, PB_RAMPAGE ? "A: GO NOW  B: BACK" : "A: GO WHEN LEVEL ENDS", HELP);
+        d_text(x, y0 + 84, C.postgame || PB_RAMPAGE ? "A: GO NOW  B: BACK" : "A: GO WHEN LEVEL ENDS", HELP);
     } else if (C.q == Q_CODE) {
         char t1[10], t2[10];
         code_text(t1, t2);
@@ -854,6 +954,8 @@ int cp_dbg(int cmd, int arg)
             return c.flags | c.missiles << 8 | c.paint << 16 | c.jobs << 24;
         }
         case 17: return C.confirm | C.proved << 1 | sw.busy << 2;
+        case 18: return C.ending;
+        case 19: return C.postgame;
         }
         return -1;
     case 18:

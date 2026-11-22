@@ -45,7 +45,7 @@ typedef struct {                   /* the progress the campaign saves with its o
 } SgProgress;
 void sg_get_progress(void *out32);
 void sg_set_progress(const void *in32);
-enum { SGB_LASER, SGB_SHIELD, SGB_ENGINE, SGB_MISSILES, SGB_RACK, SGB_PAINT = 8 };   /* sg_price / sg_buy: the shipyard's
+enum { SGB_LASER, SGB_SHIELD, SGB_ENGINE, SGB_MISSILES, SGB_RACK, SGB_PACK, SGB_PAINT = 8 };   /* sg_price / sg_buy: the shipyard's
                                       lines, and SGB_PAINT + i to put paint i on (free, if it is unlocked) */
 int sg_price(int item);            /* credits; 0 for nothing to buy (full, best, a free paint); -1 no such item or locked */
 int sg_buy(int item);              /* 1 if it was bought (or put on), else 0 and a word on the HUD */

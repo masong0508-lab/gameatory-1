@@ -28,6 +28,10 @@ def symbols(path):
     result = {}
     for line in subprocess.check_output([nm, "-S", "--defined-only", str(path)], text=True).splitlines():
         fields = line.split()
+        if len(fields) == 3 and fields[1].upper() == "A":
+            # GNU nm omits the size of linker-defined blob addresses; LLVM
+            # prints zero. Both identify an address, never a sized RAM object.
+            fields = [fields[0], "0", fields[1], fields[2]]
         if len(fields) == 4:
             address, size, kind, name = fields
             if name in result:

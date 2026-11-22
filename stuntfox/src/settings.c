@@ -250,7 +250,12 @@ static void apply(void)
 /* The extras' word lives in XM, above the keep and below STATE, checked by its second word (the
    keep is cleared at each start: it is the copy that brings them back, as the progress copy does
    the rest) */
+#ifdef SETTINGS_HOST
+static volatile u32 host_xm[2];    /* the same checked mirror for host codec tests */
+#define XM host_xm
+#else
 #define XM ((volatile u32 *)0x0203ff90)
+#endif
 #define XM_SUM(x) (((x) * 0x01000193u) ^ 0x53465832u)
 
 /* where an option's choice is kept: its place from the default, round the ring (no division: it ran every frame) */
@@ -307,6 +312,32 @@ void opt_x_keep(void)
     u32 x = pack_x();
     XM[0] = x;
     XM[1] = XM_SUM(x);
+}
+
+/* SgProgress has thirteen bytes for all four option words. Word 1 only uses
+   the shield's three bits; words 2, 3 and the extras word retain their existing
+   bit assignments. A changed assignment requires a new extension version. */
+void opt_get_progress(u8 out[OPT_PROGRESS_BYTES])
+{
+    pack_all();
+    out[0] = (pk[0] >> 12) & 7;
+    for (int w = 0; w < 3; w++)
+        for (int b = 0; b < 4; b++)
+            out[1 + w * 4 + b] = pk[w + 1] >> (b * 8);
+}
+
+void opt_set_progress(const u8 in[OPT_PROGRESS_BYTES])
+{
+    u32 w[4] = {0, (u32)(in[0] & 7) << 12, 0, 0}, x = 0;
+    for (int b = 0; b < 4; b++) {
+        w[2] |= (u32)in[1 + b] << (b * 8);
+        w[3] |= (u32)in[5 + b] << (b * 8);
+        x |= (u32)in[9 + b] << (b * 8);
+    }
+    XM[0] = x;
+    XM[1] = XM_SUM(x);
+    opt_load(w);                    /* validates each choice before applying it */
+    opt_x_keep();                   /* keep the validated extras, not stray bits */
 }
 
 void opt_level_enter(void)

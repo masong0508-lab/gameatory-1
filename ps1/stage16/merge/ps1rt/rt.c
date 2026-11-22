@@ -398,6 +398,11 @@ static int sf3_ok; static u32 sf3_cfl, sf3_cfl_clk;   /* sf3_cfl: a cold load hi
 #ifndef COLDGROUPS
 #define COLDGROUPS 64
 #endif
+#ifdef CDSIM
+/* The discovery translator's COLD_GAP must begin at the first reserved byte,
+   including PPU/veneer scratch before the draw ring and guest RAM. */
+static int sim_cold_overlap(u32 lo,u32 hi){ return hi>(u32)__ppu_start && lo<0x80200000u; }
+#endif
 static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls, cold_conflicts; static u32 sf3_retry, last_cold_pres, sf3_clk0;   /* stage 12: renderer switched off by an overlay load (pause menu code) comes back once the level clock runs again (pause over) and no cold group was loaded for 6 presents */
 static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;
   __asm__ volatile("li $8,0xA0\n jalr $8\n nop":"+r"(t1)::"$1","$2","$3","$4","$5","$6","$7","$8","$10","$11","$12","$13","$14","$15","$24","$25","$31","memory"); }
@@ -431,9 +436,9 @@ found:;
   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){
     u32 left=CD_COLD_PAGES*2-k*8, dst=COLD_HOST+k*16384;
 #ifdef CDSIM
-    if(dst+16384>0x8017c000u && dst<0x80200000u){      /* group straddles the guest RAM window (sim build with COLD_GAP): the gap bytes are zeros in COLD.BIN, copy only what lies outside it (stage 4 fix: the zeros used to wipe the helper stack at 0x801fff00) */
+    if(sim_cold_overlap(dst,dst+16384)){      /* sim-only COLD_GAP bytes are zeros; preserve linker-reserved scratch and guest RAM even when a CD group straddles the gap */
       static u8 gtmp[16384]; cd_read(CD_COLD_LBA+k*8,left<8?left:8,gtmp);
-      for(u32 q=0;q<16384;q++){ u32 a=dst+q; if(a<0x8017c000u||a>=0x80200000u) ((volatile u8*)a)[0]=gtmp[q]; } }
+      for(u32 q=0;q<16384;q++){ u32 a=dst+q; if(!sim_cold_overlap(a,a+1)) ((volatile u8*)a)[0]=gtmp[q]; } }
     else
 #endif
     cd_read(CD_COLD_LBA+k*8,left<8?left:8,(u8*)dst);
@@ -442,6 +447,7 @@ found:;
   return host;
 }
 #ifdef NO_INTERP
+static const u32 ip_enters = 0;  /* diagnostic value for the full-cold simulator */
 u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
 #else
 #include "interp_glue.h"

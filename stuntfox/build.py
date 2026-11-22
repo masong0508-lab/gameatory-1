@@ -106,7 +106,7 @@ def build(payback, out):
 # --merge: Stunt Fox inside Payback
 MERGE_ONLY = {'merge.c', 'keyhook.s', 'guard.s', 'rechash.s', 'traffic.c', 'tex.c', 'texrun.s', 'draw2d.c',
               'spacegame.c', 'settings.c', 'title.c', 'props.c', 'ragdoll.c', 'radio.c', 'radiodec.s', 'cart32.s',
-              'planet.c'}
+              'planet.c', 'nativehud.c'}
 MERGE_ONLY |= set(s2build.S2_SOURCES)         # (stage 2: tools/s2build.py)
 MERGE_SKIP = {'main.c', 'hud.c', 'crt0.s', 'assets.s'}   # (the worlds go above 8 MiB instead)
 NWORLD = 11                                   # Payback's level grids (src/world.h)
@@ -134,6 +134,12 @@ MERGE_NO_REPORT = (0x0806ccaa, 0x2001, 0xe007)   # movs r0, #1 -> b 0x0806ccbc
 # score and bonus score around them stay. (Game over!, Level complete!, Mission complete!/failed!,
 # Kill frenzy!, New high score! and the phone's ANSWER THE PHONE are other calls, untouched.)
 MERGE_BANNER = 0x08039bc8
+# Bitmap overlays drawn after sf_frame: two flying-letter banners and the
+# three HUD model/arrow draws. Their wrappers preserve native arguments and
+# suppress drawing only while a valid station room or ending owns the screen.
+# The native banner/arrow state updates and all other model calls stay intact.
+MERGE_NATIVE_BANNER = (0x08039c18, (0x080179d8, 0x08017c7e))
+MERGE_NATIVE_MODEL = (0x0806d820, (0x08017fc0, 0x0801801e, 0x080180e8))
 MERGE_NO_POPUPS = (0x08011198, 0x0801163c,    # Splattered! / Obliterated!
                    0x0801178a,                # Toasted! / Nuked!
                    0x08011fea,                # Wasted!
@@ -397,6 +403,10 @@ def build_merge(payback, out, bps_out=None, remixes=True, amiga=None, street_jun
         put_bl(site, new)
     for site in MERGE_CALLS:
         redirect(site, MERGE_RENDERER, sym['sf_frame'])
+    for (target, sites), hook in ((MERGE_NATIVE_BANNER, 'sf_native_banner'),
+                                  (MERGE_NATIVE_MODEL, 'sf_native_model')):
+        for site in sites:
+            redirect(site, target, sym[hook])
     redirect(MERGE_KEYS, MERGE_READER, sym['sf_keyhook'])
     redirect(MERGE_MENU[0], MERGE_MENU[1], sym['sf_menu'])
     redirect(MERGE_TITLE[0], MERGE_TITLE[1], sym['sf_title_opts'])

@@ -9,7 +9,13 @@ SECTIONS{ . = 0x80010000;
  /* stage 7: the ragdoll solver (rd/doll.c, sections prefixed .dl) sits in the page-cache space that stage 7 gave up (NSLOT 16): __doll_addr from the build */
  . = DEFINED(__doll_addr) ? __doll_addr : 0x80163000; __doll_start = .; .doll : { *(.dl.text*) *(.dl.rodata*) *(.dl.data*) *(.dl.sdata*) }
  . = ALIGN(16); __dlbss_start = .; .dlbss : { *(.dl.bss*) *(.dl.sbss*) } __dlbss_end = .;
- ASSERT(__ps1_pcache_end <= __doll_start, "ROM page cache overlaps ragdoll code")
+ /* This linker is only for the 16 MiB discovery simulator. Its cache may
+    occupy the documented virtual RAM window, below the extended cold tables.
+    Physical release/probe linkers retain their strict cache-before-ragdoll rule. */
+ ASSERT(__ps1_pcache_end > __ps1_pcache_start &&
+        (__ps1_pcache_end <= __doll_start ||
+         (__ps1_pcache_start >= 0x80200000 && __ps1_pcache_end <= 0x80800000)),
+        "simulator page cache must precede ragdoll or stay within 0x80200000..0x80800000")
  ASSERT(. <= 0x8017a000, "ragdoll code overlaps PPU scratch")
  /* PPU palette/row storage and cold-veneer scratch are explicit allocations.
     The old fixed 0x801abc00 area is occupied by the stage17/18 renderer. */

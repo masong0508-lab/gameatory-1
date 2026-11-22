@@ -13,6 +13,8 @@
 #include "palette.h"
 #include "draw2d.h"
 #include "spacegame.h"
+#include "campaign.h"
+#include "mission.h"
 #include "world.h"
 
 u16 sw_pack_k = 256;
@@ -108,7 +110,7 @@ static struct {
     u8 gnd, board, drop, gone, hint, splay, jump, warp, thr;
 } swk;
 static Ship *sh;                   /* the empty Arwing */
-static u8 obj_n, obj_s;            /* the sample objective under way, and its step */
+static u8 obj_n, obj_s;            /* the station assignment under way, and its step */
 static const char *msg;            /* the line at the bottom (the steady HUD line's place, never the ticker), and when it goes */
 static u32 msg_end;
 static void hint(const char *s)
@@ -236,11 +238,78 @@ int sw_obj(int *step, int *of)
     return obj_n;
 }
 
+int sw_job_done(int job)
+{
+    return job >= 1 && job <= 3 && cp_active() && (cp_prog.spare[CP_SPARE_EVA] >> (job - 1) & 1);
+}
+
+int sw_job_pay(int job)
+{
+    static const u16 first[3] = {150, 300, 500};
+    static const u8 repeat[3] = {50, 75, 100};
+    return job >= 1 && job <= 3 ? (sw_job_done(job) ? repeat[job - 1] : first[job - 1]) : 0;
+}
+
+void sw_job_cancel(void) { obj_n = obj_s = 0; }
+
+int sw_job_take(int job)
+{
+    if (job < 1 || job > 3)
+        return SWJ_BAD;
+    if (!cp_active())
+        return SWJ_CAMPAIGN;
+    if (!sw_pack)
+        return SWJ_PACK;
+    if (obj_n || sg_job_active() || ms_state() == MS_RUN || ms_state() == MS_PAUSED)
+        return SWJ_BUSY;
+    if (!s2f.docked || sg_state != SG_DOCKED)
+        return SWJ_DOCK;
+    obj_n = job, obj_s = 0;
+    hint("Fly to the marker. Hold SELECT to walk.");
+    return SWJ_READY;
+}
+
+static void obj_finish(void)
+{
+    if (!cp_active()) {
+        sw_job_cancel();           /* stopping a campaign cannot turn a replay into first-clear pay */
+        hint("Walk cancelled. Start the campaign.");
+        return;
+    }
+    int job = obj_n, pay = sw_job_pay(job);
+    if (!pay)
+        return;
+    sw_job_cancel();               /* no repeated payment if another frame sees the same contact */
+    cp_prog.spare[CP_SPARE_EVA] |= 1 << (job - 1);
+    sg_credit(pay);
+    hint(pay == 150 ? "Beacon patrol clear! +150 CR" : pay == 300 ? "Moon survey clear! +300 CR" :
+         pay == 500 ? "Orbital relay clear! +500 CR" : pay == 50 ? "Beacon replay! +50 CR" :
+         pay == 75 ? "Moon replay! +75 CR" : "Relay replay! +100 CR");
+}
+
+static void obj_reached(void)
+{
+    if (!obj_n || (obj_n == 3 && obj_s >= 2))
+        return;
+    s2_ev(EV_WALK, 3, obj_n == 2 ? 3 : obj_n == 1 ? 0 : 1 + obj_s);
+    if (obj_n == 3) {
+        obj_s++;
+        hint(obj_s == 1 ? "Beacon B clear. Reach beacon C." : "Relay complete. Hold SELECT to board.");
+    } else
+        obj_finish();
+}
+
+static void obj_boarded(void)
+{
+    if (obj_n == 3 && obj_s == 2)
+        obj_finish();
+}
+
 void sw_reset(void)
 {
     memset(&swk, 0, sizeof swk);
     sh = 0;
-    obj_n = obj_s = 0;
+    sw_job_cancel();
 }
 
 /* a body frame for the pose and the pack: facing f, up leaning into the flight */
@@ -505,7 +574,7 @@ void sw_tick(u16 k, u16 hit)
         hint("The moon: D-pad walks, A jumps.");
         s2_ev(EV_WALK, 2, 0);
     }
-    /* the sample objectives (the mailbox starts them) */
+    /* Station assignments use the actual walker, moon contact and beacon distances. */
     if (obj_n) {
         int ok = 0;
         if (obj_n == 1)
@@ -514,16 +583,8 @@ void sw_tick(u16 k, u16 hit)
             ok = swk.gnd && sw_reach(sw_place(3), 700);
         else if (obj_s < 2)
             ok = sw_reach(sw_place(1 + obj_s), 900);
-        if (ok) {
-            s2_ev(EV_WALK, 3, obj_n == 2 ? 3 : obj_n == 1 ? 0 : 1 + obj_s);
-            if (obj_n == 3 && ++obj_s < 3) {
-                hint("Beacon reached! On to the next.");
-            } else if (obj_n < 3) {
-                sg_credit(obj_n == 1 ? 150 : 300);
-                hint(obj_n == 1 ? "Beacon reached! +150 CR" : "Moon landing! +300 CR");
-                obj_n = obj_s = 0;
-            }
-        }
+        if (ok)
+            obj_reached();
     }
 }
 
@@ -543,11 +604,7 @@ int sw_frame(int ticks, V3 *at, V3 *vel, s32 *yaw)
     *yaw = fatan2(swk.f.x, swk.f.z);
     if (swk.board) {
         s2_ev(EV_WALK, 0, 1);
-        if (obj_n == 3 && obj_s == 2) {
-            sg_credit(500);
-            hint("Beacon tour done! +500 CR");
-            obj_n = obj_s = 0;
-        }
+        obj_boarded();
         swk.on = 0;
         return SWF_BOARD;
     }
@@ -875,8 +932,8 @@ void sw_hud(void)
 int sw_dbg(int cmd, int arg)
 {
     switch (cmd) {
-    case 80:                       /* start a sample objective (1..3), 0 none */
-        obj_n = arg > 3 ? 0 : arg, obj_s = 0;
+    case 80:                       /* diagnostic setup; players accept these at the station board */
+        obj_n = arg >= 1 && arg <= 3 ? arg : 0, obj_s = 0;
         return obj_n;
     case 81:                       /* what is going on: on, kind, on the ground, pack, called, objective and step */
         return swk.on | swk.kind << 1 | swk.gnd << 4 | (sw_pack != 0) << 5 | swk.call << 6 | obj_n << 8 | obj_s << 12 | swk.t << 16;

@@ -8,6 +8,7 @@
 
 #define CP_CHAPS 12                /* eleven cities and the reserved twelfth (stage 3) */
 #define CP_BEST 64                 /* best times kept: 5 a chapter */
+#define CP_SPARE_EVA 9             /* spare byte: first-clear receipts for the three station space walks */
 #define PROG_MAGIC 0x32504653      /* 'SFP2' */
 #define PROG_VER 1
 
@@ -49,8 +50,11 @@ int cp_active(void);               /* the campaign is running */
 int cp_flag(int f);                /* campaign flag f (CP_FLAG_*) is set */
 int cp_unlocked(int what);         /* CP_UNLOCK_QUARTERS, CP_UNLOCK_GHOST */
 int cp_ace(void);                  /* Ace mode: the finale was won (foes hp x 1.5, pars x 0.8: E and K ask) */
-/* travel to chapter c (its index in the blob): 1 now (a rampage level is left through its end screens), 2 booked for the end
-   of this story level, 0 not open */
+enum { CP_END_NONE, CP_END_RETURN, CP_END_COMPLETE, CP_END_ACE, CP_END_STATION };
+int cp_ending(void);               /* transient CP_END_*; completion is still saved in the existing act/finale bits */
+int cp_postgame(void);             /* the finished chapter stays open, with immediate travel even in a story city */
+/* travel to chapter c (its index in the blob): 1 now (rampage or completed postgame level, through its end screens),
+   2 booked for the end of this unfinished story level, 0 not open */
 int cp_travel(int c);
 void cp_open_at(int line);         /* the same, on one of its lines */
 void cp_open(void);                /* the campaign's quick menu (the station's own menu opens it) */

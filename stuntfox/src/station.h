@@ -11,7 +11,7 @@
 
 enum { R_HANGAR, R_HUB, R_OPS, R_WORKSHOP, R_NAV, R_LOUNGE, R_TROPHY, R_COMMS, R_QUARTERS, R_N };
 enum { U_NONE, U_DOOR, U_TALK, U_TERM, U_PAD };                       /* what a place in a room is for */
-enum { T_NONE, T_BRIEF, T_CONTRACT, T_TRAVEL, T_SHOP, T_PAINT, T_MAP, T_TROPHY, T_COMMS, T_MSGS, T_RECAP, T_LOG, T_QUICK, T_N };
+enum { T_NONE, T_BRIEF, T_CONTRACT, T_TRAVEL, T_SHOP, T_PAINT, T_MAP, T_TROPHY, T_COMMS, T_MSGS, T_RECAP, T_LOG, T_QUICK, T_EVA, T_N };
 enum { E_REPEAT = 1, E_MSG = 2, E_LOG = 4 };                          /* a talk entry's flags */
 enum { A_NONE, A_UNLOCK, A_SET, A_START, A_OPEN };                    /* a node's act (low 3 bits; its argument above) */
 

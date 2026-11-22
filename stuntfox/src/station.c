@@ -8,6 +8,7 @@
 #include "campaign.h"
 #include "mission.h"
 #include "spacegame.h"
+#include "spacewalk.h"
 #include "draw2d.h"
 #include "render.h"
 #include "palette.h"
@@ -431,10 +432,11 @@ static int list_n(void)
     switch (stw.term) {
     case T_CONTRACT: return stw.tab ? (cp_flag(3) ? open_chaps() : 0) : contract_n(c);
     case T_TRAVEL: case T_MAP: case T_RECAP: n = cp_prog.chap_unlocked + 1; return n > ms_nchap() ? ms_nchap() : n;
-    case T_SHOP: return 5;
+    case T_SHOP: return 6;
     case T_PAINT: { const char *const *nm; return sg_paints(&nm); }
     case T_COMMS: return 5;
-    case T_QUICK: return 6;
+    case T_QUICK: return 7;
+    case T_EVA: return 4;
     case T_MSGS: case T_LOG: {
         int f = stw.term == T_MSGS ? E_MSG : E_LOG;
         if (stw.tab)
@@ -480,6 +482,7 @@ static void quick_pick(int i)
     case 2: term_enter(T_TRAVEL); break;
     case 3: term_close(); cp_open_at(2); break;
     case 4: term_enter(T_MAP); break;
+    case 5: term_enter(T_EVA); break;
     default: term_close();
     }
 }
@@ -489,13 +492,24 @@ static void term_key(u16 hit, u16 keys)
     (void)keys;
     int n = list_n(), t = stw.term;
     if (hit & KEY_B || (t == T_QUICK && hit & KEY_L)) {
-        if ((t == T_MSGS || t == T_LOG || t == T_RECAP || t == T_BRIEF) && stw.page) {
+        if (t == T_EVA && stw.tab) {
+            term_enter(T_MAP);
+        } else if ((t == T_MSGS || t == T_LOG || t == T_RECAP || t == T_BRIEF) && stw.page) {
             stw.page = 0;
         } else if (t == T_MSGS) {
             term_enter(T_COMMS);
             stw.cur = 3;
         } else
             term_close();
+        return;
+    }
+    if (t == T_MAP && (hit & KEY_RIGHT)) {
+        term_enter(T_EVA);
+        stw.tab = 1;               /* Nav's second page returns to its holo map. */
+        return;
+    }
+    if (t == T_EVA && (hit & KEY_LEFT)) {
+        term_enter(T_MAP);
         return;
     }
     if (n) {
@@ -517,6 +531,37 @@ static void term_key(u16 hit, u16 keys)
     case T_QUICK:
         quick_pick(stw.cur);
         break;
+    case T_EVA: {
+        if (stw.cur == 3) {
+            if (!sw_obj(0, 0)) {
+                term_close();
+            } else if (!stw.confirm) {
+                stw.confirm = 1;
+                news("A AGAIN TO CANCEL THE WALK");
+            } else {
+                sw_job_cancel();
+                stw.confirm = 0;
+                news("WALK CANCELLED. NO CREDITS LOST");
+            }
+            break;
+        }
+        int r = sw_job_take(stw.cur + 1);
+        if (r == SWJ_READY) {
+            if (sg_launch()) {
+                term_close();
+                stw.room = R_HANGAR;
+            } else {
+                sw_job_cancel();
+                news("RETURN TO THE HANGAR TO LAUNCH");
+            }
+        } else {
+            news(r == SWJ_CAMPAIGN ? "START THE CAMPAIGN FIRST" :
+                 r == SWJ_PACK ? "JET PACK: 900 CR AT THE SHOP" :
+                 r == SWJ_BUSY ? "FINISH OR CANCEL YOUR CURRENT JOB" :
+                 "RETURN TO THE HANGAR TO LAUNCH");
+        }
+        break;
+    }
     case T_CONTRACT: {
         if (stw.tab) {
             if (n)
@@ -702,7 +747,9 @@ void st_ev(int ev, int a, int b)
 
 static void sprites(int want_hidden)                     /* Payback's sprites (its HUD and map) off for a room's picture: the options page does the same */
 {
-    if (want_hidden && !stw.hid)
+    /* Payback may re-enable OBJ while updating its own HUD. Reassert our
+       ownership even when a cached station page needs no bitmap redraw. */
+    if (want_hidden)
         REG_DISPCNT &= ~0x1000, stw.hid = 1;
     else if (!want_hidden && stw.hid)
         REG_DISPCNT |= 0x1000, stw.hid = 0;
@@ -740,7 +787,7 @@ int st_view(void)
         return 0;
     }
     if (stw.room == R_HANGAR) {
-        sprites(0);
+        sprites(!s2f.paused && cp_ending() >= CP_END_COMPLETE);
         if (s2f.paused)
             return 0;
         if (stw.cd)
@@ -773,6 +820,8 @@ u32 st_sig(void)
     h = h * 0x01000193 ^ (u16)stw.btz ^ (u32)(stw.moving ? 1 + (stw.phase >> 3 & 1) : 0) << 16 ^ (u32)(stw.yaw >> 11) << 20;
     h = h * 0x01000193 ^ stw.dnode ^ (u32)stw.dent << 16 ^ (u32)stw.tab << 31;
     h = h * 0x01000193 ^ (u32)sg_credits() ^ cp_sig() << 3 ^ (u32)news_up() << 30 ^ ((u32)stw.msg & 0xffff);
+    if (stw.term == T_EVA || stw.term == T_SHOP)
+        h = h * 0x01000193 ^ (u32)sw_obj(0, 0) ^ (u32)sw_pack << 4 ^ (u32)cp_prog.spare[CP_SPARE_EVA] << 8;
     return h;
 }
 
@@ -797,8 +846,8 @@ static void help(const char *s) { d_text(10, 128, s, HELP); }
 
 static char *num(char *p, int v) { return d_num(p, v); }
 
-static const char *const shop_name[5] = {"LASERS", "SHIELD", "ENGINE", "MISSILES", "MISSILE RACK"};
-static const char *const quick_name[6] = {"LAUNCH", "CONTRACTS", "TRAVEL", "SAVE...", "MAP", "BACK"};
+static const char *const shop_name[6] = {"LASERS", "SHIELD", "ENGINE", "MISSILES", "MISSILE RACK", "JET PACK"};
+static const char *const quick_name[7] = {"LAUNCH", "CONTRACTS", "TRAVEL", "SAVE...", "MAP", "SPACE WALKS", "BACK"};
 static const char *const comms_name[5] = {"SAVE...", "SHOW CODE", "ENTER CODE", "MESSAGES", "BACK"};
 const char *const st_crew_name[9] = {"", "ROOK", "PIP", "NOVA", "DUSTY", "QUILL", "JUNO", "KESTREL", "SABLE"};
 #define crew_name st_crew_name
@@ -866,11 +915,15 @@ static void screen(void)
 {
     char b[40], *p;
     int c = cur_chap(), n = list_n();
+    if (stw.term == T_EVA || stw.term == T_SHOP) {
+        d_fill(0, 0, 240, 160, PANEL);
+        d_text(8, 6, st_text(st_room(stw.room)->title), TITLE);
+    }
     switch (stw.term) {
     case T_QUICK:
         panel(8, 20, 110, 90);
         d_text(14, 24, "FOX STATION", TITLE);
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 7; i++)
             line(22, 38 + i * 10, i == stw.cur, quick_name[i]);
         help("A: PICK   B: BACK");
         break;
@@ -993,11 +1046,38 @@ static void screen(void)
             num(p, popc(cp_prog.medals[stw.cur]));
             d_text(130, 102, b, HELP);
         }
-        help(cp_active() ? "A: TRAVEL   B: BACK" : "START THE CAMPAIGN TO TRAVEL");
+        help(stw.term == T_MAP ? "A: TRAVEL  >: SPACE WALKS  B: BACK" :
+             cp_active() ? "A: TRAVEL   B: BACK" : "START THE CAMPAIGN TO TRAVEL");
         break;
+    case T_EVA: {
+        static const char *const name[3] = {"BEACON PATROL", "MOON SURVEY", "ORBITAL RELAY"};
+        static const char *const brief[3] = {"REACH BEACON A ON FOOT.", "LAND BY THE MOON SURVEY POST.", "REACH B, THEN C. BOARD YOUR SHIP."};
+        screen_list("SPACE WALKS", n);
+        int current = sw_obj(0, 0);
+        for (int i = 0; i < 3; i++) {
+            line(24, 36 + i * 14, stw.cur == i, name[i]);
+            if (sw_job_done(i + 1))
+                d_text(112, 36 + i * 14, "*", GOOD);
+            if (current == i + 1) {
+                d_text(168, 36 + i * 14, "ACTIVE", HI);
+            } else {
+                p = num(b, sw_job_pay(i + 1));
+                d_cat(p, " CR");
+                d_text(168, 36 + i * 14, b, HELP);
+            }
+        }
+        line(24, 78, stw.cur == 3, current ? (stw.confirm ? "A AGAIN: CANCEL WALK" : "CANCEL WALK") : "BACK");
+        const char *detail = !cp_active() ? "START THE CAMPAIGN TO TAKE A WALK." :
+                             !sw_pack ? "JET PACK REQUIRED: SHOP, 900 CR." :
+                             stw.cur < 3 ? brief[stw.cur] : "CANCEL KEEPS YOUR EARNED REWARDS.";
+        d_text(14, 98, detail, INK);
+        d_text(14, 110, stw.cur < 3 ? "FLY THERE. HOLD SELECT TO BAIL OUT." : "* = CLEARED. REPLAYS STILL PAY.", HELP);
+        help("A: TAKE + LAUNCH  <: MAP  B: BACK");
+        break;
+    }
     case T_SHOP:
         screen_list("UPGRADES", n);
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             int pr = sg_price(i);
             line(24, 36 + i * 11, i == stw.cur, shop_name[i]);
             if (pr > 0) {
@@ -1005,7 +1085,7 @@ static void screen(void)
                 d_cat(p, " CR");
                 d_text(150, 36 + i * 11, stw.confirm == i + 1 ? "A AGAIN" : b, stw.confirm == i + 1 ? HI : sg_credits() >= pr ? GOOD : DIM);
             } else
-                d_text(150, 36 + i * 11, i == 3 ? "FULL" : "BEST", HELP);
+                d_text(150, 36 + i * 11, i == 3 ? "FULL" : i == SGB_PACK ? "FITTED" : "BEST", HELP);
         }
         help("A: BUY   B: BACK");
         break;

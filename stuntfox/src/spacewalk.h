@@ -4,7 +4,7 @@
    jet pack (bought at the shipyard) flies: D-pad forward and back and turn, A up, B down, L brake.
    Lower than SPACE_LO again he is the ragdoll once more and lands with its bounce. SELECT held
    calls the Arwing (it flies to him) or, near it, gets him aboard. A small moon to walk on, a few
-   asteroids and four beacons are out there for the missions (stage2.h's mailbox has three samples). */
+   asteroids and four beacons are out there for the station's three space-walk assignments. */
 #ifndef SPACEWALK_H
 #define SPACEWALK_H
 #include "ship.h"
@@ -22,7 +22,12 @@ int sw_land_at(V3 p);              /* a mission puts him down at p (units; on th
 V3 sw_moon(s32 *radius);           /* the moon's middle (units) and its radius */
 int sw_places(void);               /* how many of the beacons are out there */
 V3 sw_place(int i);                /* beacon i (units): 0..2 rings in space, 3 a post on the moon's skin */
-int sw_obj(int *step, int *of);    /* the sample objective under way (1..3, 0 none), its step and how many steps */
+int sw_obj(int *step, int *of);    /* the assignment under way (1..3, 0 none), its step and how many steps */
+enum { SWJ_BAD, SWJ_READY, SWJ_CAMPAIGN, SWJ_PACK, SWJ_BUSY, SWJ_DOCK };
+int sw_job_take(int job);          /* accept from the station; checks campaign, pack, other jobs and docking */
+void sw_job_cancel(void);          /* abandon the current assignment without a reward */
+int sw_job_done(int job);          /* first-clear receipt, saved in the campaign's existing spare byte */
+int sw_job_pay(int job);           /* first-clear or replay pay; no state change */
 
 /* ---- merge.c ---- */
 int sw_begin(Ship *s, int slot, V3 feet, s32 yaw, int side);   /* he has jumped out of s (his body is rags[slot]) from above SPACE_LO, out of its side (-1 or 1): 1 if the walk began */
