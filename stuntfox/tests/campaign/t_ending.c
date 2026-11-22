@@ -11,6 +11,7 @@ PbMock pbm;
 S2Frame s2f;
 u8 cpm_rampage, cpm_was_rampage;
 s16 cpm_sub, cpm_map, cpm_trophies[6];
+s32 cpm_num_last = -1;
 static int docks, rooms, armed, paid, checks, has_station = 1, text_count;
 static int device_mode;
 static u8 native_eeprom[8192];
@@ -142,9 +143,11 @@ int main(void)
     s2f.paused = 0; pbm.respawn = 1; age(); CHECK(!docks);
     pbm.respawn = 0; s2f.mode = FOOT; age(); CHECK(!docks);
     s2f.mode = FLY; s2f.walk = 2; age(); CHECK(!docks);
-    s2f.walk = 0; age(); CHECK(docks == 1 && cp_ending() == CP_END_COMPLETE);
+    s2f.walk = 0; cpm_num_last = 0; age(); CHECK(!docks);   /* the act's score number still floats up */
+    cpm_num_last = -1; age(); CHECK(docks == 1 && cp_ending() == CP_END_COMPLETE);
     CHECK(pbm.level_end == 0 && pbm.goals[PBG_A] == HOLD_A);
-    card(); CHECK(seen("CAMPAIGN COMPLETE"));
+    s2f.docked = 0; card(); CHECK(!seen("CAMPAIGN COMPLETE"));
+    s2f.docked = 1; card(); CHECK(seen("CAMPAIGN COMPLETE"));
     u32 signature = cp_sig();
     cp_dock_keys(KEY_A, KEY_A, 1); CHECK(cp_ending() == CP_END_COMPLETE);
     age(); cp_dock_keys(0, KEY_A, 1); CHECK(cp_ending() == CP_END_COMPLETE);

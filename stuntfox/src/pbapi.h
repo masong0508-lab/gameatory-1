@@ -105,6 +105,11 @@ static inline int pb_get_score(void) { return ((int (*)(void))PBA_GET_SCORE)(); 
 /* score += n x the multiplier */
 #define PBA_ADD_SCORE    0x080256dd   /*fn*/
 static inline void pb_add_score(int n) { ((void (*)(int))PBA_ADD_SCORE)(n); }
+/* Payback's floating score numbers (pb_add_score's, a kill's): the index of the last one alive, -1 when there is none. One lives
+   for 60 of its timer's steps; the list drops it when that runs out (its last entry takes its place) [disasm 0x0802efb4; added by
+   0x0803a5c8 and 0x0803a4fc, emptied by 0x0803a4ec] */
+#define PBA_NUM_LAST     0x02002c14   /*ram*/
+#define PB_NUM_LAST      (*(volatile s32 *)PBA_NUM_LAST)
 
 /* ---- text: titles are Payback's raw banner (the ticker stays quiet) ----
    pb_banner_raw(0, s) copies s (strcpy, 20 bytes a slot: 19 letters and the 0) into banner slot 0

@@ -537,14 +537,18 @@ void cp_tick(void)
         if (C.hold || C.postgame)
             hold_goal();
         if (C.ending == CP_END_RETURN && !PB_LEVEL_END && PB_RESPAWN <= 0) {
-            if (s2f.mode == FLY && !s2f.walk) {
+            if (s2f.mode != FLY || s2f.walk) {
+                hl_text("RETURN TO ARWING");
+                hl_stat(HLS_NONE, 0, 0);
+            } else if (PB_NUM_LAST < 0) {
+                /* (the act's pay floats up as Payback's score number first: the card waits until it has gone, as Payback draws
+                   it over whatever is on the screen) The card comes up docked from this frame on, so the station owns the
+                   screen from its first picture: none of Payback's HUD on it */
                 s2_dock_start();
+                s2f.docked = 1;
                 hl_clear();
                 C.ending = CP_END_COMPLETE;
                 C.end_at = s2f.ticks;
-            } else {
-                hl_text("RETURN TO ARWING");
-                hl_stat(HLS_NONE, 0, 0);
             }
         }
         if (C.rel)
@@ -835,7 +839,8 @@ static void ending_draw(void)
 void cp_hud(void)
 {
     if (C.ending >= CP_END_COMPLETE) {
-        ending_draw();
+        if (s2f.docked)                /* (only where the screen is the station's: nativehud.c, st_view) */
+            ending_draw();
         return;
     }
     if (!C.q) {
