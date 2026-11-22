@@ -46,7 +46,14 @@ Files Claude is changing now (please do not edit them):
   `payback-mod/`, `tools/check.py` and `docs/completion-milestone.md` are free
   for GPT-6 (task 5). The PS1 gates inside `tools/check.py` stay as they are.
 
-**GPT-6 tasks** (new paths only; one task per small pull request):
+**GPT-6 tasks** (new paths only; one task per small pull request).
+
+Priority now (the owner asked on 2026-11-22 for the task that most shortens the finish): task 2 on the rc7
+draft disc, with the private QA kit the owner hands over (`Payback-PS1-QA-kit.zip`: the three cores, openboot,
+the rc7 draft disc with its symbols, a repository snapshot and Python wheels; its README says how to run it).
+Then task 5. Tasks 1, 3, 4 and 6 fill the waits. Claude keeps the speed work, rc7 and every fix the matrix
+finds.
+
 
 1. `ps1/rebuild/` (seeded in 862982f; GPT-6's from there): make the PS1
    build reproducible from the owner's files. The seed has the rebuild plan,
@@ -60,14 +67,20 @@ Files Claude is changing now (please do not edit them):
    fix scripts there in small pull requests, and Claude carries the fixes
    into the copies its own runs use): walking, every vehicle type,
    weapons, pause, quit, a second level, game over, memory-card save and
-   load, the radio, a long soak, and a flicker scan. Report each defect as a
-   GitHub issue with the emulator, core options and frame number.
+   load, the radio, a long soak, and a flicker scan, on all 11 maps. Run it at
+   the measured settings in `ps1/EMULATOR_SETTINGS.md` (CPU overclock 400%,
+   CD read speedup 10x, instant seek) and repeat each defect at stock. Report
+   each defect as a GitHub issue with the emulator, core options and frame
+   number, in words: no screenshots, no game text.
    Already known on rc6 and fixed in rc7, so not worth an issue against rc6:
    the boot intro stops on the ZOO logo; getting into a vehicle stalls or
    crashes; the 3D picture shows through the menu after quitting; timed
    waits lock up after about 256 s of game time; ragdoll timing. Also known:
    levels are slow (rc6 is CD-bound at about 1.6-1.9 guest frames/s in most
-   places); that is the speed work, not a defect.
+   places); that is the speed work, not a defect. Known on rc7 too: levels show
+   about 2 pictures a second even at 400% (the frame limiter spins on the
+   virtual clock; speed wave 1 replaces it); the radio pauses while the disc
+   reads; the intro films end as if skipped.
 3. Review: Claude opens a draft pull request for each PS1 line (`wip/ps1-rc7`,
    `wip/ps1-speed`) once it has commits. Review there with comments; do not
    push to those branches. PR #3 (`wip/ps1-rc7`) is ready for review now.
@@ -82,13 +95,12 @@ Files Claude is changing now (please do not edit them):
    11 maps, on foot and in each vehicle type, record which 16 KiB pages of
    the 8 MiB ROM the game reads as data (not instruction fetches), how often
    each is read over a few minutes of play, and the pages read during level
-   start. Use the unicorn simulator of Track B (step b9) or mGBA with a read
-   hook, with the original GBA game. Commit only the tools and the page
-   numbers and counts: no ROM bytes, no game text. This is the main input
-   for the next PS1 speed step: on rc6, levels wait on about 10 CD page
-   fetches per second because the 62 pages kept in RAM were chosen from one
-   route of one map. The results decide the size of the page pool and which
-   pages each map keeps resident.
+   start. Use the unicorn simulator of Track B (step b9; the QA kit has the
+   unicorn wheel) or mGBA with a read hook, with the original GBA game.
+   Commit only the tools and the page numbers and counts: no ROM bytes, no
+   game text. Lower priority since rc7: its page pool already removed most
+   CD waits (2 page fetches in 30 s standing in the street, against 278 on
+   rc6). The results will still size the pool for the other maps.
 
 ## Open tasks nobody is on
 
@@ -110,6 +122,9 @@ Files Claude is changing now (please do not edit them):
   ramps after the Amiga data.
 
 ## Handing work back
+
+Open now: pull requests 4 to 8. Claude is building and testing them with the ROM
+and will comment on each with the result.
 
 Branch from a named commit of `claude/snes-mashup-umjsjp` and open a small
 pull request into it. Claude builds every pull request with the ROM, runs it
