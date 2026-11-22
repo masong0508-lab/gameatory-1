@@ -4,7 +4,8 @@
    started nothing here does anything: every map plays as before.
    Payback's level ends when its kind-0 goal (the score target) is reached: while acts are left that goal's target
    is raised out of reach each frame, and when the last act is done it is put back at what the score is, so the
-   level completes by Payback's own road (a story level's trophy, "Press select", the slideshow). */
+   level completes by Payback's own road (a story level's trophy, "Press select", the slideshow). Not the final
+   chapter's: its last act brings our three ending cards and the station, and its level stays open for the postgame. */
 #include "stage2.h"
 #include "mission.h"
 #include "campaign.h"
@@ -57,6 +58,14 @@ extern int st_enter(void) __attribute__((weak));   /* a build without the statio
 
 
 static int on(void) { return cp_prog.flags & CPF_ON; }
+/* the image in RAM is a campaign to go on with: sealed at some time (magic, version) and its chapters in range. Its crc
+   is not asked: the station writes to a stopped campaign's image (a talk heard, a flag or an unlock it gives) and
+   nothing seals it again before it goes on, so a stale crc there is no damage (what comes off the chip is checked whole
+   in load()) */
+static int held(void)
+{
+    return cp_prog.magic == PROG_MAGIC && cp_prog.ver == PROG_VER && cp_prog.chap_cur < CP_CHAPS && cp_prog.chap_unlocked < CP_CHAPS;
+}
 int cp_active(void) { return on(); }
 int cp_ending(void) { return C.ending; }
 int cp_postgame(void) { return C.postgame; }
@@ -184,6 +193,15 @@ static void load(void)
             *p = 0;            /* (whole but not ours to read, say a newer version's: nothing of it may switch the campaign on) */
     }
     spick.valid = 0;               /* (no good save: the image in the keep, if any, is a code that was typed in) */
+}
+
+/* The title's settings page on a cold boot (merge.c sf_title_opts), before anything of ours is set up: the image start()
+   will load, so that the page shows and changes the settings the game starts with. Only reads; start() clears cp_prog
+   and loads again. A stopped campaign's image is left alone here as it is there. */
+void cp_title_load(void)
+{
+    if (sv_mode() == SV_64K && sv_load(&sv_eeprom, (u8 *)&cp_prog, sizeof cp_prog, &spick) && prog_ok(&cp_prog) && on())
+        sg_set_progress(cp_prog.sg);
 }
 
 /* the chip is only asked to prove it is 64 Kbit when the player first wants a save: it writes (save.c), and a game with no
@@ -510,6 +528,7 @@ u32 cp_keys(void)
 /* ---- the level is entered ---- */
 void cp_level_enter(int map)
 {
+    int owed = C.ending;               /* the finale's cards, not yet read to the end (enter() clears them) */
     if (!C.loaded)
         load();
     if (C.snap)
@@ -527,6 +546,9 @@ void cp_level_enter(int map)
         pl_drop_begin(ch->map, ch->hx2, ch->hy2);
         C.drop = 1;
     }
+    if (owed && !C.drop && on() && cp_flag(CP_FLAG_FINALE))
+        C.ending = CP_END_RETURN;      /* (a game over or a quit to the title came first, and act_done() does not run twice:
+                                          they come as they would have, once he is in the Arwing again) */
 }
 
 void cp_tick(void)
@@ -537,14 +559,18 @@ void cp_tick(void)
         if (C.hold || C.postgame)
             hold_goal();
         if (C.ending == CP_END_RETURN && !PB_LEVEL_END && PB_RESPAWN <= 0) {
-            if (s2f.mode == FLY && !s2f.walk) {
+            if (s2f.mode != FLY || s2f.walk) {
+                hl_text("RETURN TO ARWING");
+                hl_stat(HLS_NONE, 0, 0);
+            } else if (PB_NUM_LAST < 0) {
+                /* (the act's pay floats up as Payback's score number first: the card waits until it has gone, as Payback draws
+                   it over whatever is on the screen) The card comes up docked from this frame on, so the station owns the
+                   screen from its first picture: none of Payback's HUD on it */
                 s2_dock_start();
+                s2f.docked = 1;
                 hl_clear();
                 C.ending = CP_END_COMPLETE;
                 C.end_at = s2f.ticks;
-            } else {
-                hl_text("RETURN TO ARWING");
-                hl_stat(HLS_NONE, 0, 0);
             }
         }
         if (C.rel)
@@ -573,13 +599,14 @@ static void camp_start(int reset)
     }
     unsave();
     prove();
-    int resume = !reset && C.resume_sg && prog_ok(&cp_prog);
-    if (reset || !prog_ok(&cp_prog)) {
+    int keep = !reset && held();   /* (the menu's line 0 reads CONTINUE CAMPAIGN by the same test) */
+    int resume = keep && C.resume_sg;
+    if (!keep) {
         for (u8 *p = (u8 *)&cp_prog; p < (u8 *)&cp_prog + sizeof cp_prog; p++)
             *p = 0;
         cp_prog.flags = CPF_ON;
     } else
-        cp_prog.flags |= CPF_ON;       /* (a stopped campaign goes on where it was) */
+        cp_prog.flags |= CPF_ON;       /* (a stopped campaign goes on where it was, with what the station wrote into it since) */
     if (resume)
         apply();                      /* explicit CONTINUE after a cold boot restores the stopped campaign's equipment */
     else
@@ -598,7 +625,7 @@ static void camp_stop(void)
     cp_prog.flags &= ~CPF_ON;
     unsave();
     enter(s2f.map);
-    sync();                        /* (sealed: START CAMPAIGN takes up a whole image, and only a sealed one) */
+    sync();                        /* (the image as it is now, sealed, also where there is no chip to save it to) */
     if (sv_mode() == SV_64K)
         save_start();
     note("CAMPAIGN STOPPED");
@@ -618,6 +645,9 @@ int cp_pw_apply(const char *s)
     sg_get_progress(&cur);             /* (a code has no stick, aim, missiles, jobs or paint: those stay the player's) */
     for (int i = 12; i < 16; i++)      /* (missiles, paint, jobs, flags: SgProgress's last four) */
         t.sg[i] = ((u8 *)&cur)[i];
+    if (held())                        /* (nor the space walks' first-clear receipts: those of the campaign in RAM stay, or a
+                                          code would bring the first-clear pay back and take the board's stars) */
+        t.spare[CP_SPARE_EVA] = cp_prog.spare[CP_SPARE_EVA];
     cp_prog = t;
     C.resume_sg = 0;
     cp_prog.flags |= CPF_ON | CPF_PW;
@@ -663,9 +693,9 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
             if (C.ending < CP_END_STATION)
                 C.ending++, C.end_at = s2f.ticks;
             else {
-                C.ending = 0;
                 if (st_enter)
-                    st_enter();
+                    st_enter();           /* (with the card still up: the station takes it in at once, door hold or not) */
+                C.ending = 0;
             }
         }
         return 1;                 /* the dismissing press cannot also buy, launch or enter a station terminal */
@@ -715,7 +745,7 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
         else
             C.q = Q_OFF;
         C.confirm = 0;
-        return C.q != 0;
+        return C.q != 0 || (hit & KEY_B);       /* (the B that closes the menu does nothing more: no room change; an L goes on to the station's menu) */
     }
     if (!(hit & KEY_A))
         return 1;
@@ -818,26 +848,31 @@ static void ending_draw(void)
     int page = C.ending - CP_END_COMPLETE;
     d_fill(0, 0, 240, 160, PANEL);
     d_rect(6, 8, 228, 144, DIM);
-    d_text(14, 16, "FOX STATION / FLIGHT LOG", HELP);
+    if (s2f.menu)                      /* (Payback's pause menu reads on the plain card) */
+        return;
+    d_text(14, 16, "FOX STATION / FLIGHT LOG", INK);     /* (the small print in the body's ink: grey on the grey panel did not read) */
     d_text(14, 32, title[page], TITLE);
     d_hline(14, 225, 46, HI);
     for (int i = 0; i < 5; i++)
         d_text(14, 56 + i * 12, lines[page][i], i == 4 ? HI : INK);
     d_text(14, 124, page == 2 ? "A: ENTER FOX STATION" : "A: CONTINUE", HI);
     if (page)
-        d_text(14, 137, "B: PREVIOUS", HELP);
+        d_text(14, 137, "B: PREVIOUS", INK);
     char n[8];
     char *p = d_num(n, page + 1);
     d_cat(p, " / 3");
-    d_text(192, 137, n, HELP);
+    d_text(192, 137, n, INK);
 }
 
 void cp_hud(void)
 {
     if (C.ending >= CP_END_COMPLETE) {
-        ending_draw();
+        if (s2f.docked)                /* (only where the screen is the station's: nativehud.c, st_view) */
+            ending_draw();
         return;
     }
+    if (msg && msg[0] == 'S' && msg[1] == 'A' && msg[2] == 'V' && msg[3] == 'I' && C.sv >= 2)
+        msg = C.sv == 2 ? "SAVED" : "SAVE FAILED";   /* ("SAVING..." says how the save went once it has: the header's words) */
     if (!C.q) {
         int news = news_draw(124);
         if (!news && C.main_ok && s2f.docked && !st_active())
@@ -846,6 +881,8 @@ void cp_hud(void)
     }
     char b[48], *p;
     const int x = 8, y0 = 40, w = 152;
+    const int note = msg && s2f.ticks < msg_end;   /* a note takes the panel's last line while it is up (under the panel it lay
+                                                     over the station room's help line) */
     d_fill(x - 4, y0 - 3, w, 96, PANEL);
     d_hline(x - 4, x + w - 5, y0 + 9, DIM);
     d_text(x, y0, C.q == Q_TRAVEL ? "TRAVEL" : C.q == Q_CODE ? "YOUR CODE" : C.q == Q_ENTER ? "ENTER CODE" : "FOX CAMPAIGN", TITLE);
@@ -853,7 +890,7 @@ void cp_hud(void)
         static const char *const it[] = {"START CAMPAIGN", "TRAVEL", "SAVE NOW", "SHOW CODE", "ENTER CODE", "STOP CAMPAIGN", "BACK"};
         for (int i = 0; i < 7; i++) {
             const char *s = i == 0 && on() ? (C.confirm ? "A AGAIN: START OVER" : "START OVER") :
-                            i == 0 && cp_prog.magic == PROG_MAGIC ? "CONTINUE CAMPAIGN" :
+                            i == 0 && held() ? "CONTINUE CAMPAIGN" :
                             i == 4 && on() && C.confirm ? "A AGAIN: REPLACE" : it[i];
             if (i == C.cur)
                 d_text(x - 2, y0 + 12 + i * 10, ">", HI);
@@ -871,7 +908,8 @@ void cp_hud(void)
             }
         } else
             d_cat(b, "NOT STARTED");
-        d_text(x, y0 + 84, b, HELP);
+        if (!note)
+            d_text(x, y0 + 84, b, HELP);
         d_text(x + 84, y0, sv_mode() == SV_64K ? (C.sv == 1 ? "SAVING" : C.sv == 2 ? "SAVED" : C.sv == 3 ? "SAVE FAILED" : "EEPROM") : "CODE ONLY", HELP);
     } else if (C.q == Q_TRAVEL) {
         int n = cp_prog.chap_unlocked + 1;
@@ -887,7 +925,8 @@ void cp_hud(void)
                 d_text(x - 2, y, ">", HI);
             d_text(x + 6, y, b, i == C.cur ? HI : INK);
         }
-        d_text(x, y0 + 84, C.postgame || PB_RAMPAGE ? "A: GO NOW  B: BACK" : "A: GO WHEN LEVEL ENDS", HELP);
+        if (!note)
+            d_text(x, y0 + 84, C.postgame || PB_RAMPAGE ? "A: GO NOW  B: BACK" : "A: GO WHEN LEVEL ENDS", HELP);
     } else if (C.q == Q_CODE) {
         char t1[10], t2[10];
         code_text(t1, t2);
@@ -895,7 +934,8 @@ void cp_hud(void)
         d_text(x + 6, y0 + 32, t2, TITLE);
         d_text(x, y0 + 50, "WRITE IT DOWN: IT BRINGS", INK);
         d_text(x, y0 + 60, "THE CAMPAIGN BACK", INK);
-        d_text(x, y0 + 84, "B: BACK", HELP);
+        if (!note)
+            d_text(x, y0 + 84, "B: BACK", HELP);
     } else {
         for (int i = 0; i < PW_LEN; i++) {
             int cx = x + 6 + (i % 8) * 14 + (i % 8 >= 4) * 6, cy = y0 + 22 + (i / 8) * 14;
@@ -906,9 +946,10 @@ void cp_hud(void)
         }
         d_text(x, y0 + 54, "UP DOWN: LETTER", INK);
         d_text(x, y0 + 64, "LEFT RIGHT: MOVE", INK);
-        d_text(x, y0 + 84, "A: OK  B: BACK", HELP);
+        if (!note)
+            d_text(x, y0 + 84, "A: OK  B: BACK", HELP);
     }
-    news_draw(137);
+    news_draw(y0 + 81);
 }
 
 /* ---- the debug mailbox: 16 start (arg 1: off, 2: over, 3: look again, 4: stop and save) 17 state 18 acts of a chapter (arg: chapter << 8 | bits) 19 travel 20 save

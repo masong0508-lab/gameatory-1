@@ -322,9 +322,11 @@ static u16 air_run;                /* units flown level since the wheels (or gea
 static u8 chain_to;                /* 1 + the map the rampage campaign goes on to (sf_menu) */
 static u32 level_clock;            /* Payback's level clock at our last frame */
 static int mirror_load(void);
+static void progress_keep(void);
 
 static void start(int map)
 {
+    u8 kept_opt[OPT_PROGRESS_BYTES];
     copy32(__data_start, __data_lma, __data_end - __data_start);
     for (u32 *p = (u32 *)__bss_start; p < (u32 *)__bss_end; p++)
         *p = 0;
@@ -341,11 +343,18 @@ static void start(int map)
     cam_zoom = 256;
     last_clock = pb_clock();
     level_clock = PB_LEVEL_CLOCK;
-    mirror_load();                 /* (the progress so far, if its copy is good) */
-    cam_zoom = cam_dflt;
+    int kept = mirror_load();      /* (the progress so far, if its copy is good) */
+    if (kept)
+        opt_get_progress(kept_opt);    /* its settings are this power cycle's: the title page's, or a game's before a restart */
     __keep_canary[0] = CANARY;
     STATE[0] = MAGIC;
-    s2_level_enter(map);
+    s2_level_enter(map);           /* (the campaign's image comes in here, with the settings it was saved with) */
+    if (kept) {
+        opt_set_progress(kept_opt);    /* ... which are the older ones; what the image holds besides stays */
+        progress_keep();
+    }
+    cam_zoom = cam_dflt;           /* the settings stand now: the chase camera at their distance, and the level starts */
+    opt_level_enter();             /* with their lives, as every later one does (level_enter) */
 }
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
@@ -1909,6 +1918,7 @@ static void board(u8 *me)
     air_run = 0;
     sg_state = SG_FLY;
     cam_cut = 1;                                   /* (swung round from where you stood, it can go through a wing) */
+    sw_job_boarded();                              /* (a relay with both beacons done only waited for him to be aboard again) */
 }
 
 /* Called, the Arwing flies in from behind the camera, over your head, and sets down a few steps
@@ -3394,7 +3404,8 @@ static int hint_pick(const u8 *me)
         h = H_CAR;                             /* (Tank Warfare's tank is no stunt car) */
     else if (mode == FLY && sg_state == SG_FLY) {
         s32 alt = ship.b.pos.y >> FX;
-        h = alt > SPACE_HI ? H_SPACE : alt > SPACE_LO ? -1 : !(told & 1 << H_ARWING) || ship.gear || calm < 1200 ? H_ARWING : H_CLIMB;
+        h = alt > SPACE_HI ? (sw_obj(0, 0) ? -1 : H_SPACE) :   /* (not while a walk is assigned: its hint says where SELECT walks) */
+            alt > SPACE_LO ? -1 : !(told & 1 << H_ARWING) || ship.gear || calm < 1200 ? H_ARWING : H_CLIMB;
     }
     if ((h < 0 || told & 1 << h) && mode != FLY && calm > 1800 && told & 1 << H_FOOT)
         h = H_CAMERA;
@@ -3727,9 +3738,12 @@ int sf_title_opts(u8 *keys, int a)
     (void)keys; (void)a;
     for (int i = 0; i < 4; i++)
         w[i] = MIRROR[i];
-    if (mirror_sum(w) != MIRROR[4])
+    int kept = mirror_sum(w) == MIRROR[4];
+    if (!kept)
         w[0] = w[1] = w[2] = w[3] = 0;                 /* (nothing kept: all as new) */
     sg_load(w);
+    if (!kept)
+        cp_title_load();                               /* ... or as a running campaign's save has it: what start() will load */
     opt_open();
     do {
         r_back();
@@ -3822,6 +3836,7 @@ static APART void s2_gather(const u8 *me, int paused)
     f->mode = mode;
     f->docked = mode == FLY && sg_state == SG_DOCKED;
     f->paused = paused || fade_d;
+    f->menu = paused;
     f->map = map_now;
     f->sgstate = sg_state;
     f->me = (void *)me;

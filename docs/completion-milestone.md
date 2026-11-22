@@ -120,7 +120,7 @@ hashes, the final source commit, CI status, full per-check results and setup
 instrumentation. Its scope is deliberately explicit:
 
 The completed integration run passed 9 ordinary merged-game checks, 20 ending
-checks, 76 space-walk checks and 74 native campaign-save checks. The save matrix
+checks, 77 space-walk checks and 74 native campaign-save checks. The save matrix
 used eleven fresh OS processes. A last font correction adds the previously
 missing first-clear star: exhaustive ROM and ELF comparison proves every
 changed byte is inside that glyph's existing 32-byte slot. All game code,

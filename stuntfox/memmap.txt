@@ -61,5 +61,6 @@ SCRATCH 0x02017fc4-0x02019404  scr: the frame's polygons, projected vertices, ro
 SCRATCH 0x020075a8-0x0200798c  scr2: what else a frame rebuilds, and hot6b's copy while we run
 #
 # Our own variables: .canary .data .bss .noinit in merge.ld's keep, up to the copy of the progress (STATE),
-# with stage 3's 1 KB and a margin of 256 bytes always free.
+# with stage 3's 1 KB and a margin of 256 bytes always free, and on top of those the reserve for the next
+# stage (MIN_HEADROOM in tools/memguard.py, 900 bytes: the build fails under it).
 KEEP keep reserve=1024 margin=256
