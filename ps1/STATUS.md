@@ -218,15 +218,19 @@ Callers: the overlay loader `0x08077508` has two callers in the whole ROM
 `0x03001660` is named only in the boot function's literal pools (`0x080236c0`
 film 1, `0x08025534` film 2); a scan of every Thumb and ARM `bl` and every
 literal word finds no other. Only the boot intro and View intro (the same
-function) call them; Credits opens, shows its text and returns (fast core).
+function) call them. Credits never calls the film player. On the fast core
+the credits end by themselves; on the accurate cores they run almost entirely
+in the interpreter (3.6 guest frames/s on Beetle, 6.1 on SwanStation at a 400 %
+clock, against 60 on the GBA, which returns to the title after about 140 s)
+and did not end within 11 emulated minutes. Cross leaves them in 0.7-1.8 s.
 
-Memory of the rc7 release (rc6 in brackets): runtime ends at `0x80026d40`,
-93,504 of 98,304 bytes, 4,800 free below `0x80028000` (6,832); `.rtcold`
-`0x80028040..0x80029b58`, 6,936 bytes, 1,192 free below `0x8002a000` (new);
+Memory of the rc7 release (rc6 in brackets): runtime ends at `0x80026d60`,
+93,536 of 98,304 bytes, 4,768 free below `0x80028000` (6,832); `.rtcold`
+`0x80028040..0x80029c38`, 7,160 bytes, 968 free below `0x8002a000` (new);
 page cache `0x8015e000..0x80166000` and the 62 resident pages unchanged;
 ragdoll `0x80166000..0x801797a4`, 2,140 bytes free below the PPU scratch
 (2,428); renderer ends `0x801af23c`, 3,524 bytes free (3,524). The TEST_assist
-variant has 1,504 bytes of runtime left, TEST_introfail 5,216.
+variant has 1,456 bytes of runtime left, TEST_introfail 5,184.
 
 The rig's ROM-cache view: the compiler drops `slot_owner` and `rom_miss_last`
 in this mode (nothing reads them under `PCACHE1`; neither is in
@@ -259,7 +263,7 @@ noted, all times emulated (core frames / 59.94):
 | CD read speed-up 8, 10, instant seek, both | 12 PASS each | not run |
 | DualShock starting digital / forced analog | ID 41 / 73, Down seen, no configuration transfer | not run |
 | Memory card | save created, CRC good, a cold boot with the card lists and loads it | the same |
-| Europe disc (licence area E, PAL console) | language screen and title | the game runs to the title but Beetle shows a black picture (see below) |
+| Europe disc (licence area E, PAL console; PAL display since the review round) | language screen and title, picture in PAL lines 21..244 of 268 | language screen and title, picture in lines 31..254 of 288 (before: black) |
 
 On PCSX-ReARMed (`run_all.sh`, data track of the release) the map tour gives 30
 PASS; pad route, replay, save/load, state, speed and both CPU-interpreter
@@ -279,14 +283,27 @@ in 2 minutes was followed by 11-17 s of silence, because the quiet interval
 frames of coming back) sits at 64 guest frames, 8 s at the level's 7-8 guest
 frames a second, plus the length of the burst of reads; now that the level
 fetches about 6 pages a minute a lower ceiling would shorten the gaps (not
-tried). Beetle shows nothing with the Europe disc: the licence
-area makes it a PAL console, and the runtime always programs the GPU for NTSC
-320x240 (`gpu_init`, unchanged since rc6); SwanStation shows the picture in the
-same case, and the US disc runs on Beetle. The films are not shown. The pause
+tried). The films are not shown. The pause
 menu stays on the picture until the next 3D frame (2-4 s). After a vehicle quit
 the next level start still interprets about 0.8 M steps. The game runs at about
 an eighth of the GBA's speed in the level (3.9 level ticks a second of 30).
 There is still no DuckStation, Sony BIOS, hardware-renderer or console run.
+
+Review round (rc7 as shipped): the Europe disc was black on Beetle, because
+the licence area makes the console PAL and the runtime always programmed the
+GPU for NTSC; Beetle/Mednafen shows nothing in that case. `gpu_region()` (in
+`.rtcold`, once at boot) reads the licence sector (LBA 4) and, when it names
+Europe, programs PAL (GP1(08h) bit 3) with the 240 lines centred in PAL's
+range (Y `2Bh..11Bh`); the US disc and data-only test discs stay NTSC. On a
+PAL console the display runs at 50 Hz; the game is CPU-bound, so the intro
+still takes 27.2 s of emulated time on SwanStation. Not fixed: a line of
+coloured dots along the bottom picture line from the first pause on (it
+predates rc7). It is drawn by `pp_obj`: the pause effect's two affine,
+double-size, additive 8 bpp sprites (OAM 8 and 12, 64x64 magnified 2x at
+y = 128, tiles `0x300`/`0x310`) put texels on PS1 line 231 that the GBA
+does not show at row 159 (page row 159 is empty, the page quad and the CLUTs
+were ruled out with marker lines in a test build). The fix belongs in the
+edge rounding of affine tiles in `pp_obj` and was not made in this round.
 
 ## What the existing stages actually contain
 
