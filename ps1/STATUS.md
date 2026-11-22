@@ -193,6 +193,101 @@ again. Short presses (a few frames) can be missed where the game reads the pad
 only a few times a second (about 8.6 in the pause menu). There is still no
 DuckStation, Sony BIOS, hardware-renderer or console run.
 
+## Stage19 rc7: a disc that plays
+
+rc7 changes only stage19 copies (`ps1rt/{rt.c,interp_glue.h,build.sh,ps1.ld}`,
+`interp/{interp.c,interp.h,interp_asm.s,test_host.c}`, `rd/doll.c`) and adds
+`tools/check_intro_site.py`; the manifest points the targets there (153 files).
+The faults are those that kept rc6 from being played through:
+
+| | Fault in rc6 | Fix in rc7 |
+| --- | --- | --- |
+| I1 | The boot intro never ended: `prune.py` STUBS id 3 (`0x080234be`) is not a function but the join point of the ZOO-logo wait, and its stub returned into the wait | The stub site is patched at boot into `li $25,0x080234be; j RT_MISS`, so the interpreter runs the untranslated intro code. `intro_fix_init` checks every word it relies on (stub id, site, `RT_MISS`, the `RT_BX` hash code, the overlay-area hash slots) and stops on a PORT ERROR screen if one differs; `tools/check_intro_site.py` makes the same checks on every linked ELF and fails the build (proved on altered scratch copies: 0 stub sites, a changed `RT_BX` word). The real fix is a translation-input change: drop `0x080234be` from `prune.py` STUBS at the next regeneration and translate the intro. |
+| I2 | The film player (code overlay 1 at IWRAM `0x03000d84`) cannot run: rc5 ran the overlay-0 translation in its place | While overlay 1 is resident the hash slots whose keys lie in the overlay area point at `rt_ovmiss` (nothing added to `RT_BX`; `h_miss` and `ip_lookup` keep the `ov_stale` check); a call of the player ends the film as a key press does (picture cleared, DISPCNT 0x404, r0 = 1 'skipped'), so the intro takes the game's own skip path and film 2 is never called. No clock skip and no film-header parsing remain. The raw timer and the overlay loader that the intro calls are performed natively by the interpreter; the extra timer advance of the first attempt (`IP_TIMER_EXTRA`) is gone: title 1632 frames after the language press with it, 1630 without (SwanStation). |
+| I3 | No key left the intro | Cross and Circle (GBA A and B) skip where the GBA skips (guest frames 250..526 after the language press); the title comes 35 guest frames later (GBA: 22). Start never skips; a press on the Nintendo screen or during the ZOO fade (from guest frame 527) does nothing, as on the GBA. |
+| I4 | The guest time base (TM3:TM2) wrapped after 256 s of GBA time: deadlines set before the wrap were never reached (View intro black or locked, 41 raw-timer callers such as the white fades at `0x080273c6` / `0x08022e40`) | `io_hi` carries `io_cyc` into a 64-bit cycle count wherever it grows, and the timers count from the 64-bit difference to `tm_t0`: TM3:TM2 wraps after 72.8 hours, as on the GBA. |
+| L1 | Getting into a vehicle crashed the game: the interpreter folded a computed `height << 23` into a host EWRAM address and the span loop wrote past the VRAM shadow into the 3D renderer's code | A shift folds only a value that an immediate move put into its register (`ip_km`, saved and restored around nested runs); a host VRAM pointer that runs past the shadow is folded back the way GBA VRAM mirrors, and the first such fold is reported on the TTY ('overflow', a rig fault word). |
+| L2 | In a vehicle the level read 17 pages beyond the resident set in a cycle: with 8 FIFO slots each came from the CD again about every second guest frame (tank 0.48 guest frames/s) | From the first level on, the 62 resident pages and the 8 slots are one pool with CLOCK replacement (a reference bit set by every read of a page in RAM); the hit path is a load, a store and a test (`cd_fetch` out of line); `rom_read` looks a page up once per page, not per byte. |
+| L3 | After Quit to title the held 3D view showed through every index-0 pixel of the game menu | The last 3D view is held only while the guest still has its level's entity table (count 0..100 at IWRAM `0x0300000c`). |
+| L4 | A second level took about 3.4 M interpreter steps and 54-83 s of the menu picture: with the renderer up, the menu and level-loader code (`0x0803c4cc..0x0803cf4c`, cold groups 42/43 over the renderer's world window) was refused and interpreted | When the guest leaves a level (entity count -1 and the level clock standing still for three pictures) the renderer goes off, the menus present at their own rate and that code runs natively; the next level start runs the deferred `sf3_init` again. |
+| R | Ragdoll events assumed one 3D frame per 30 Hz tick: leaving a car that crawled against a tree read as a bail-out at about 300 m/s and the player's doll hid him for minutes; a quit from a moving vehicle carried the doll into the next level | Velocities are the position change over the level-clock ticks between two gathered frames (jumps count as no movement); the player's own doll is released after 90 ticks (3 s of game time); leaving a level clears every doll and restarts the events. |
+| ROOM | The runtime region had 6,832 bytes left and the fixes needed more | One-time and fault-only code (`main`, `gpu_init`, `cd_init`, `cdda_init`, `sv_load`, `intro_fix_init`, `fatal_screen`, `cd_error_screen`, `text`) is in a new `.rtcold` section at `0x80028040..0x8002a000`, RAM nothing else uses (between the helper table and t2m's ROM page-table area); `ps1.ld` asserts both ends, no constant of the hot blob, the cold code or the runtime points into it, and it is part of the EXE image, so the BIOS loads it and flushes the cache with the rest before `main` runs. |
+
+Callers: the overlay loader `0x08077508` has two callers in the whole ROM
+(`0x080235a6` loader(1), `0x08023616` loader(0)) and the film player
+`0x03001660` is named only in the boot function's literal pools (`0x080236c0`
+film 1, `0x08025534` film 2); a scan of every Thumb and ARM `bl` and every
+literal word finds no other. Only the boot intro and View intro (the same
+function) call them; Credits opens, shows its text and returns (fast core).
+
+Memory of the rc7 release (rc6 in brackets): runtime ends at `0x80026d40`,
+93,504 of 98,304 bytes, 4,800 free below `0x80028000` (6,832); `.rtcold`
+`0x80028040..0x80029b58`, 6,936 bytes, 1,192 free below `0x8002a000` (new);
+page cache `0x8015e000..0x80166000` and the 62 resident pages unchanged;
+ragdoll `0x80166000..0x801797a4`, 2,140 bytes free below the PPU scratch
+(2,428); renderer ends `0x801af23c`, 3,524 bytes free (3,524). The TEST_assist
+variant has 1,504 bytes of runtime left, TEST_introfail 5,216.
+
+The rig's ROM-cache view: the compiler drops `slot_owner` and `rom_miss_last`
+in this mode (nothing reads them under `PCACHE1`; neither is in
+`payback_rc7.nm.txt`). The pool is read from `fr_pg` (u16 per frame: page + 1,
+0 = empty; frames `0..pool_rp-1` are the resident pages, then the 8 slots of the
+page cache), `pool_rp`, `rom_ref` (one byte per ROM page: the CLOCK reference
+bit), `pool_hand` and `rom_miss_count`.
+
+Results with the rc7 discs as built (`tools12/build.sh`; the full US disc, or
+its data track as a test image where a rig check needs it), openboot unless
+noted, all times emulated (core frames / 59.94):
+
+| Check | SwanStation | Beetle |
+| --- | --- | --- |
+| Hands off from the language press to the title (the GBA, which plays its films: 4,538 frames, about 76 s; rc6: never, ZOO loop) | 27.2 s | 32.7 s |
+| Black between the last ZOO fade step and the first title fade step, every frame | 174 frames, 2.9 s | 209 frames, 3.5 s |
+| Cross / Circle at guest frames +310, +461, +521 | title 35 guest frames later, 3.4-3.5 s; Start, +159 and +545..+590 do not skip | the same at +303, +459 (3.3-3.4 s); +527 is in the fade: no skip |
+| View intro three times in a row; started at a time base of 236.0, 254.2, 254.4, 254.6, 255.3 s; white flash across 256.0 s | title back after 25.7-26.0 s every time (I1-I2 without I4: black until a key at 236.0 s, hung for good at 254.4 s) | not run |
+| Power-on to the first level by pad presses | 13 PASS, level clock at 42.9 s (rc6 43.2 s) | 13 PASS, 45.4 s (rc6 45.1 s) |
+| In the level (`in_level.py`): idle, walk, turn, weapons, fire, pause, death | 30 PASS | 30 PASS |
+| Tank: enter, drive, turn, fire, reverse, pause, exit | PASS, renderer code unchanged | PASS, renderer code unchanged |
+| Car: enter, drive (4,800 units, into a tree), steer, exit | PASS | PASS, with a pause in the car |
+| Helicopter: enter, take off (L1), fly, land (L1), exit | PASS | PASS |
+| Guest frames/s on foot (standing / walking), tank, car (rc6 on foot about 1.3; rc5 tank 0.48) | 7.7 / 7.6, 4.4, 4.1 | 6.1 / 6.0, 3.6, 3.3 |
+| Quit from foot, tank, car; GAME OVER | clean game menu and GAME OVER pictures, no SF3 hold line | foot and tank: the same |
+| Play game to the second level's city (rc6: 54-83 s, 3.4 M interpreter steps) | 13.0 s after a quit on foot (6 interpreter steps), 12.1-14.1 s after a vehicle quit (0.8 M) | 13.9 s on foot (0 steps), 12.1 s after a tank quit |
+| Picture changes without a flip | level 0 (30 changes, 29 flips in 60 s); vehicles 0; second level 0; intro and menus: only the fade steps of the logos and title (menus identical to rc6) | level 0; vehicles 0; intro: fade steps |
+| Radio on the full disc, 2 min walking in the level / 2 min in the menus after it | music 51 % / 95 % of the time (rc6 0 % / 96 %); page fetches 6 / 0.5 a minute (rc6 533 / 0.5); CD-audio pauses 3 / 1 a minute; longest silence 16.6 s / 3.9 s | not run |
+| openboot `strict`, `irq`, `f06`; open-source BIOS | 12 PASS each; open-source BIOS 12 PASS, level at 50.6 s | `strict`, `irq`, `f06`: 12 PASS each |
+| CD read speed-up 8, 10, instant seek, both | 12 PASS each | not run |
+| DualShock starting digital / forced analog | ID 41 / 73, Down seen, no configuration transfer | not run |
+| Memory card | save created, CRC good, a cold boot with the card lists and loads it | the same |
+| Europe disc (licence area E, PAL console) | language screen and title | the game runs to the title but Beetle shows a black picture (see below) |
+
+On PCSX-ReARMed (`run_all.sh`, data track of the release) the map tour gives 30
+PASS; pad route, replay, save/load, state, speed and both CPU-interpreter
+sessions pass. The FAILs left are by design or the rig: the intro film is not
+drawn (films end as skipped), the soak's 600 s of game time and its "3D city
+missing for more than a second", the assist session (8 PASS on the TEST
+variant) and one vehicle check where the classifier calls the grey 3D view
+'menu' (the picture shows the vehicle in the city). `in_level.py`'s own vehicle
+step steers to the nearest parked vehicle, which on the accurate cores is the
+helicopter: Cross does not drive a helicopter on the ground and L1 is its
+take-off, on the GBA too, so its five drive checks fail there; vehicles are
+judged with the `vtest` plans above.
+
+Limits: the music plays about half the time in the level: each of the 6 holds
+in 2 minutes was followed by 11-17 s of silence, because the quiet interval
+(8 guest frames, doubled up to 64 when the music is held again within 64 guest
+frames of coming back) sits at 64 guest frames, 8 s at the level's 7-8 guest
+frames a second, plus the length of the burst of reads; now that the level
+fetches about 6 pages a minute a lower ceiling would shorten the gaps (not
+tried). Beetle shows nothing with the Europe disc: the licence
+area makes it a PAL console, and the runtime always programs the GPU for NTSC
+320x240 (`gpu_init`, unchanged since rc6); SwanStation shows the picture in the
+same case, and the US disc runs on Beetle. The films are not shown. The pause
+menu stays on the picture until the next 3D frame (2-4 s). After a vehicle quit
+the next level start still interprets about 0.8 M steps. The game runs at about
+an eighth of the GBA's speed in the level (3.9 level ticks a second of 30).
+There is still no DuckStation, Sony BIOS, hardware-renderer or console run.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
