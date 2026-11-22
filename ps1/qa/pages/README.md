@@ -64,11 +64,16 @@ python3 ps1/qa/pages/from_reference.py \
 python3 ps1/qa/pages/working_set.py \
   /private/page-runs/scene1/map*.json \
   --budget4k 56 --require-11-maps \
+  --require-mode foot --require-mode vehicle_007 --require-complete-matrix \
   --output /private/page-runs/cache-candidates.json
 ```
 
 `working_set.py` returns **exit 3** if the mandatory `--require-11-maps` gate
-is unmet. Run a separate, actually executed scene for **each map and vehicle
+is unmet, or if `--require-complete-matrix` is set and any required mode is
+missing from any map. Replace `vehicle_007` in the example with every vehicle
+descriptor that must be covered (repeat `--require-mode` for each).
+
+Run a separate, actually executed scene for **each map and vehicle
 class** and pass all of their capture JSON files to the analyzer. The profiler
 classifies the selected entity as `foot` or an exact `vehicle_###` descriptor
 index based on the running guest's RAM and the owner's original descriptor
