@@ -217,7 +217,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "96f534fb6083fe8bf807e5a2b906fadf27dd282ae5c9d6f25fba18f8dc347d9f"
+      "sha256": "6a4bc08bafea94696d169b14d2d7e18e1cfc1633a6777a4ccf4c189e76a63c8b"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -768,7 +768,7 @@
     {
       "source": "tools/disp_patch_check.py",
       "target": "tools/disp_patch_check.py",
-      "sha256": "9784b87879affe39f8732ab71912b495ac34ca1b420bebabebe0ce30cb8a56e4"
+      "sha256": "fd4f6db7b86cdb245e45f5f16e8507777814406abe664aebe07556029e6a5606"
     }
   ],
   "patches": [
