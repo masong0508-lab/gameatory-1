@@ -1,0 +1,81 @@
+# private_inputs.sha256: every file of the owner's private input directory (SURV), by sha256, size in bytes and path.
+# The files derive from the player's own ROM (translated code, packed worlds, disc staging trees, the ROM itself as
+# iso_*/ROM.BIN): only these names, sizes and hashes are in the repository, never the files.
+#
+# Format: one file per line, "SHA256  SIZE  PATH", PATH relative to SURV; lines starting with # are comments.
+# Check a copy, from the top of the repository (prints OK or FAILED per file):
+#   awk '!/^#/ && NF == 3 {print $1 "  " $3}' ps1/rebuild/private_inputs.sha256 | (cd "$SURV" && sha256sum -c -)
+# Compare what Track B regenerated (under TREE/out, same relative paths) with this list, SAME or DIFF per file present:
+#   ROM=... SURV= ps1/rebuild/track_b_regenerate.sh TREE hashes
+#   (kp/kplan.h and */rompages_P.pkl differ by design: the prepared tree has its own pad plan, the build writes the page lists)
+# The ROM the inputs were made from is iso_*/ROM.BIN below (the untouched 8 MiB cartridge image).
+# Sizes:
+#   awk '!/^#/ && NF == 3 {print $2, $3}' ps1/rebuild/private_inputs.sha256 | (cd "$SURV" && while read n f; do [ "$(stat -c %s "$f")" = "$n" ] || echo "size differs: $f"; done)
+#
+# The 14 files track_a_reuse.sh stages (it also checks 13 of them by a sha256 prefix):
+1b264ca5a9cee3525f8d335cb80a59ea6a8ab9c97dca470bf89d655e3d117551  396448  boot.bin
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  SF3M.BIN
+23ca44c013506c609c580fe8eeaa69393d27c4be103a02fa2f9adc3f413bd9b1  594  touched_f1_boot.pkl.rompages
+98e3fb9586bd529129683b31eb4ed02a5e328d075ff2576fe44e37786d0ef1e5  27427387  s2/prog_pr.pkl
+240345132e9f7ac528e759253b5a1ed4be7da24164f8c50c1aa5956db5280a64  85128  pr_l/payback_P.bin
+3665a147871d71521e301fcc25132a643c7ab19608fc20fbbec727369ac51f42  893682  pr_l/payback_P.map
+0de2ea80495c0abed07416433d856d7a6c18b5bde13f59d5796aaca91ea256e8  1451  pr_l/meta_P.pkl
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  pr_l/cold_P.bin
+7a8a30942ae0d6ff9803dd13b1ae22634f749fc1fddf1a736cd896f1fb5ff8ec  9684  pr_l/coldtab_P.bin
+240345132e9f7ac528e759253b5a1ed4be7da24164f8c50c1aa5956db5280a64  85128  pr_lb/payback_P.bin
+3cd7f35ec9f26fa331d466bf844925e822ef38ef80ad1efcb4fa7b610a7ab576  1133676  pr_lb/payback_P.map
+3146f25118ec438b8d3bd9acff82c822a7511c3d27f6a0be09e38c1f2f98a17a  1452  pr_lb/meta_P.pkl
+d67704aa9305116e79d441c10c81726998ac7a83fee5d437f0632f0d3fd38ea3  734828  pr_lb/cold_P.bin
+346ca5137c748f86bc9a37ba309628236e8931cc760363c2263f4c6fd2af1249  15236  pr_lb/coldtab_P.bin
+#
+# The rest: earlier staging trees of the ISO (iso_*), the snapshot file, the stage 7 pad plan (the prepared tree carries
+# its own out/kp/kplan.h), the hot/cold sets and the page lists that Track B regenerates and compares:
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  SNAPST.BIN
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  iso_fb0/COLD.BIN
+9b81b48c64cd11ef26d714e02b658443f6c4a3c0359278c147a1a99a16a14ee7  1693696  iso_fb0/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_fb0/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_fb0/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_fb0/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_fb0/SYSTEM.CNF
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  iso_fb1/COLD.BIN
+742c98a08ec75910592758bfa937fe7051e22168a19c784db6775e30f4be7fdc  1695744  iso_fb1/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_fb1/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_fb1/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_fb1/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_fb1/SYSTEM.CNF
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  iso_fb2/COLD.BIN
+66b47f7a9fc1bc503088a484ce5ee0034f5f69ce3eafcc4588b625d668f365f6  1695744  iso_fb2/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_fb2/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_fb2/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_fb2/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_fb2/SYSTEM.CNF
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  iso_mt0/COLD.BIN
+24ce8b70b165a61ba294d27ed46765de1ba97e6ce5da45c88c10f0150e929f29  1679360  iso_mt0/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_mt0/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_mt0/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_mt0/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_mt0/SYSTEM.CNF
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  iso_mt1/COLD.BIN
+13537d3ee73106ef63fae4477f0ac17cfa5adf0768da0e6acc0ba92a7cbad152  1693696  iso_mt1/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_mt1/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_mt1/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_mt1/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_mt1/SYSTEM.CNF
+d67704aa9305116e79d441c10c81726998ac7a83fee5d437f0632f0d3fd38ea3  734828  iso_mt1b/COLD.BIN
+bc4399716514f00d299385078db41131836b4a6e1c60ec093fd606638a7c4498  1693696  iso_mt1b/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_mt1b/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_mt1b/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_mt1b/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_mt1b/SYSTEM.CNF
+1d98b84e6a3ed732f4ef9c8fc28ea9ee5a45bad5afdec3c9aab9727706bbd855  558588  iso_mt2/COLD.BIN
+41d5364302d3cc19cc487f6661c881938e29d3c2e09dfae4bb5d774292cb4bc7  1695744  iso_mt2/PSX.EXE
+c2705bbcc193dc872ac481ea9c98c8f96ebee0dbcbbe44322226f0eff60665f1  8388608  iso_mt2/ROM.BIN
+87e0ea7eae36caaa88ae20177cff6bb4787dbf03467728b54a7185a15a52d476  5847040  iso_mt2/SF3M.BIN
+9c5da6f3daebb6d75068a332bb4e3f00bf8560a46b904ce32a0f5ca5290661b9  407552  iso_mt2/SNAPST.BIN
+a6e3a7b9a7688906810d176707c6aaf195a8204af2aafd0d7722adeef6eed141  64  iso_mt2/SYSTEM.CNF
+a33eaf6ea9351503f5c8675365d8a28ddce048e23aa8ce615a4c2c34695a596a  518  kp/kplan.h
+25b7a9b1d1dd82bf05a0869fbba08f36e12fb43c92965a07aa3f4662d3bc6856  184  pr_l/rompages_P.pkl
+7dd3097f82c0457933fba2fbfc0f18d2dbfa094064290a50fa5f4a591a8a9e1c  178  pr_lb/rompages_P.pkl
+572d2fb04a3a718c9e4551b508839544a9c6cc73f4a3869f76dad8a202c11fc0  17954  s2/cold.pkl
+4cf2055930500efdf9692e474ec9b97fa09072b099fa1eef2f65a194cfabde25  14482  s2/resident.pkl
+91e45917b3cc90ee21cb3014166c6e50f32d2a017bb98baeb3406a10746ca21f  344  touched_f1.pkl.rompages
