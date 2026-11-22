@@ -630,7 +630,7 @@ found:;
 /* ---------------------------------------------------------------- stage 20 dispatch phase 1 (PLAN.md Stage 2), each item behind its own flag:
    D3 -DDISP_D3  RT_MEMRD's first word `j RT_MEMRD_SLOW` -> nop: the blob's own fast path serves aligned lb/lbu/lh/lhu/lw from resident ROM pages
    D1 -DDISP_D1  RT_MISS words 0-1 -> `j rt_mcache; addu $24,$25,$0`: a 512 x 8 B cache of cold_find results at 0x80028400 in front of the C call
-   D4 -DDISP_D4  RT_MEMRD -> `j rd_front`, RT_MEMWR -> `j wr_front`: EWRAM/IWRAM by GBA address without the C call (the IO page still goes to C first)
+   D4 -DDISP_D4  RT_MEMRD -> `j rd_front`, RT_MEMWR -> `j wr_front`: EWRAM/IWRAM by GBA address without the C call (ROM reads to D3's fast path first; IO still goes to C)
    D2 -DDISP_D2  h_miss links a `jal RT_MISS` call site to its permanent host entry: queued at 0x80029400, written at the next present, one FlushCache
    test only: -DDISP_D1CHK checks every D1 hit against the cold table (dsp_mchk_bad = 0 expected), -DDISP_PROF counts the C calls.
    The blob addresses are the stubs of t2m.py runtime() (cfg 'P'): RT_MISS 0x80030008, rt_miss_ret 0x80030028, RT_MEMRD 0x80030044, its ROM fast path
@@ -772,21 +772,21 @@ __asm__(
   ".size rt_mcache,.-rt_mcache\n"
 #endif
 #ifdef DISP_D4
-  /* rd_front, from RT_MEMRD: $24 = address, $2 = kind (0 lbu, 1 lb, 2 lhu, 3 lh, 4 lw), $28 = return.  The IO page first (to C: io_read and the clock),
-     then EWRAM 0x801b0000 + (a & 0x3ffff) and IWRAM 0x801f0000 + (a & 0x7fff), = g2h(), into the blob's kind dispatch (alignment checks, the load, jr $28);
-     anything else: the ROM fast path (D3) or C */
+  /* rd_front, from RT_MEMRD: $24 = address, $2 = kind (0 lbu, 1 lb, 2 lhu, 3 lh, 4 lw), $28 = return.  By the region byte a >> 24: ROM first (about
+     four of five reads here are ROM reads): the fast path's own region test (regions 8, 10, 12, 14), then the fast path past it, 0x80030060, which takes
+     $25 = the region byte (D3); then EWRAM 0x801b0000 + (a & 0x3ffff) and IWRAM 0x801f0000 + (a & 0x7fff), = g2h(), into the blob's kind dispatch
+     (alignment checks, the load, jr $28).  Everything else goes to C (RT_MEMRD_SLOW): GBA IO and the IO page 0x8017f000 (io_read and the clock;
+     region byte 0x80), raw host addresses, a ROM page that is not resident, a misaligned read */
   ".globl rd_front\n.type rd_front,@function\n"
   "rd_front:\n"
-  " lui $1,0x8018\n"
-  " addiu $1,$1,-0x1000\n"          /* 0x8017f000: the IO page as the blob addresses it */
-  " subu $1,$24,$1\n"
-  " sltiu $1,$1,0x400\n"
-  " bne $1,$0,rd_slow\n"
   " srl $25,$24,24\n"
-  " addiu $1,$25,-2\n"
+  " andi $1,$25,0xf9\n"
+  " xori $1,$1,8\n"
+  " beq $1,$0,rd_rom\n"
+  " addiu $1,$25,-2\n"              /* (on the ROM path 0x80030060 sets $1 again) */
   " beq $1,$0,rd_ew\n"
   " addiu $1,$25,-3\n"
-  " bne $1,$0,rd_rom\n"
+  " bne $1,$0,rd_slow\n"
   " andi $25,$24,0x7fff\n"
   " lui $1,0x801f\n"
   " j 0x8003009c\n"
@@ -799,22 +799,18 @@ __asm__(
   " addu $25,$25,$1\n"
   "rd_rom:\n"
 #ifdef DISP_D3
-  " j 0x8003004c\n"
+  " j 0x80030060\n"                 /* the ROM fast path past its region test: sltiu $1,$25,0xe; ROMPG[(a >> 12) & 0x7ff]; the kind dispatch */
   " nop\n"
 #endif
   "rd_slow:\n"
   " j 0x80030128\n"
   " nop\n"
   ".size rd_front,.-rd_front\n"
-  /* wr_front, from RT_MEMWR (its delay slot `ori $25,$25,0x8004` has run, so $25 is not used): $24 = address, $2 = size 1/2/4, $3 = value.  The same windows;
-     aligned sb/sh/sw; the IO page, a misaligned store and anything else take RT_MEMWR's own body, rebuilt here (h_memwr = HELP+4 through RT_CC) */
+  /* wr_front, from RT_MEMWR (its delay slot `ori $25,$25,0x8004` has run, so $25 is not used): $24 = address, $2 = size 1/2/4, $3 = value.  The same windows
+     by the region byte; aligned sb/sh/sw; everything else (GBA IO and the IO page, a misaligned store, any other address) takes RT_MEMWR's own body,
+     rebuilt here (h_memwr = HELP+4 through RT_CC) */
   ".globl wr_front\n.type wr_front,@function\n"
   "wr_front:\n"
-  " lui $1,0x8018\n"
-  " addiu $1,$1,-0x1000\n"
-  " subu $1,$24,$1\n"
-  " sltiu $1,$1,0x400\n"
-  " bne $1,$0,wr_slow\n"
   " srl $25,$24,24\n"
   " addiu $1,$25,-2\n"
   " beq $1,$0,wr_ew\n"
@@ -898,6 +894,7 @@ static const u32 dsp_keep[][2]={
   {0x80030028u,0x00400008u},{0x8003002cu,0x00000000u},     /* rt_miss_ret: jr $2; nop */
   {0x80030048u,0x00000000u},                               /* RT_MEMRD delay slot: nop */
   {0x8003004cu,0x0018ce02u},{0x80030050u,0x332100f9u},     /* ROM fast path: srl $25,$24,24; andi $1,$25,0xf9 (region test) */
+  {0x80030054u,0x38210008u},{0x80030060u,0x2f21000eu},     /*                xori $1,$1,8; past the test (D4's rd_front enters here): sltiu $1,$25,0xe */
   {0x80030078u,0x3c198002u},{0x8003007cu,0x3739a000u},     /*                la $25,ROMPG (0x8002a000) */
   {0x8003008cu,0x13200026u},{0x80030094u,0x33010fffu},     /*                beqz $25,RT_MEMRD_SLOW; andi $1,$24,0xfff */
   {0x8003009cu,0x2441fffcu},{0x800300a0u,0x1020000fu},     /* kind dispatch: addiu $1,$2,-4; beqz $1,lw */

@@ -11,7 +11,9 @@ layout, with no toolchain and no game data (it reads only the ELF):
   - every J word, completed with the upper 4 bits of the address it executes at, reaches the symbol it names;
   - the absolute jumps of the new code reach the blob's own stubs: rt_mcache RT_CC (0x80030150) with $28 = rt_miss_ret (0x80030028)
     and h_miss = HELP+8 (0x80028008) on its slow path; rd_front the kind dispatch (0x8003009c), RT_MEMRD_SLOW (0x80030128) and, with
-    D3, the ROM fast path (0x8003004c); wr_front RT_CC with h_memwr = HELP+4 (0x80028004);
+    D3, the ROM fast path, at its start (0x8003004c) or past its region test (0x80030060: then rd_front begins with that same test,
+    which leaves the region byte in $25); wr_front RT_CC with h_memwr = HELP+4 (0x80028004); both serve EWRAM and IWRAM themselves
+    (region bytes 2 and 3, host 0x801b0000 and 0x801f0000), everything else reaches those stubs;
   - the D1 table that rt_mcache reads lies in the reserved area below ROMPG (0x80028010..0x8002a000) and clear of the D2 queue;
   - no jump or branch sits in a delay slot, every branch stays inside its function, every word is an R3000A instruction.
 Exit status 0 when the ELF has no dispatch code or every check passes, 1 when a check fails, 2 when the input cannot be read.
@@ -29,6 +31,9 @@ _spec.loader.exec_module(mips1_lint)
 
 RT_MISS, RT_MISS_RET, RT_MEMRD, ROM_FAST, KIND, RT_MEMRD_SLOW, RT_MEMWR, RT_CC = (
     0x80030008, 0x80030028, 0x80030044, 0x8003004c, 0x8003009c, 0x80030128, 0x8003013c, 0x80030150)
+ROM_PAST = 0x80030060                        # the ROM fast path past its region test (sltiu $1,$25,0xe: $25 = the region byte)
+REGION_TEST = [0x0018ce02, 0x332100f9, 0x38210008]   # the fast path's region test: srl $25,$24,24; andi $1,$25,0xf9; xori $1,$1,8
+WINDOWS = {0x2721fffe, 0x2721fffd, 0x3c01801b, 0x3c01801f}   # addiu $1,$25,-2 / -3 (region bytes 2, 3); lui $1,0x801b / 0x801f (g2h bases)
 HELP_MEMRD, HELP_MEMWR, HELP_MISS = 0x80028000, 0x80028004, 0x80028008
 RESERVED = (0x80028010, 0x8002a000)          # free part of the reserved area (ROMPG starts at its end)
 D2_QUEUE = (0x80029400, 0x80029800)          # rt.c LQ: 64 x 16 B
@@ -177,17 +182,19 @@ def check(path: str) -> tuple[list[str], list[str]]:
                 fails.append('D1 table at %s is not 512 x 8 B inside the reserved area clear of the D2 queue' % [hex(t) for t in tables])
             report.append('  rt_mcache: D1 table 0x%08x..0x%08x' % (base, base + 4096))
     if has_d4:
-        rd_want = {KIND, RT_MEMRD_SLOW} | ({ROM_FAST} if ROM_FAST in targets['rd_front'] else set())
-        if targets['rd_front'] != rd_want:
+        rom = targets['rd_front'] & {ROM_FAST, ROM_PAST}
+        if len(rom) > 1 or targets['rd_front'] != {KIND, RT_MEMRD_SLOW} | rom:
             fails.append('rd_front jumps to %s, expected the kind dispatch, RT_MEMRD_SLOW (and the ROM fast path)' % sorted(map(hex, targets['rd_front'])))
-        d3 = ROM_FAST in targets['rd_front']
+        if ROM_PAST in rom and image.words(functions['rd_front'][0], 3) != REGION_TEST:
+            fails.append('rd_front enters the ROM fast path past its region test (0x%08x) without beginning with that test' % ROM_PAST)
+        d3 = bool(rom)
         if targets['wr_front'] != {RT_CC}:
             fails.append('wr_front jumps to %s, expected RT_CC 0x%08x only' % (sorted(map(hex, targets['wr_front'])), RT_CC))
         if (25, HELP_MEMWR) not in loads['wr_front']:
             fails.append('wr_front does not rebuild the HELP+4 load (0x%08x) of RT_MEMWR' % HELP_MEMWR)
         for name in ('rd_front', 'wr_front'):
-            if (1, 0x8017f000) not in loads[name]:
-                fails.append('%s does not test the IO page 0x8017f000 first' % name)
+            if not WINDOWS <= set(image.words(functions[name][0], functions[name][1] // 4)):
+                fails.append('%s does not serve EWRAM and IWRAM by the region byte (addiu $1,$25,-2 / -3, lui $1,0x801b / 0x801f)' % name)
     items = [label for label, on in (('D3', d3), ('D1', any(k == 'table' for k, _ in loads.get('rt_mcache', []))),
                                      ('D4', has_d4), ('D2', 'd2_linked' in symbols), ('D1CHK (test only)', 'h_mchk' in symbols)) if on]
     report.insert(0, '%s: dispatch boot patches %s: %d words' % (path, ' '.join(items) or '(none)', len(new)))

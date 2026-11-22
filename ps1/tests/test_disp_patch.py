@@ -62,6 +62,31 @@ def bne(rs, rt, skip):
     return 0x14000000 | rs << 21 | rt << 16 | (skip & 0xffff)
 
 
+def beq(rs, rt, skip):
+    """beq whose target is `skip` words after its delay slot"""
+    return 0x10000000 | rs << 21 | rt << 16 | (skip & 0xffff)
+
+
+def srl(rd, rt, sa):
+    return rt << 16 | rd << 11 | sa << 6 | 0x02
+
+
+def sll(rd, rt, sa):
+    return rt << 16 | rd << 11 | sa << 6
+
+
+def andi(rt, rs, imm):
+    return 0x30000000 | rs << 21 | rt << 16 | imm
+
+
+def xori(rt, rs, imm):
+    return 0x38000000 | rs << 21 | rt << 16 | imm
+
+
+def sltiu(rt, rs, imm):
+    return 0x2c000000 | rs << 21 | rt << 16 | imm
+
+
 def rt_mcache(table=0x80028400, cc=tool.RT_CC):
     hi, lo = (table + 0x8000) >> 16, (table - (((table + 0x8000) >> 16) << 16)) & 0xffff
     return [lui(25, hi), addu(2, 2, 25), lw(25, lo, 2), lw(2, lo + 4, 2), bne(25, 1, 2), lui(25, 0x8002),
@@ -71,16 +96,22 @@ def rt_mcache(table=0x80028400, cc=tool.RT_CC):
 
 
 def rd_front(d3=True):
-    words = [lui(1, 0x8018), addiu(1, 1, -0x1000), bne(1, 0, 4 if d3 else 2), NOP,
-             j(tool.KIND), NOP]
+    """the ROM region test first (to the fast path past it, D3), then EWRAM and IWRAM by the region byte, else RT_MEMRD_SLOW"""
+    words = [srl(25, 24, 24), andi(1, 25, 0xf9), xori(1, 1, 8), beq(1, 0, 13), addiu(1, 25, -2),     # ROM -> rd_rom (word 17)
+             beq(1, 0, 6), addiu(1, 25, -3), bne(1, 0, 11 if d3 else 9), andi(25, 24, 0x7fff),        # EWRAM -> rd_ew (12), else rd_slow
+             lui(1, 0x801f), j(tool.KIND), addu(25, 25, 1),                                         # IWRAM
+             sll(25, 24, 14), srl(25, 25, 14), lui(1, 0x801b), j(tool.KIND), addu(25, 25, 1)]       # rd_ew
     if d3:
-        words += [j(tool.ROM_FAST), NOP]
-    return words + [j(tool.RT_MEMRD_SLOW), NOP]
+        words += [j(tool.ROM_PAST), NOP]                                                             # rd_rom
+    return words + [j(tool.RT_MEMRD_SLOW), NOP]                                                      # rd_slow (= rd_rom without D3)
 
 
 def wr_front():
-    return [lui(1, 0x8018), addiu(1, 1, -0x1000), bne(1, 0, 2), NOP, jr(28), sw(3, 0, 25),
-            lui(25, 0x8002), ori(25, 25, 0x8004), lw(25, 0, 25), j(tool.RT_CC), NOP]
+    return [srl(25, 24, 24), addiu(1, 25, -2), beq(1, 0, 6), addiu(1, 25, -3), bne(1, 0, 10), andi(25, 24, 0x7fff),
+            lui(1, 0x801f), beq(0, 0, 5), addu(25, 25, 1),                                          # IWRAM -> wr_st (word 13)
+            sll(25, 24, 14), srl(25, 25, 14), lui(1, 0x801b), addu(25, 25, 1),                      # wr_ew
+            jr(28), sw(3, 0, 25),                                                                    # wr_st
+            lui(25, 0x8002), ori(25, 25, 0x8004), lw(25, 0, 25), j(tool.RT_CC), NOP]                # wr_slow
 
 
 def program(mc=True, d4=True, d3=True, d2=True, patch=None, edit=None):
@@ -180,13 +211,29 @@ class PatchCheckTests(unittest.TestCase):
 
     def test_memwr_fallback_rebuilds_help4(self):
         def edit(blocks):
-            blocks['wr_front'][7] = ori(25, 25, 0x8000)
+            blocks['wr_front'][blocks['wr_front'].index(ori(25, 25, 0x8004))] = ori(25, 25, 0x8000)
         self.assert_fails(program(edit=edit), 'HELP+4')
 
     def test_memrd_targets(self):
         def edit(blocks):
-            blocks['rd_front'][4] = j(tool.KIND + 8)
+            blocks['rd_front'][blocks['rd_front'].index(j(tool.KIND))] = j(tool.KIND + 8)
         self.assert_fails(program(edit=edit), 'rd_front jumps to')
+
+    def test_memrd_both_rom_entries(self):
+        def edit(blocks):
+            blocks['rd_front'][blocks['rd_front'].index(j(tool.KIND))] = j(tool.ROM_FAST)
+        self.assert_fails(program(edit=edit), 'rd_front jumps to')
+
+    def test_rom_past_needs_the_region_test_first(self):
+        def edit(blocks):
+            blocks['rd_front'][1] = andi(1, 25, 0xf8)
+        self.assert_fails(program(edit=edit), 'without beginning with that test')
+
+    def test_windows_by_the_region_byte(self):
+        for name in ('rd_front', 'wr_front'):
+            def edit(blocks, name=name):
+                blocks[name][blocks[name].index(lui(1, 0x801b))] = lui(1, 0x801c)
+            self.assert_fails(program(edit=edit), '%s does not serve EWRAM and IWRAM' % name)
 
     def test_mips2_word(self):
         def edit(blocks):
@@ -195,7 +242,7 @@ class PatchCheckTests(unittest.TestCase):
 
     def test_jump_in_a_delay_slot(self):
         def edit(blocks):
-            blocks['rd_front'][5] = j(tool.KIND)
+            blocks['rd_front'][4] = j(tool.KIND)        # the delay slot of the ROM test's beq
         self.assert_fails(program(edit=edit), 'delay slot')
 
     def test_branch_out_of_the_function(self):
@@ -229,6 +276,8 @@ class RuntimeSourceTests(unittest.TestCase):
         self.assertEqual(kept[0x80030140], ori(25, 25, 0x8004))                # RT_MEMWR: HELP+4 (the patched word's delay slot)
         self.assertEqual(kept[tool.RT_MEMRD_SLOW + 4], ori(25, 25, 0x8000))    # RT_MEMRD_SLOW: HELP+0
         self.assertEqual(kept[0x8003007c], ori(25, 25, 0xa000))                # ROM fast path: ROMPG 0x8002a000 (D3's rom_pg)
+        self.assertEqual([kept[0x8003004c], kept[0x80030050], kept[0x80030054]], tool.REGION_TEST)   # its region test
+        self.assertEqual(kept[tool.ROM_PAST], sltiu(1, 25, 0xe))                # past the test, where D4's rd_front enters
         self.assertIn(tool.KIND, kept)
         self.assertIn(tool.RT_CC, kept)
 
