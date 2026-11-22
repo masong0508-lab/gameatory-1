@@ -68,9 +68,13 @@ def capture(map_id, mode, phase, counts, *, source):
             'source': source, 'bytes_included': False}
 
 
-def summarize(records, budget4k=56):
+def summarize(records, budget4k=56, required_modes=()):
     if not isinstance(budget4k, int) or budget4k < 1 or budget4k > NPAGE:
         raise ValueError('invalid_budget')
+    for m in required_modes:
+        if not isinstance(m, str) or not MODE_RE.fullmatch(m) or m == 'unclassified':
+            raise ValueError('invalid_required_mode')
+    required_modes = sorted(set(required_modes))
     scenes = []
     combined = collections.Counter()
     by_scene = {}
@@ -95,6 +99,9 @@ def summarize(records, budget4k=56):
     ranked16 = [p for p, _ in sorted(aggregate16.items(), key=lambda kv: (-kv[1], kv[0]))]
     maps = sorted({r['map'] for r in scenes if r['phase'] != 'pre_level'})
     veh = sorted({r['mode'] for r in scenes if r['mode'].startswith('vehicle_')})
+    observed_pairs = {(r['map'], r['mode']) for r in scenes if r['phase'] != 'pre_level'}
+    missing_pairs = [{'map': mi, 'mode': mode} for mi in range(NMAP)
+                     for mode in required_modes if (mi, mode) not in observed_pairs]
     per_scene = []
     for (mi, mode, phase), counts in sorted(by_scene.items()):
         total = sum(counts.values())
@@ -106,6 +113,9 @@ def summarize(records, budget4k=56):
             'observed_map_ids': maps, 'missing_map_ids': sorted(set(range(NMAP)) - set(maps)),
             'observed_vehicle_descriptor_indices': veh,
             'complete_11_map_coverage': len(maps) == NMAP,
+            'required_modes': required_modes,
+            'missing_required_map_mode_pairs': missing_pairs,
+            'complete_required_map_mode_matrix': bool(required_modes) and not missing_pairs,
             'scenes': scenes, 'per_scene_candidate_read_share': per_scene,
             'warnings': ['No traffic/scene is certified unless its capture was observed.',
                          'CPU data read frequencies are not CD miss counts; validate with a temporal cache trace.',
@@ -118,11 +128,17 @@ def main(argv=None):
     ap.add_argument('--budget4k', type=int, default=56,
                     help='candidate 4 KiB resident pages (not a PS1 RAM allocation)')
     ap.add_argument('--require-11-maps', action='store_true', help='return nonzero unless all 11 map IDs measured')
+    ap.add_argument('--require-mode', action='append', default=[],
+                    help='observed mode required on EVERY map (repeat e.g. foot, vehicle_007)')
+    ap.add_argument('--require-complete-matrix', action='store_true',
+                    help='return nonzero unless every listed --require-mode is observed on every map')
     ap.add_argument('--output', type=Path, help='sanitized analysis JSON output')
     a = ap.parse_args(argv)
+    if a.require_complete_matrix and not a.require_mode:
+        ap.error('--require-complete-matrix needs at least one --require-mode')
     try:
         records = [json.loads(p.read_text(encoding='utf-8')) for p in a.captures]
-        report = summarize(records, a.budget4k)
+        report = summarize(records, a.budget4k, a.require_mode)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         ap.error(str(exc))
     text = json.dumps(report, indent=2, sort_keys=True) + '\n'
@@ -130,7 +146,9 @@ def main(argv=None):
         a.output.parent.mkdir(parents=True, exist_ok=True)
         a.output.write_text(text, encoding='utf-8')
     print(text, end='')
-    return 3 if a.require_11_maps and not report['complete_11_map_coverage'] else 0
+    incomplete = ((a.require_11_maps and not report['complete_11_map_coverage']) or
+                  (a.require_complete_matrix and not report['complete_required_map_mode_matrix']))
+    return 3 if incomplete else 0
 
 
 if __name__ == '__main__':
