@@ -222,7 +222,7 @@ int st_enter(void)
 {
     if (!st_ok())
         return 0;
-    if (!stw.cd)
+    if (!stw.cd || cp_ending())                          /* (the last ending card's A: ENTER FOX STATION always does) */
         go_room(R_HUB, R_HANGAR);
     return 1;
 }

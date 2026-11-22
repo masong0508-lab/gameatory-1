@@ -667,9 +667,9 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
             if (C.ending < CP_END_STATION)
                 C.ending++, C.end_at = s2f.ticks;
             else {
-                C.ending = 0;
                 if (st_enter)
-                    st_enter();
+                    st_enter();           /* (with the card still up: the station takes it in at once, door hold or not) */
+                C.ending = 0;
             }
         }
         return 1;                 /* the dismissing press cannot also buy, launch or enter a station terminal */

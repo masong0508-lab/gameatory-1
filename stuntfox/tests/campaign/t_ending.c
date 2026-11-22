@@ -12,7 +12,7 @@ S2Frame s2f;
 u8 cpm_rampage, cpm_was_rampage;
 s16 cpm_sub, cpm_map, cpm_trophies[6];
 s32 cpm_num_last = -1;
-static int docks, rooms, armed, paid, checks, has_station = 1, text_count;
+static int docks, rooms, armed, paid, checks, has_station = 1, text_count, entered_on;
 static int device_mode;
 static u8 native_eeprom[8192];
 static SgProgress ship_progress;
@@ -38,7 +38,7 @@ int sg_credits(void) { return ship_progress.credits; }
 void sg_unlock_paint(int n) { ship_progress.paints |= 1 << n; }
 void s2_progress_keep(void) {}
 void s2_dock_start(void) { docks++; s2f.mode = FLY; s2f.docked = 1; }
-int st_enter(void) { if (has_station) rooms++; return has_station; }
+int st_enter(void) { entered_on = cp_ending(); if (has_station) rooms++; return has_station; }
 int st_active(void) { return rooms != 0; }
 void st_chal_done(int c, int o) {}
 void pl_drop_begin(int map, int x, int y) {}
@@ -163,6 +163,7 @@ int main(void)
     age(); cp_dock_keys(KEY_A, KEY_A, 1); CHECK(cp_ending() == CP_END_STATION);
     card(); CHECK(seen("WELCOME HOME, FOX") && seen("TRY SPACE WALKS ON THE NAV BOARD."));
     age(); CHECK(cp_dock_keys(KEY_A, KEY_A, 1) == 1 && rooms == 1 && !cp_ending());
+    CHECK(entered_on == CP_END_STATION);  /* (asked with the card still up: the station's door hold does not apply to it) */
     for (int i = 0; i < 20; i++) age();
     CHECK(docks == 1 && !pbm.level_end && cp_postgame());
     cp_ev(EV_MIS_DONE, 3, 20); age();
