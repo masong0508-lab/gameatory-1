@@ -31,6 +31,7 @@
 #define DOOR_CD 40                 /* ticks after a room change before a door may be taken */
 #define MSG_TICKS 180
 #define PAN 12                     /* ticks a page stays as it is (no more than two or three flashes a second at the fastest button) */
+#define TURN 60                    /* ... and the Nav board's HOLO MAP or SPACE WALKS, after LEFT RIGHT turned one into the other (a second) */
 #define ROWS 7                     /* lines a list shows */
 
 StState stw;
@@ -717,20 +718,22 @@ static int tick2(u16 hit, u16 keys)
     return 1;
 }
 
-/* a full-screen page that comes and goes at the speed of a mashed button would flash: a page is held for PAN ticks, and the keys that
-   would open, close or choose in it wait (the D-pad inside it does not) */
+/* a full-screen page that comes and goes at the speed of a mashed button would flash: a page is held for PAN ticks when it opens,
+   closes or gives way to another, and the keys that would open, close, choose or turn a page wait (UP DOWN inside it do not). The
+   Nav board's two pages are held for TURN: SPACE WALKS is dark from edge to edge and the HOLO MAP shows the room round its box, so
+   LEFT RIGHT mashed there would swap two fifths of the screen between light and dark (with TURN, once a second at most) */
 int st_tick(u16 hit, u16 keys)
 {
     if (!st_ok() || stw.room == R_HANGAR || !s2f.docked)
         return 0;
-    int open = stw.term != 0;
+    int was = stw.term;
     if (stw.pan) {
         stw.pan--;
-        hit &= open ? ~(KEY_A | KEY_B | KEY_L) : ~(KEY_A | KEY_L);
+        hit &= was ? ~(KEY_A | KEY_B | KEY_L | KEY_LEFT | KEY_RIGHT) : ~(KEY_A | KEY_L);
     }
     int r = tick2(hit, keys);
-    if ((stw.term != 0) != open)
-        stw.pan = PAN;
+    if (stw.term != was)
+        stw.pan = (was == T_MAP && stw.term == T_EVA) || (was == T_EVA && stw.term == T_MAP) ? TURN : PAN;
     return r;
 }
 
