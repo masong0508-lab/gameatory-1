@@ -19,10 +19,14 @@ PARK = (range(40, 80), range(24, 44))      # the stunt park block stays as it is
 
 
 def _kind(col):
+    # Traffic bits indicate drivable lanes even where the street is raised.
+    # Check before elevation so elevated roads are never swallowed by scenery.
+    if col[3] & 0x0f:
+        return '+'
     h0, h1, shape = struct.unpack_from('<HHB', col, 4)
     if h0 != G or h1 != G:
         return '#'
-    return '+' if col[3] & 0x0f else ':' if col[3] & 0x20 else '.'
+    return ':' if col[3] & 0x20 else '.'
 
 
 def building(h, top, side):
