@@ -111,6 +111,16 @@ def main():
     # executes. Atlas integration is covered by the explicit content tools.
     with tempfile.TemporaryDirectory(prefix="stuntfox-check-atlas-") as atlas:
         env["SF_ATLAS_CACHE"] = atlas
+        if args.rom and any(group == "stuntfox" for group, *_ in selected):
+            # The shipped-content cases skip without an atlas cache, and the cache
+            # above starts empty. Compile the content against the supplied ROM first:
+            # that validates it and fills the temporary cache, so --rom runs them.
+            at = next(i for i, gate in enumerate(selected)
+                      if gate[1] == "Campaign content validators")
+            selected.insert(at, ("stuntfox", "Campaign content compiled against the original ROM",
+                                 ROOT / "stuntfox",
+                                 [PYTHON, "tools/content/sfc.py", "check",
+                                  "--rom", str(rom), "--cache", atlas]))
         for group, label, cwd, command in selected:
             print(f"\n=== {label} ===", flush=True)
             started = time.monotonic()
