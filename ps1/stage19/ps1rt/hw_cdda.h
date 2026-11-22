@@ -34,6 +34,14 @@
 #ifndef CDDA_WD
 #define CDDA_WD 30u                /* guest frames between two Getstat checks of music that should be playing */
 #endif
+#ifdef CDDA_DATARADIO
+/* TEST ONLY, for the data-track test discs (no audio track): the radio's track 2 is the data track itself, played, paused, located and
+   resumed like music (Play, Pause, GetlocP, Setloc + Play) with the SPU's CD input muted, so the hold / resume cycle, its spindle speed
+   changes and its seeks run on a disc that has no music.  cdda_init then reports 2 tracks.  Never in a release build. */
+#define CDDA_PT(t) ((t)==2u?1u:(t))
+#else
+#define CDDA_PT(t) (t)
+#endif
 u32 (*cdda_nextfn)(u32 cur); u32 cdda_last, cdda_cur, cdda_playing, cdda_held, cdda_loop, cdda_cmds, cdda_resumes, cdda_holds, cdda_pos_ok,
     cdda_pos_rej, cdda_pos_trk, cdda_pos_idx, cdda_rel_s, cdda_rel_f, cdda_abs[3], cdda_t0, cdda_t1, cdda_quiet=CDDA_QUIET, cdda_gf, cdda_rfail,
     cdda_lost, cdda_wd_gf, cdda_wd_n; u8 cdda_stat;
@@ -46,10 +54,14 @@ static u32 cdda_msf(u32 m,u32 s,u32 f){ return unbcd(m)*4500+unbcd(s)*75+unbcd(f
 void cdda_init(void){
   SPU16(0x1F801DAA)=0xC001; SPU16(0x1F801D80)=0x3fff; SPU16(0x1F801D82)=0x3fff; SPU16(0x1F801DB0)=0x7fff; SPU16(0x1F801DB2)=0x7fff;   /* SPU on, unmuted, CD input on */
   CD0=2; CD2=0x80; CD3=0x00; CD0=3; CD1=0x80; CD2=0x00; CD3=0x20;                                                         /* CD L->L, R->R full, apply */
-  u8 r[8]; if(cdc(0x13,0,0,r)==3) cdda_last=unbcd(r[2]); else cdda_last=1; }
+  u8 r[8]; if(cdc(0x13,0,0,r)==3) cdda_last=unbcd(r[2]); else cdda_last=1;
+#ifdef CDDA_DATARADIO
+  if(cdda_last<2){ cdda_last=2; SPU16(0x1F801DB0)=0; SPU16(0x1F801DB2)=0; }
+#endif
+}
 /* start a track from its beginning.  GetTD gives the track's range for the GetlocP check (start of index 1 rounded down to the second, so the range
    begins inside the track's own 2-second pregap; the next track's start, or the end of the disc).  The saved position is the track start. */
-void cdda_play(u32 trk){ if(trk<2||trk>cdda_last) return; u8 p=bcd(trk), q=bcd(trk<cdda_last?trk+1:0), r[8];
+void cdda_play(u32 trk){ if(trk<2||trk>cdda_last) return; u8 p=bcd(CDDA_PT(trk)), q=bcd(trk<cdda_last?trk+1:0), r[8];
   u32 t0=0, t1=0xffffffffu; if(cdc(0x14,&p,1,r)==3){ u32 a=cdda_msf(r[1],r[2],0); if(cdc(0x14,&q,1,r)==3){ t0=a; t1=cdda_msf(r[1],r[2],0); } }
   cdda_setmode(0x03); u32 rc=cdc(0x03,&p,1,0); dbg("CDDA play cmd 0x03 track "); dec(trk); dbg("int "); dec(rc); dbg("\n");
   if(rc==3){ cdda_cur=trk; cdda_playing=1; cdda_held=0; cdda_ended=0; cdda_t0=t0; cdda_t1=t1; cdda_pos_ok=0; cdda_pos_trk=trk; cdda_pos_idx=1;
@@ -67,7 +79,7 @@ void cdda_hold(void){ if(!cdda_playing||cdda_held) return;
 #endif
   if((st&0xc0)!=0x80) return;                                           /* still seeking (Pause could fail with INT5), or not playing (AutoPause) */
   if(cdc(0x11,0,0,r)==3){ u32 a=cdda_msf(r[5],r[6],r[7]);
-    if(unbcd(r[0])==cdda_cur&&r[1]>=1&&r[1]<=0x99&&a>=cdda_t0&&a<cdda_t1){ cdda_pos_ok=1; cdda_pos_trk=cdda_cur; cdda_pos_idx=unbcd(r[1]);
+    if(unbcd(r[0])==CDDA_PT(cdda_cur)&&r[1]>=1&&r[1]<=0x99&&a>=cdda_t0&&a<cdda_t1){ cdda_pos_ok=1; cdda_pos_trk=cdda_cur; cdda_pos_idx=unbcd(r[1]);
       cdda_rel_s=unbcd(r[2])*60+unbcd(r[3]); cdda_rel_f=unbcd(r[4]); cdda_abs[0]=r[5]; cdda_abs[1]=r[6]; cdda_abs[2]=r[7]; }
     else cdda_pos_rej++; }
   cdc2(0x09,0,0); }                                                     /* Pause: INT3, INT2 */
@@ -77,7 +89,7 @@ static void cdda_release(void){ if(!cdda_held) return; cdda_gf=g_gframes; cdda_w
   cdda_setmode(0x03); cdda_resumes++;
   u32 rc;
   if(cdda_pos_ok){ u8 p[3]={cdda_abs[0],cdda_abs[1],cdda_abs[2]}; rc=cdc(0x02,p,3,0); if(rc==3) rc=cdc(0x03,0,0,0); }   /* Setloc + Play from there */
-  else { u8 p=bcd(cdda_cur); rc=cdc(0x03,&p,1,0); }                                                                    /* Play(track): its start */
+  else { u8 p=bcd(CDDA_PT(cdda_cur)); rc=cdc(0x03,&p,1,0); }                                                                    /* Play(track): its start */
 #ifdef CDDA_DBG
   dbg("CDDA resume pos "); dec(cdda_pos_ok); hex((u32)cdda_abs[0]<<16|cdda_abs[1]<<8|cdda_abs[2]); dbg("int "); dec(rc); dbg("stat "); hex(cdda_stat); dbg("gf "); dec(g_gframes); dbg("\n");
 #endif
