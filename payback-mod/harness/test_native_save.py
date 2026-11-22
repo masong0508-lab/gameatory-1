@@ -29,6 +29,21 @@ def checksum(data):
     return hashlib.sha256(data).hexdigest()
 
 
+# The game's own "one carjacking committed" message, matched by its sha256 so
+# the repository does not quote the game's text (26 bytes, starts with 'Y').
+CARJACK_MESSAGE_SHA256 = '08f441246d3aa8128999e35e445b8c45f3f188305f0176cb2579c6bc6ab5e284'
+CARJACK_MESSAGE_LEN = 26
+
+
+def holds_message(data, digest=CARJACK_MESSAGE_SHA256, length=CARJACK_MESSAGE_LEN, first=0x59):
+    start = data.find(bytes([first]))
+    while 0 <= start <= len(data) - length:
+        if checksum(data[start:start + length]) == digest:
+            return True
+        start = data.find(bytes([first]), start + 1)
+    return False
+
+
 def profile(game):
     name = game.read(PROFILE_NAME, 24).split(b'\0', 1)[0].decode('ascii')
     return {'name': name, 'carjackings': game.u32(CARJACKINGS)}
@@ -86,7 +101,7 @@ def worker(args):
             result['after_quit_profile'] = profile(game)
             result['quit_changed_native_save'] = game.mem(0) != created
             result['quit_save_sha256'] = checksum(game.mem(0))
-            result['game_acknowledged_carjacking'] = b'You committed 1 carjacking' in game.mem(2)
+            result['game_acknowledged_carjacking'] = holds_message(bytes(game.mem(2)))
             game.shot(folder / '02-after-quit.png')
             game.press('UP', hold=16, after=30)  # Game Menu wraps to End game.
             game.press('A', hold=16, after=240)
