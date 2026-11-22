@@ -146,8 +146,19 @@ b9() { step "b9 the two discovery runs in the 16 MiB unicorn simulator (THE LONG
   else
     rm -f out/touched_f1.pkl out/touched_f1.pkl.rompages out/touched_f1_boot.pkl out/touched_f1_boot.pkl.rompages
     TOUCH_FROM=level python3 t/snapdump.py f1 60 $FRAMES out/SNAPST_f1.BIN out/touched_f1.pkl > out/snapdump_f1.log 2>&1 &
+    level_pid=$!
     TOUCH_FROM=boot python3 t/snapdump.py f1 60 $FRAMES out/SNAPST_f1_boot.BIN out/touched_f1_boot.pkl > out/snapdump_f1_boot.log 2>&1 &
-    wait
+    boot_pid=$!
+    # Bare `wait` returns 0 even if one of several children fails. Keep both
+    # exit codes; do not publish a snapshot merely because a failed simulator
+    # wrote its output file before exiting with an exception.
+    level_status=0; boot_status=0
+    wait "$level_pid" || level_status=$?
+    wait "$boot_pid" || boot_status=$?
+    if [ "$level_status" -ne 0 ] || [ "$boot_status" -ne 0 ]; then
+      echo "simulator run failed: level exit $level_status, boot exit $boot_status; see out/snapdump_f1*.log" >&2
+      exit 4
+    fi
     # expect in both logs:  LEVEL clock runs at gba frame 1103 map 0 / SNAPSHOT at gba frame 1165.7 / done frame 1501.70...
     # expect: touched guest instr-labels 4949 (level run) and 9006 (boot run); no line starting with "exc"
     grep -hE "^LEVEL|^SNAPSHOT|^done frame|^touched|^exc" out/snapdump_f1.log out/snapdump_f1_boot.log | cut -c1-110 || true
@@ -201,3 +212,4 @@ hashes() { step "hashes: every file of private_inputs.sha256 that exists under T
 
 for s in $STEPS; do case $s in b0|b1|b2|b3|b4|b5|b6|b7|b8|b9|b10|b11|b12|hashes) $s ;; *) echo "unknown step $s" >&2; exit 2 ;; esac; done
 echo; echo "Track B steps done: $STEPS"
+
