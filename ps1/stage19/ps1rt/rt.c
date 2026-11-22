@@ -249,7 +249,7 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   u8 *d=pool_frame(f);
   cd_read(CD_ROM_LBA+pg*2,2,d);
   fr_pg[f]=pg+1; rom_pg[pg]=d; rom_ref[pg]=1;
-  if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1;     /* slot_owner (page+1 per slot) stays the rig's view of the 8 slots; fr_pg holds every frame of the pool */
+  if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1;     /* nothing reads slot_owner in this mode, so the compiler drops it with its stores (no such symbol in rc7): the rig reads the pool from fr_pg and pool_rp (STATUS.md, rc7) */
   rom_miss_count++; rom_miss_last=pg<<12;
   return d;
 }
