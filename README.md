@@ -84,10 +84,12 @@ allocation and remaining ROM space.
 The same command runs the ROM-free regression gates locally and in GitHub
 Actions. It covers the Payback mod, Stunt Fox's content/arena generators,
 campaign save recovery, mission VM and radio, and PS1 build integrity.
-Install Python 3, Pillow, GCC, Clang/LLD/LLVM 19, and `patch`. CI uses Ubuntu
-24.04 and LLVM 19 so compiler changes cannot silently alter the RAM budgets.
+Install Python 3, GCC, Clang/LLD/LLVM 19, and `patch`, then install the Python
+build dependencies below (NumPy and Pillow). CI uses Ubuntu 24.04 and LLVM 19
+so compiler changes cannot silently alter the RAM budgets.
 
 ```sh
+python3 -m pip install -r stuntfox/requirements.txt
 python3 tools/check.py --report test-results.json
 ```
 

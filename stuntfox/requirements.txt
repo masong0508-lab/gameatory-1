@@ -1,0 +1,3 @@
+# Base world, planet and image build tools; SciPy is optional for remix audio.
+numpy
+Pillow

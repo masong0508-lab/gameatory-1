@@ -13,13 +13,19 @@ Two ways to play it, both built from your own Payback ROM:
 
 ## Stunt Fox x Payback
 
+From this directory, install the base Python dependencies (NumPy and Pillow)
+with `python3 -m pip install -r requirements.txt`. The compiler tools are Clang,
+LLD, LLVM objcopy and LLVM nm; the validated version is LLVM 19. SciPy is an
+additional, optional dependency for rendering remix audio.
+
     python3 build.py "Payback (Europe) (En,Fr,De,Es,It).gba" --merge -o stuntfox-payback.gba --bps stuntfox-payback.bps
 
 The build patches a copy of the ROM; the `.bps` patch applies to the untouched Payback ROM.
 The car radio also plays our remixes of Payback's songs 1, 2 and 4 (a 32 MiB ROM): they are
 rendered from your ROM by `tools/music` at build time, which needs numpy and scipy and takes a
-few minutes the first time (cached in `build/radio`). `--no-remixes` builds without them, as
-does a machine without numpy or scipy; the radio then plays Payback's own songs.
+few minutes the first time (cached in `build/radio`). `--no-remixes` skips rendering
+them and needs no SciPy; the radio then plays Payback's own songs. NumPy remains
+required by the world and planet tools, including builds without remixes.
 The same way the title song (Payback's song 0: the title, the menus, a few vehicles' radios) becomes a nu metal remix that
 loops with no seam, and the credits play a djent remix (each rendered once, about four minutes, cached too; two more streams
 at 0x09500000 of the cartridge, 5 MiB; the build stops with an error if they ever outgrow it). GAME SETTINGS has a "Title music" line,
@@ -168,7 +174,7 @@ Payback ROM at build time**. No ROM data is stored in this repository.
 
 ### Build
 
-Needs Python 3, Pillow, and Clang/LLD/LLVM 19 (`clang`, `ld.lld`,
+Needs Python 3, NumPy, Pillow, and Clang/LLD/LLVM 19 (`clang`, `ld.lld`,
 `llvm-objcopy` and `llvm-nm` on PATH; no devkitARM).
 
     python3 build.py "Payback (Europe) (En,Fr,De,Es,It).gba" -o stuntfox.gba

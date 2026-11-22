@@ -1,7 +1,7 @@
 """Builds Stunt Fox: python3 build.py "Payback (Europe) (En,Fr,De,Es,It).gba" -o stuntfox.gba
 
 The Payback ROM provides the city layout (and the cartridge logo); it is read, never copied
-into this repository. Needs clang and ld.lld.
+into this repository. Needs Clang/LLD/LLVM tools, NumPy and Pillow.
 
 With --merge it builds Stunt Fox into Payback itself instead: the output is the player's own
 Payback ROM, patched so that Payback's game runs as before but Stunt Fox draws the world
@@ -576,7 +576,7 @@ if __name__ == '__main__':
     ap.add_argument('--merge', action='store_true', help='build Stunt Fox into Payback itself')
     ap.add_argument('--bps', help='with --merge: also write a BPS patch for the Payback ROM')
     ap.add_argument('--no-remixes', action='store_true', help="with --merge: the radio plays Payback's own songs "
-                    'only (no remixes to render: quicker, needs no numpy or scipy)')
+                    'only (no remixes to render: quicker, needs no scipy)')
     ap.add_argument('--radio-edits', metavar='DIR', help="with --merge: the folder of your MP3 files of the tracker-module "
                     "remixes (the names tools/radedits.py lists; needs ffmpeg, numpy and scipy): each one found becomes a short radio "
                     "edit, a song of the car radio that ends (tools/radedits.py says where it is cut). A file that is missing, or "

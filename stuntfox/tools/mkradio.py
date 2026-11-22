@@ -5,8 +5,9 @@ Everything is made from the player's own ROM at build time: tools/music/remix_so
 the remixes (minutes each, all three at once, so the renders are kept under build/radio/, keyed
 by a hash of the ROM and of every script in tools/music), and the streams are encoded from those
 renders. None of it is ever in this repository. The renders need numpy and scipy (tools/music);
-without them, or with --no-remixes, the build goes on without remixes (Unavailable) and the
-radio plays Payback's own songs.
+without SciPy, or with --no-remixes, the build goes on without remixes (Unavailable) and
+the radio plays Payback's own songs. The complete game build still needs NumPy for its
+world and planet tools; only this radio subsystem can fall back without NumPy.
 
 Each remix is mixed to mono, resampled to Payback's mixing rate (16777216 / 699 = 24001.7 Hz;
 24002 Hz here, 11 ppm off), set to the loudness of its own original as Payback plays it (both

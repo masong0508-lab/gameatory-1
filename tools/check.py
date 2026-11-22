@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -81,6 +82,12 @@ def main():
     missing = sorted(tool for tool in required if shutil.which(tool) is None)
     if missing:
         parser.error("missing required tools: " + ", ".join(missing))
+    if any(group == "stuntfox" for group, *_ in selected):
+        missing_modules = [name for name in ("numpy", "PIL")
+                           if importlib.util.find_spec(name) is None]
+        if missing_modules:
+            parser.error("missing Python modules: " + ", ".join(missing_modules)
+                         + "; install with python3 -m pip install -r stuntfox/requirements.txt")
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env.pop("PAYBACK_ROM", None)
