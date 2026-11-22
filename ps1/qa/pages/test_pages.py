@@ -40,6 +40,18 @@ class PageTests(unittest.TestCase):
         self.assertEqual(len(rep['observed_map_ids']),11)
         self.assertEqual(rep['observed_vehicle_descriptor_indices'],[])
 
+    def test_required_per_map_mode_matrix_cannot_be_faked_by_any_map_run(self):
+        samples=[capture(mi,'unclassified','combined',{mi:5},source='synthetic') for mi in range(11)]
+        rep=summarize(samples,budget4k=11,required_modes=['foot','vehicle_007'])
+        self.assertTrue(rep['complete_11_map_coverage'])
+        self.assertFalse(rep['complete_required_map_mode_matrix'])
+        self.assertEqual(len(rep['missing_required_map_mode_pairs']),22)
+        samples=[capture(mi,mode,'play',{mi:5},source='synthetic')
+                 for mi in range(11) for mode in ('foot','vehicle_007')]
+        rep=summarize(samples,budget4k=11,required_modes=['foot','vehicle_007'])
+        self.assertTrue(rep['complete_required_map_mode_matrix'])
+        self.assertEqual(rep['missing_required_map_mode_pairs'],[])
+
     def test_16k_aggregation(self):
         cap=capture(0,'vehicle_007','play',{0:10,1:20,4:5},source='synthetic')
         rep=summarize([cap],budget4k=2)
