@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "profile": "stage16-18-source",
+  "profile": "stage16-19-source",
   "base_commit": "109c747067bc4ab6ced2d9713656c658f00c9441",
-  "description": "ROM-free source assembly; translated guest, extracted world data and disc are generated separately.",
+  "description": "ROM-free source assembly; translated guest, extracted world data and disc are generated separately. stage19: accurate-hardware fixes (GPU handshake, CD driver, pad, start-up state) and the measured CD page cache.",
   "files": [
     {
       "source": "PREPARED.md",
       "target": "README.md",
-      "sha256": "ee0aedea060a1a78869cd2be07b4fe6a22b7d761172fdf8f70ede61391738771"
+      "sha256": "7f3cc8d65819d8e0ed83a7f0667058301dcbc5cabd5d49d8ad45945e65f25e7d"
     },
     {
       "source": "stage7/integration/armdec.py",
@@ -145,14 +145,14 @@
       "sha256": "8b64c0e0165f6853c962549838c37af46d6bb0e522f74693f5692f09000d5236"
     },
     {
-      "source": "stage16/merge/ps1rt/build.sh",
+      "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "811ca72551e1d6a7728633f4b5948f96d7c27b856c1082e7b0d1a0b036eb3e11"
+      "sha256": "2797bf1324a79b7be50590a08e509eafef257c74aae86d3830e029d0616036f8"
     },
     {
-      "source": "stage7/integration/ps1rt/crt0.s",
+      "source": "stage19/ps1rt/crt0.s",
       "target": "ps1rt/crt0.s",
-      "sha256": "e34c423be31e85d5193f9cf9e2cbc396ea88e836fc2307e62d07242f26715327"
+      "sha256": "e79650f78bf7f565f3d10b6d5f74d101aa2b588ccdf278ade07a408aa200ca90"
     },
     {
       "source": "stage7/integration/ps1rt/font.h",
@@ -165,14 +165,14 @@
       "sha256": "0cfdbd4633d4282111f4d01a3273e227ca2988be9825f144149d80d914e43af7"
     },
     {
-      "source": "stage7/integration/ps1rt/hw_cdda.h",
+      "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "374478d1caa86a167fc1738e4de53e01109ab72e32aebcfc1c4753953c859470"
+      "sha256": "5492d82e6bd25e130723cc28ef267baf333a53dbbc22be11684bb7577273c172"
     },
     {
-      "source": "stage16/merge/ps1rt/hw_pad.h",
+      "source": "stage19/ps1rt/hw_pad.h",
       "target": "ps1rt/hw_pad.h",
-      "sha256": "d161113bd6229ae7d3aaca7afaf3c5460c4348ad59c33a224a398b4acb4037e0"
+      "sha256": "c785998b9013dabda278950c75a587c28cb0adc62477490861cda221c9af30a9"
     },
     {
       "source": "stage16/merge/ps1rt/hw_radio.h",
@@ -195,9 +195,9 @@
       "sha256": "4077312f765727e073ce8dfbc59217f0f698ef9302628217f1f8f8d1a09ca2df"
     },
     {
-      "source": "stage16/merge/ps1rt/ppu12.h",
+      "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "bc9d7fba823fa0c1f28af6aeb28609ed8b91d7d09a4a95bf42abeac993861703"
+      "sha256": "69ab96b74aa51bf93c36befa66756d4044df1c741f9e0404aed47bea7e2439db"
     },
     {
       "source": "stage16/merge/ps1rt/ps1.ld",
@@ -215,9 +215,9 @@
       "sha256": "974d94548d2bd7a28a5a79832012cca4ea7636af21c72b909da7c7abd6e01f24"
     },
     {
-      "source": "stage16/merge/ps1rt/rt.c",
+      "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "1626eb6637493e326a03a46605e3352cc3206b386e1a19b73e5664b870dce44e"
+      "sha256": "1ffa38146646daabd1573dae7325b5837f322a427ea691229c307e24faa85699"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -230,9 +230,9 @@
       "sha256": "d00900a479b628d85268b97cd0b87df55d1aaa0f9326bb6ece973d4f74f7f731"
     },
     {
-      "source": "stage7/integration/rd/ps1.h",
+      "source": "stage19/rd/ps1.h",
       "target": "rd/ps1.h",
-      "sha256": "37888df760eeacc43b8445a6de54f078bdf3dc288cc0bae2b02060e6b0f3f1f0"
+      "sha256": "d17ba704135a06818ce6f020acc8f54bfe908216d515008692ac68b6d34ea7d7"
     },
     {
       "source": "stage7/integration/rd/ragdoll_ps1.c",
@@ -315,14 +315,14 @@
       "sha256": "1123393360f909b976df73808e7fc6054bd66ca6c20127e2870a3a26da08a9d6"
     },
     {
-      "source": "stage7/integration/sf/ps1.h",
+      "source": "stage19/sf/ps1.h",
       "target": "sf/ps1.h",
-      "sha256": "6673fe87684efd9a5b1cc3afed25319c532ed9215fb020cc4825828c11681234"
+      "sha256": "815ef9581eb356f6b8250506f54ae8ed86a532f6c46d617f7468eea731d5b806"
     },
     {
-      "source": "stage16/merge/sf/sf3.c",
+      "source": "stage19/sf/sf3.c",
       "target": "sf/sf3.c",
-      "sha256": "32e2ef61dcbf7a7956b313bbb0002e30d3676b31b4c3f319e8b9c5b5a16d7001"
+      "sha256": "4177396a01a88d847743b79e8f11399e56f2e57dd3f93e615f64482e7e526a96"
     },
     {
       "source": "stage7/integration/sf/sf3_head.c",
@@ -365,9 +365,9 @@
       "sha256": "958c5e486b5ee30b1e55546bd26ee176bd5998061fc92e732b2f27bfed7de6af"
     },
     {
-      "source": "stage16/merge/t/disc7.sh",
+      "source": "stage19/t/disc7.sh",
       "target": "t/disc7.sh",
-      "sha256": "e6306a8fcc135c97430ebf04114a43bb4349a12ffb9e5686a64832f894a9bc34"
+      "sha256": "d36f4b708d1fdc418a67e95fc82088c5db3c6d3459ad5d9d0f5bb2cded6f8126"
     },
     {
       "source": "stage7/integration/t/f1_variants.sh",
@@ -375,9 +375,9 @@
       "sha256": "f7bb559c968cfcb1998b3e65db7ca8bad6a5484baad96580afff364057d85aad"
     },
     {
-      "source": "stage7/integration/t/final.sh",
+      "source": "stage19/t/final.sh",
       "target": "t/final.sh",
-      "sha256": "c44a3d6df87e4ac168c3bd70ca8644ef5dde5bd9913d495033dea666937153da"
+      "sha256": "abc06517fdc765ff0fa12a6db8a265f5d2ce0b329dbb88f52ae9b63918677d3b"
     },
     {
       "source": "stage7/integration/t/mk_disc.sh",
@@ -395,9 +395,9 @@
       "sha256": "2f29f2272bb318b4b4c1572d07351e212e0d14be06405a4daace16a6c165450c"
     },
     {
-      "source": "stage7/integration/t/mkrompages.py",
+      "source": "stage19/t/mkrompages.py",
       "target": "t/mkrompages.py",
-      "sha256": "e4e9509cd165de5dd82ca65cbf6977e7e00fb33936b0259f99317e80208e7bb3"
+      "sha256": "4b7b37f91db76d39c8f976689538faac4639a3ef94708a1f592944a34e9be1a7"
     },
     {
       "source": "stage16/merge/t/mksim13.sh",
@@ -510,9 +510,9 @@
       "sha256": "eb44eae63c1ec4ecc5119ca0ef06125178aa9c4959aa2164af3f805ba7109cf6"
     },
     {
-      "source": "stage16/merge/tools12/build.sh",
+      "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "ee743089b21eddd82a855f3f869878a502b10b5f225936ee814818b7fd00704f"
+      "sha256": "f772a945bedfa54bdf4efb797f11bb61e7e3d1c36250031a3d848e5714e707da"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -748,6 +748,21 @@
       "source": "stage7/integration/tools7/mksf3.py",
       "target": "tools7/mksf3.py",
       "sha256": "59b910b00642b2e8e5deb7ead3047d2ca5984fcc06e18fb80561c8e40aec97c4"
+    },
+    {
+      "source": "stage19/t/resident62.txt",
+      "target": "t/resident62.txt",
+      "sha256": "f34735438105c2667c4b82b106b4cb6de28ccb0d75e78828466ee94c27a93fe0"
+    },
+    {
+      "source": "stage19/tools12/build_test_assist.sh",
+      "target": "tools12/build_test_assist.sh",
+      "sha256": "1f87f4e8bfe5895dc702adbaf3607044abce5a63158102fd7bb908e3575ac934"
+    },
+    {
+      "source": "tools/mips1_lint.py",
+      "target": "tools/mips1_lint.py",
+      "sha256": "e58c48380c1b8d1dd397ee494d0f0b74b0930790ad332abc15ed003a1566d2e8"
     }
   ],
   "patches": [
@@ -764,20 +779,6 @@
       "sha256": "a7275c0ed905890a2e19e78c9ea1d42292f7272d955ef3aa4cafc7f151ca0bcc",
       "input_sha256": "95b20465409b77c823b71b461f40dde8d9f0b2ebb130d47a9765d32d15286530",
       "result_sha256": "d6a4c68c240265d71c78fcb2c8689be8d89086ebc2b8470907fed985e66d837d"
-    },
-    {
-      "source": "patches/stage17-runtime-on-stage16.patch",
-      "target": "ps1rt/rt.c",
-      "sha256": "2168e17d062f08ef196d662f80f59dba6f0786967ad1e0a5fed7700f462e57d0",
-      "input_sha256": "1626eb6637493e326a03a46605e3352cc3206b386e1a19b73e5664b870dce44e",
-      "result_sha256": "3930a5ebfee3ef29023b7d65c09659192cad8710a0c9299b9b78e52fa442067a"
-    },
-    {
-      "source": "patches/stage17-renderer-on-stage16.patch",
-      "target": "sf/sf3.c",
-      "sha256": "1159161da6be6b51766d878a33f8e165bbad6a1d5d7edd0c230ff3f2d3a74746",
-      "input_sha256": "32e2ef61dcbf7a7956b313bbb0002e30d3676b31b4c3f319e8b9c5b5a16d7001",
-      "result_sha256": "c950be6a84ab55f4c76b2ea0aa9d13872dd8a45fcd2fa9da7dcd4a740d205d3e"
     },
     {
       "source": "stage18/models/models.h.patch",

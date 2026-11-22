@@ -1,7 +1,9 @@
 # Prepared Payback PS1 sources
 
 This is the source assembly of the stage16 runtime with the stage17 model/tree
-changes and stage18 model refinements. `SOURCE_MANIFEST.json` records its exact
+changes, stage18 model refinements and the stage19 fixes for accurate
+emulators (GPU handshake, MIPS-I code, pad, CD driver, safe area, page cache).
+`SOURCE_MANIFEST.json` records its exact
 file hashes and the manifest used to prepare it. No game ROM, extracted assets,
 translation, executable, or disc image is included.
 
@@ -25,9 +27,14 @@ an 8 MiB Payback Europe ROM, and private generated files:
 - snapshot files only for snapshot build modes.
 
 `PRD`, `BOOT`, `NAME`, `BLD`, `CFL`, `SFOPT`, and other documented build environment
-variables select the private translation and build profile. `tools12/build.sh`
-uses the historical title-boot profile (`pr_lb`, world layout `pr_l`) and therefore
-needs those matching generated inputs. These profiles are not interchangeable.
+variables select the private translation and build profile. `tools12/build.sh NAME`
+builds the release profile: title boot (`pr_lb`, world layout `pr_l`), the 62
+resident ROM pages of `t/resident62.txt`, no menu assist; it therefore needs those
+matching generated inputs. `tools12/build_test_assist.sh NAME` builds the same
+sources with the KPLAN menu assist (`out/kp/kplan.h`), which presses menu keys by
+itself: a TEST variant for timed emulator sessions, never a release. These
+profiles are not interchangeable. Every build checks the linked `payback.elf`
+with `tools/mips1_lint.py` and fails on an instruction the R3000A lacks.
 
 ```sh
 ROM=/absolute/path/to/Payback-Europe.gba NAME=payback sh ps1rt/build.sh

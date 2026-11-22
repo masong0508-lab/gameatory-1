@@ -1,0 +1,8 @@
+# stage 19 resident ROM pages: 62 page numbers (4 KiB pages of the 8 MiB ROM, hex) kept in the EXE (rompack); every other page is read
+# from ROM.BIN on the disc into 8 single-page cache slots (-DPCACHE1).  Chosen from the CD fetches of a traced run from power-on into a
+# level (language, logos, title, menus, setup, level; the level weighted 3x) by a swap search over the 144 pages the run read.
+# Page numbers only: no ROM bytes.
+099 09b 09e 09f 0a0 0a2 0bd 0be 0bf 0c0 0cd 0ce 193 1aa 1ab 1ac
+1b0 1b2 1b4 1bf 1c0 1c5 1c6 1c7 1c8 1c9 1ca 1cb 1cc 30b 30c 326
+327 328 354 355 359 365 3fe 636 63e 63f 640 65e 65f 666 667 668
+669 66a 66b 66c 68d 68e 68f 690 691 692 693 695 6f7 7d9

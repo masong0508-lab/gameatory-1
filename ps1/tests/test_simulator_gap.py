@@ -1,4 +1,5 @@
 """The full-cold simulator must not place code in the PPU scratch reservation."""
+import json
 from pathlib import Path
 import re
 import shutil
@@ -7,19 +8,28 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = json.loads((ROOT / 'tools/source_manifest.json').read_text())
+
+
+def installed(target):
+    """Text of the repository file prepare.py installs as `target` (none of these is patched)."""
+    assert not any(patch['target'] == target for patch in MANIFEST['patches']), target
+    sources = [entry['source'] for entry in MANIFEST['files'] if entry['target'] == target]
+    assert len(sources) == 1, target
+    return (ROOT / sources[0]).read_text()
 
 
 class SimulatorGapTests(unittest.TestCase):
     def test_translation_gap_starts_at_linker_scratch(self):
-        linker = (ROOT / 'stage16/merge/ps1rt/ps1_f.ld').read_text()
+        linker = installed('ps1rt/ps1_f.ld')
         match = re.search(r'\.\s*=\s*(0x[0-9a-fA-F]+);\s*\.ppuscratch', linker)
         self.assertIsNotNone(match)
         first_reserved = int(match[1], 16)
         self.assertEqual(first_reserved, 0x8017a000)
         # Every script that translates for the extended-memory simulator must use
         # this gap; rebuild_f1.sh makes the translation the function ranking reads.
-        scripts = {path.name: path.read_text()
-                   for path in sorted((ROOT / 'stage7/integration/t').glob('*.sh'))}
+        scripts = {Path(entry['target']).name: installed(entry['target']) for entry in MANIFEST['files']
+                   if entry['target'].startswith('t/') and entry['target'].endswith('.sh')}
         with_gap = {name for name, script in scripts.items() if 'COLD_GAP=' in script}
         self.assertLessEqual({'rebuild_f1.sh', 'final.sh', 'boot_chain.sh'}, with_gap)
         for name in sorted(with_gap):
@@ -31,7 +41,7 @@ class SimulatorGapTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('cc'), 'requires a host C compiler')
     def test_real_copy_predicate_protects_new_scratch_and_both_edges(self):
-        runtime = (ROOT / 'stage16/merge/ps1rt/rt.c').read_text()
+        runtime = installed('ps1rt/rt.c')
         match = re.search(r'static int sim_cold_overlap\([^)]*\)\{[^}]*\}', runtime)
         self.assertIsNotNone(match)
         self.assertIn('if(sim_cold_overlap(dst,dst+16384))', runtime)

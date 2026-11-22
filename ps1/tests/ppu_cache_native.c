@@ -35,6 +35,12 @@ static void gp0(u32 word){
   command=word>>24;
   if(command==0xa0||command==0xc0) phase=1;
 }
+/* the runtime's command / parameter / FIFO-empty writes and its DMA2 data transfer, all into the same model */
+#define gp0c gp0
+#define gp0p gp0
+#define gp0e gp0
+static void gpu_dma(const void *src,u32 words){ const u32 *p=src; for(u32 i=0;i<words;i++) gp0(p[i]); }
+static void gp0_2(u32 c,u32 p1,u32 p2){ gp0(c); gp0(p1); gp0(p2); }
 static u32 read_gpu(void){
   u32 word=0;
   for(int k=0;k<2;k++){

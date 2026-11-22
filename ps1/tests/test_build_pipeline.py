@@ -8,11 +8,27 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import elf_fixture  # noqa: E402
 
-BUILD_SCRIPT = Path(__file__).resolve().parents[1] / 'stage16/merge/ps1rt/build.sh'
+PS1 = Path(__file__).resolve().parents[1]
+
+
+def manifest_source(target):
+    """The repository file that prepare.py installs as `target` of the assembled tree."""
+    manifest = json.loads((PS1 / 'tools/source_manifest.json').read_text())
+    sources = [entry['source'] for entry in manifest['files'] if entry['target'] == target]
+    assert len(sources) == 1, target
+    assert not any(patch['target'] == target for patch in manifest['patches']), target
+    return PS1 / sources[0]
+
+
+BUILD_SCRIPT = manifest_source('ps1rt/build.sh')
+LINT = manifest_source('tools/mips1_lint.py')
 MOCK_TOOL = r'''#!/usr/bin/env python3
 import json, os
 from pathlib import Path
@@ -32,7 +48,7 @@ if tool == 'clang':
         raise SystemExit(23)
     target.write_bytes(b'fresh object ' + source.encode())
 elif tool == 'ld.lld':
-    Path(args[args.index('-o') + 1]).write_bytes(b'fresh linked fixture')
+    Path(args[args.index('-o') + 1]).write_bytes(Path(os.environ['MOCK_ELF']).read_bytes())
 elif tool == 'llvm-objcopy' and '-O' in args:
     Path(args[-1]).write_bytes(b'fixture binary')
 elif tool == 'genisoimage':
@@ -66,6 +82,12 @@ class BuildDriverTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'synthetic fixture')
         shutil.copyfile(BUILD_SCRIPT, self.tree / 'ps1rt/build.sh')
+        (self.tree / 'tools').mkdir()
+        shutil.copyfile(LINT, self.tree / 'tools/mips1_lint.py')
+        self.good_elf = self.root / 'linked-fixture.elf'
+        self.good_elf.write_bytes(elf_fixture.clean_program())
+        self.bad_elf = self.root / 'linked-fixture-teq.elf'
+        self.bad_elf.write_bytes(elf_fixture.trapping_program())
         (self.tree / 'mkps1.py').write_text(
             'from pathlib import Path\nimport sys\n'
             'out=Path(sys.argv[6])\n'
@@ -84,7 +106,7 @@ class BuildDriverTests(unittest.TestCase):
             path.chmod(0o755)
         self.env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'],
                         ROM=str(self.rom), NAME='test', BLD='bld_test', PRD='pr',
-                        NO_INTERP='1', MOCK_TRACE=str(self.trace))
+                        NO_INTERP='1', MOCK_TRACE=str(self.trace), MOCK_ELF=str(self.good_elf))
         for key in ('CFL', 'SF3SRC', 'LD', 'SNAP', 'SNAPFILE', 'DEMO', 'AUTO', 'LBAS',
                     'PS1_CC', 'PS1_LD', 'PS1_OBJCOPY', 'PS1_GENISOIMAGE', 'PS1_ISOINFO',
                     'MOCK_FAIL_TOOL', 'MOCK_FAIL_SOURCE', 'MOCK_MOVE_LBA', 'PROGPKL'):
@@ -125,6 +147,33 @@ class BuildDriverTests(unittest.TestCase):
         self.assertIn('Missing input: ../t/swi5.bin', result.stderr)
         self.assertEqual(self.events(), [])
         self.assert_old_outputs()
+
+    def test_preflight_names_the_instruction_check(self):
+        (self.tree / 'tools/mips1_lint.py').unlink()
+        result = self.run_build('--check')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing input: ../tools/mips1_lint.py', result.stderr)
+        self.assertEqual(self.events(), [])
+        self.assert_old_outputs()
+
+    def test_non_r3000a_instruction_fails_the_build_before_a_disc(self):
+        result = self.run_build(MOCK_ELF=str(self.bad_elf))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not valid on the R3000A', result.stderr)
+        self.assertIn('divide+0x8', result.stderr)
+        self.assertIn('PS1 build step failed: mips1-lint-1', result.stderr)
+        self.assertFalse(any(e['tool'] in ('genisoimage', 'isoinfo') for e in self.events()))
+        self.assertFalse(any(e['tool'] == 'llvm-objcopy' and '-O' in e['args'] for e in self.events()))
+        self.assert_old_outputs()
+
+    def test_compiler_flags_exclude_the_zero_divisor_trap(self):
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        compiles = [e['args'] for e in self.events() if e['tool'] == 'clang']
+        self.assertTrue(compiles)
+        for args in compiles:
+            self.assertIn('-mno-check-zero-division', args)
+            self.assertIn('-march=mips1', args)
 
     def test_compile_failure_cannot_link_stale_objects_or_publish(self):
         result = self.run_build(MOCK_FAIL_SOURCE='rt.c')

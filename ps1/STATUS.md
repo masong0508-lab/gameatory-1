@@ -1,11 +1,13 @@
 # PlayStation port: current handoff
 
 The repository now has a reproducible, ROM-free assembly of the **stage16 runtime
-plus stage17 models/trees and stage18 model refinements**. The combined native
-modules compile and link with checked RAM allocations. A private 8 MiB baseline
-now also builds with the strict physical linker and boots to Payback's language
-selection in PCSX-ReARMed HLE. Gameplay on that physical layout remains
-unverified; this is a boot checkpoint before finishing the port.
+plus stage17 models/trees, stage18 model refinements and the stage19
+accurate-emulation fixes**. The combined native modules compile and link with
+checked RAM allocations. A private 8 MiB baseline builds with the strict
+physical linker; with the stage19 sources its disc, as built, plays from
+power-on into the first level on the accurate cores SwanStation and Beetle
+([stage19](#stage19-accurate-emulation-fixes-rc5)). No DuckStation, Sony BIOS
+or hardware run exists yet.
 
 The source manifest starts from repository commit
 `109c747067bc4ab6ced2d9713656c658f00c9441` and explicitly records the integration
@@ -31,7 +33,7 @@ python3 -m unittest discover -s ps1/tests -v
 python3 ps1/tools/check_native.py
 ```
 
-Preparation verifies **149 source files and six ordered patches**, checking the
+Preparation verifies **152 source files and four ordered patches**, checking the
 SHA-256 of every input, each patch's starting file and its exact result. It
 produces a deterministic `SOURCE_MANIFEST.json` in the assembled tree. A changed
 input, incompatible patch or incorrect result aborts before publication.
@@ -82,6 +84,70 @@ its display page starts at `(832,256)`. The existing OBJ pages remain at
 `(960,256)` and `(960,384)`. Model uploads, texture-page selection and UV offsets
 use the same definitions as the allocation checks.
 
+## Stage19: accurate-emulation fixes (rc5)
+
+`stage19/` holds full copies of the prepared-tree files the fixes change
+(`ps1rt/{build.sh,crt0.s,hw_cdda.h,hw_pad.h,ppu12.h,rt.c}`, `rd/ps1.h`,
+`sf/{ps1.h,sf3.c}`, `t/{disc7.sh,final.sh,mkrompages.py,resident62.txt}`,
+`tools12/{build.sh,build_test_assist.sh}`); manifest profile `stage16-19-source`
+points those targets there. The two stage17 integration patches are folded
+into the stage19 `rt.c` and `sf3.c` and removed. The faults are those the
+accurate-core rig reported (DuckStation-class cores, openboot firmware):
+
+| | Fault | Fix |
+| --- | --- | --- |
+| F1 | GP0 parameter words waited on GPUSTAT bit 26: the first frame never completes | Only command words wait for bit 26; parameters are written plainly; long A0h uploads go by DMA2; C0h keeps its bit-27 poll. Two-parameter commands share one out-of-line sender, so `gpuwait_classify.py` reports 0 parameter waits. |
+| F2 | `teq` (MIPS II) after every division | `-mno-check-zero-division` in every build and in `check_native.py`; `tools/mips1_lint.py` checks every linked ELF and fails the build. |
+| F3 | A DualShock starting in digital mode was left in configuration mode | The pad driver never switches modes; an ID 0xF3 reply gets Exit config; the button latch stays. |
+| F4 | Interrupt state inherited from the kernel | `crt0.s` sets SR (CU2 on, IEc/IM off) and I_MASK 0, and acknowledges I_STAT and CD flags before `gpu_init`/`cdda_init`. |
+| F5 | Kernel calls without an argument area | `dbgc`/`flush_icache` reserve 16 bytes and clobber every caller-saved register, `hi`/`lo` included. |
+| F6 | Undefined picture at power-on | Display off, mode set, both buffers black; the display comes on with the first finished picture. |
+| F7 | The CD driver took any interrupt as its answer and could not recover | Drain/acknowledge, expect specific answers, retry on INT5 or timeout, error screen (data never taken as good), DRQSTS wait, 924h-byte sectors with a header address check. |
+| F8 | Picture outside the 224-line safe area | Guest 160 lines scale to 224 at y 8 for 2D, sprites and the 3D viewport; proportions and HUD alignment kept. |
+| F9 | `t/final.sh` could hide failures and used its own memory geometry | `set -euo pipefail`, no output filter; its last step builds through `t/disc7.sh`, which derives the cache, ragdoll, world and cold geometry like every other disc build. |
+| F10 | The menu assist (KPLAN) was in the release | Release builds without it; `tools12/build_test_assist.sh` makes the TEST variant (`*_TEST_assist`). |
+| F11 | CD-bound speed | `PCACHE1` with 62 measured resident pages (`t/resident62.txt`); no page-trace (`PGTRACE`) instrumentation in any build; no Pause between reads that follow each other. |
+
+Results with the release disc as built (`tools12/build.sh`, US licence area, CD
+audio, no test patches), openboot unless noted, all times emulated:
+
+| Check | SwanStation | Beetle |
+| --- | --- | --- |
+| Power-on to the first level by pad presses | 13 PASS, level clock at 43 s (RC v2: 174 s) | 13 PASS, 46 s (RC v2: 160 s) |
+| In the level: idle, walk, turn, weapons, fire, pause | 19 PASS | 18 PASS, 1 FAIL: the rig's classifier counts 78 % lit pixels on Beetle's bordered 350x240 frame while the level-start message is up (needs 80 %; 94 % on SwanStation); the screenshots show the city |
+| openboot `strict`, `irq`, `f06` | 12 PASS each; with `irq` no CD timeout and all 15 tracks in the CD audio table | 12 PASS each |
+| Open-source BIOS of the core | No halt; 12 PASS, level at 51 s | not run |
+| DualShock starting digital / forced analog | ID 41 / 73, no configuration transfer, 12 PASS each | not run |
+| CD read speed-up 8, 10, instant seek, both | 12 PASS each; game retries 0, 53, 0, 53 (header mismatches, all recovered), no failure | not run |
+| Picture changes without a flip | Menus 0 of 162; level 7 changes for 6 presents; black only between screens (the game's own fades) | Menus 0 of 815 |
+| Memory card save | Created, checksums correct | Created, checksums correct |
+
+On PCSX-ReARMed (`run_all.sh`, release disc) the pad route, replay, maps,
+save/load, state, speed and CPU-interpreter sessions pass. The FAILs are the
+known gaps that RC v2 shows too (the intro film is not drawn and the title menu
+does not follow it; the in-level vehicle is out of reach), the soak's 600 s of
+game time (157 s in its 33 minutes; RC v2: 12 s), the rig's classifier on a grey
+plaza, and the assist session, which needs the TEST variant (8 PASS there).
+
+The TEST variant, with the session the findings used for rc4 (before: rc4
+test-patched; menu rate: RC v2):
+
+| Speed | SwanStation | Beetle |
+| --- | --- | --- |
+| Level clock starts | 994 s -> 93 s | 873 s -> 97 s |
+| Guest frames/s in the menus | 1.11 -> 12.7 | 1.27 -> 12.3 |
+| Guest frames/s in the level | 0.54 -> 6.60 | 0.61 -> 6.36 |
+| Pictures/s in the level | 0.036 -> 0.44 | 0.040 -> 0.42 |
+| CD fetches/s in the level | 3.56 -> 1.26 | 3.89 -> 0.96 |
+
+Limits: the resident pages were measured on the assist's route. The pad route
+starts the rampage elsewhere and fetches about 8 single pages per second there
+(each a seek of about 140 ms): about 1.9 guest frames and 0.1 pictures per
+second (one present per 16 guest frames, unchanged). Read speed-up mostly slows
+openboot's own loader (45 retries at 8x); the level starts at 51 s (8x) and
+92 s (10x). There is still no DuckStation, Sony BIOS, hardware-renderer or
+console run.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
@@ -102,15 +168,17 @@ the earlier [PS1 plan](PS1_PLAN.md) must be read alongside these later sources.
 
 ## Validation and its limits
 
-The current ROM-free unit suite passes **22 tests**. The native module check
-was also run with **LLVM 19.1.7**, using the real production linker script and
-normal interpreter-enabled title-boot configuration:
+The current ROM-free unit suite passes **35 tests**. The native module check
+(stage19 sources, Clang/LLD 18.1.3) uses the real production linker script and
+the interpreter-enabled title-boot configuration of the release profile, then
+links the KPLAN test profile as well; every linked function must pass
+`tools/mips1_lint.py`:
 
 | Native allocation | Used | Reserved before the next owner |
 | --- | ---: | ---: |
-| C runtime and interpreter, with minimal generated-table fixtures | 96,180 bytes | 98,304 bytes |
-| Ragdoll code and data | 78,564 bytes | 94,208 bytes |
-| Combined renderer code and data | 92,316 bytes | 94,208 bytes |
+| C runtime and interpreter, with minimal generated-table fixtures (release / KPLAN test) | 90,900 / 92,564 bytes | 98,304 bytes |
+| Ragdoll code and data | 79,492 bytes | 94,208 bytes |
+| Combined renderer code and data | 90,684 bytes | 94,208 bytes |
 | PPU scratch | 4,096 bytes | 4,096 bytes |
 | Cold-veneer scratch | 4,096 bytes | 4,096 bytes |
 
