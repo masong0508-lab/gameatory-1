@@ -62,9 +62,15 @@ Files Claude is changing now (please do not edit them):
    weapons, pause, quit, a second level, game over, memory-card save and
    load, the radio, a long soak, and a flicker scan. Report each defect as a
    GitHub issue with the emulator, core options and frame number.
+   Already known on rc6 and fixed in rc7, so not worth an issue against rc6:
+   the boot intro stops on the ZOO logo; getting into a vehicle stalls or
+   crashes; the 3D picture shows through the menu after quitting; timed
+   waits lock up after about 256 s of game time; ragdoll timing. Also known:
+   levels are slow (rc6 is CD-bound at about 1.6-1.9 guest frames/s in most
+   places); that is the speed work, not a defect.
 3. Review: Claude opens a draft pull request for each PS1 line (`wip/ps1-rc7`,
    `wip/ps1-speed`) once it has commits. Review there with comments; do not
-   push to those branches.
+   push to those branches. PR #3 (`wip/ps1-rc7`) is ready for review now.
 4. `docs/ps1-merged/`: design only for Milestone B (the 16 MiB merged
    Star-FlyBack on PS1): memory map, translation coverage, what the station,
    Arwing and space views need from the renderer, CD layout. No code until
@@ -72,6 +78,17 @@ Files Claude is changing now (please do not edit them):
 5. The GBA game (`stuntfox/`, `payback-mod/`): the open GBA tasks below.
    Claude stays on the PS1 port and still builds and checks GBA pull requests
    with the ROM before merging.
+6. `ps1/qa/pages/`: the ROM data working set of every map. For each of the
+   11 maps, on foot and in each vehicle type, record which 16 KiB pages of
+   the 8 MiB ROM the game reads as data (not instruction fetches), how often
+   each is read over a few minutes of play, and the pages read during level
+   start. Use the unicorn simulator of Track B (step b9) or mGBA with a read
+   hook, with the original GBA game. Commit only the tools and the page
+   numbers and counts: no ROM bytes, no game text. This is the main input
+   for the next PS1 speed step: on rc6, levels wait on about 10 CD page
+   fetches per second because the 62 pages kept in RAM were chosen from one
+   route of one map. The results decide the size of the page pool and which
+   pages each map keeps resident.
 
 ## Open tasks nobody is on
 
