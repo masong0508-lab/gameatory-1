@@ -13,7 +13,8 @@ and the RAM regions of merge.ld, and exits non-zero if any of them breaks a rule
     SCRATCH  free in play but unwatched in the long run: per-frame data only (.scratch, .scratch2, the pool),
              nothing that has to live from one frame to the next
     KEEP     our persistent region, by its merge.ld name, "reserve=N margin=N": the sections .canary .data
-             .bss .noinit (and .radio, in its own region) must fit in it and leave N + N bytes free
+             .bss .noinit (and .radio, in its own region) must fit in it and leave N + N bytes free, and
+             MIN_HEADROOM more on top of those (the reserve for the next stage)
 
 It also prints the space left in keep.
 
@@ -31,6 +32,10 @@ import sys
 SAVED = ('hot6b',)
 PER_FRAME = ('scr', 'scr2', 'poola')           # regions, and the sections that go in them, that nothing outlives a frame in
 KINDS = ('FORBID', 'RESERVE', 'SCRATCH', 'KEEP')
+# The reserve for the next stage: the least the keep must still have free after the stage 3 reserve and the
+# margin of memmap.txt's KEEP line (the "keep headroom" this prints). The next stage's variables go there, so a
+# build that leaves less fails. Lower it only together with the plan that gives those bytes back.
+MIN_HEADROOM = 900
 
 
 def ranges(path):
@@ -89,6 +94,23 @@ def per_frame(what):
     return what in ['region ' + r for r in PER_FRAME] or what in ('section .scratch', 'section .scratch2')
 
 
+def keep_rule(free, reserve, margin, floor=None):
+    """The keep's two lines of the report, and what is wrong with `free` bytes left in it (nothing wrong: [])."""
+    floor = MIN_HEADROOM if floor is None else floor
+    headroom = free - reserve - margin
+    out = ['memguard: keep has %d bytes free' % free,
+           'memguard: keep headroom %d bytes after the stage 3 reserve (%d) and the margin (%d)' % (headroom, reserve, margin)]
+    fail = []
+    if headroom < 0:
+        fail.append('memguard: keep has %d bytes free, short of the stage 3 reserve (%d) and margin (%d) by %d'
+                    % (free, reserve, margin, -headroom))
+    elif headroom < floor:
+        fail.append('memguard: keep headroom is %d bytes, %d short of the %d kept back for the next stage '
+                    '(MIN_HEADROOM in tools/memguard.py): .data, .bss and .noinit have to shrink by that much'
+                    % (headroom, floor - headroom, floor))
+    return out, fail
+
+
 def check(elf, ld, memmap):
     """The report (a string) when the map is clear; SystemExit with what is wrong when it is not."""
     bad, keep = ranges(memmap)
@@ -115,12 +137,9 @@ def check(elf, ld, memmap):
         lo, hi = byname[name][0], byname[name][1]
         top = max((b for a, b, w in ours if w.startswith('section ') and lo <= a < hi), default=lo)
         free = hi - top
-        out.append('memguard: keep has %d bytes free' % free)
-        out.append('memguard: keep headroom %d bytes after the stage 3 reserve (%d) and the margin (%d)'
-                   % (free - reserve - margin, reserve, margin))
-        if free < reserve + margin:
-            fail.append('memguard: keep has %d bytes free, short of the stage 3 reserve (%d) and margin (%d) by %d'
-                        % (free, reserve, margin, reserve + margin - free))
+        lines, short = keep_rule(free, reserve, margin)
+        out += lines
+        fail += short
         for a, b, w in ours:
             if w.startswith('section ') and w[9:] in ('canary', 'data', 'bss', 'noinit') and not (lo <= a and b <= hi):
                 fail.append('memguard: %s 0x%08x-0x%08x is outside %s (0x%08x-0x%08x)' % (w, a, b, name, lo, hi))
