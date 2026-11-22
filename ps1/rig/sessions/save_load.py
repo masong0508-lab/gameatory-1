@@ -16,6 +16,22 @@ def extra(ap):
     ap.add_argument('--play-ticks', type=int, default=45, help='level clock ticks to play before quitting')
 
 
+def cold_boot_command(a, card_path, outdir):
+    """Second process must use the SAME libretro core options as the save run.
+
+    In particular CPU overclock and CD speed/seek flags cannot silently
+    revert to stock during cold-boot memory-card acceptance.
+    """
+    cmd = [sys.executable, os.path.abspath(__file__), '--phase', 'load',
+           '--disc', a.disc, '--core', a.core, '--out', outdir,
+           '--card', card_path, '--state-dir', a.state_dir]
+    if a.syms:
+        cmd += ['--syms', a.syms]
+    for opt in a.opt:
+        cmd += ['--opt', opt]
+    return cmd
+
+
 def card_report(g, tag):
     c = g.card_now()
     fs = c.files()
@@ -98,9 +114,7 @@ def phase_save(a):
     rc = g.finish('save_load (process 1: save)', sheet_cols=4)
     # ---- process 2: cold boot with that card
     print('---- starting a new process with %s' % card_path, flush=True)
-    cmd = [sys.executable, os.path.abspath(__file__), '--phase', 'load', '--disc', a.disc, '--core', a.core, '--out', os.path.join(g.out, 'reboot'), '--card', card_path, '--state-dir', a.state_dir]
-    if a.syms:
-        cmd += ['--syms', a.syms]
+    cmd = cold_boot_command(a, card_path, os.path.join(g.out, 'reboot'))
     rc2 = subprocess.call(cmd)
     print('save_load: process 1 %s, process 2 %s' % ('ok' if rc == 0 else 'has FAILs', 'ok' if rc2 == 0 else 'has FAILs'), flush=True)
     return 1 if (rc or rc2) else 0
