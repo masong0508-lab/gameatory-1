@@ -29,7 +29,11 @@
 #define PP_H  224
 /* floor division by a positive constant for values > -2^20 */
 #define PP_FDIV(v,d) ((((v)+(d)*65536)/(d))-65536)
-#define PP_SY(y) (PP_Y0+PP_FDIV((y)*7,5))         /* GBA line -> PS1 line: 160 -> 224 */
+/* GBA line -> PS1 line of a sprite tile's top edge: 160 -> 224, rounded: round(7y/5) = floor((14y+5)/10).  The GPU samples a textured polygon
+   with a half-texel bias (measured on SwanStation and Beetle with a probe disc: the page quad shows GBA line L from PS1 line 8+floor((7L+1)/5)).
+   One quad per 8x8 tile cannot follow the page's 5/7 step inside the tile; the rounded edge is the best a per-tile edge can do: 14% of the
+   rows one line off, either way, against 28% always one line high with floor(7y/5) and 28% always one line low with ceil(7y/5). */
+#define PP_SY(y) (PP_Y0+PP_FDIV((y)*14+5,10))
 #define AT_X0 PS1_VRAM_PPU_ATLAS_X     /* two cached backdrop pages; a cache miss falls back to the ROM */
 #define AT_NPG PS1_VRAM_PPU_ATLAS_PAGES
 #define L1_X PS1_VRAM_PPU_L1_X         /* separate from world atlas page 6 at (448,256) */
@@ -219,7 +223,7 @@ static void pp_obj(void){
           s32 nx=pd*du-pb*dv, ny=-pc*du+pa*dv;       /* adj(P) * (du,dv) */
           s32 sx16=(s32)((nx*4096)/det)*1, sy16=(s32)((ny*4096)/det)*1;   /* (256*nx/det) px = nx*4096/det in 1/16 px */
           int Vx=cx16+sx16, Vy=cy16+sy16;
-          vx[k]=PP_FDIV(Vx*4,48); vy[k]=PP_Y0+PP_FDIV(Vy*7,80); }      /* 1/16 px -> PS1: x 4/3, y 7/5 */
+          vx[k]=PP_FDIV(Vx*4,48); vy[k]=PP_Y0+PP_FDIV(Vy*7-16,80); }   /* 1/16 px -> PS1: x 4/3; y 7/5 rounded like PP_SY (identity: PP_SY(y)) */
         pp_q4(vx,vy,u,v,ue,ve,cl,tpb,cmd);
       }
       nq++; }

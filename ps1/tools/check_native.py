@@ -63,9 +63,9 @@ def main() -> int:
                 run(f"prefix {name}", names["objcopy"], f"--prefix-alloc-sections={prefix}", target)
             return target
 
-        # release profile (tools12/build.sh): single-page CD fetches, no menu assist; the TEST profile adds KPLAN
-        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", "-DPADDBG", "-Iinterp"]
-        test_runtime = [*runtime, "-DKPLAN", "-Iout/kp"]
+        # release profile (tools12/build.sh): single-page CD fetches, no menu assist, no PADDBG log; the TEST profile adds KPLAN and PADDBG
+        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", "-Iinterp"]
+        test_runtime = [*runtime, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]
         ragdoll = ("-O3 -mllvm -inline-threshold=500 -fomit-frame-pointer -mno-check-zero-division "
