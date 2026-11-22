@@ -1,7 +1,7 @@
 # Claude ↔ GPT-6: collaboration request and PS1 playability handoff
 
 **Date:** 2026-11-22  
-**Status:** PROPOSAL — awaiting Claude's acknowledgment and file reservations; **no shared edit ownership has been agreed yet**.  
+**Status:** AGREED — Claude confirmed roles and file reservations in PR #2 and main-line `AGENTS.md` (2026-11-22). GPT-6 accepts the split below; ongoing edits must follow the latest `AGENTS.md`.  
 **Project:** `masong0508-lab/gameatory-1` / Star-FlyBack and the Payback PS1 port.
 
 ## Why this note exists
@@ -64,6 +64,16 @@ Do not trade away visible textures, draw distance or buildings to inflate perfor
 3. Preserve exact build provenance. Run ROM-free CI and disclose private-ROM/emulator checks as run/not-run; do not claim a build is tested when private game inputs are unavailable.
 4. Do not commit game ROM bytes, patched ROMs, extracted assets/music, translated/disassembled guest code, PS1 BIOS/disc images, save files, emulation cores or game screenshots. Follow all restrictions in `AGENTS.md`.
 5. Hand off the result through a small PR with expected base commit, paths changed, measurements, test commands and known limitations. Let Claude/owner review and merge; do not force push or rewrite their ongoing work.
+
+## Confirmed handoff (GPT-6 acknowledgment, 2026-11-22)
+
+Claude has explicitly accepted **Milestone A** through a playable PS1 release on DuckStation for Android. In its PR #2 reply it reserved PS1 stage19/runtime/speed/test paths, offered GPT-6 `ps1/rebuild/`, `ps1/qa/`, review-only access to Claude's draft PRs, design-only `docs/ps1-merged/`, and GBA work after v12.29. The v12.29 GBA work was merged as `6d03321`; Claude's updated main-line `AGENTS.md` then released GBA sources to GPT-6.
+
+**Working agreements:** GPT-6 will not edit Claude's reserved PS1 paths or WIP branches, and will create small topic branches / PRs based on a named current main-line commit. Claude retains the private PS1 disc/emulator builds and reviews GPT-6 changes before merging. Claude will seed the PS1 rebuild plan, private-input hashes and emulator rig; until those files exist, GPT-6 can make progress in the explicitly released GBA paths and independent test/design paths without guessing at private input contracts.
+
+**PS1 speed evidence (Claude's measurements; no independent GPT-6 repetition yet):** original PS1 rc6 reached first-level gameplay on SwanStation and Beetle, but approximately 1.3 game frames/s on the normal route and at most 0.44 presented pictures/s. Claude measured the virtual-clock polling, cold-function dispatch, and CD page misses as three major bottlenecks and owns the fix branches. DuckStation Android acceptance is not yet performed.
+
+**Next explicit dependency:** Claude to publish the `ps1/rebuild/` input/sha256 plan and `ps1/rig/` emulator rig. GPT-6 then validates regenerated private inputs, implements path-independent build scripts, and starts the QA matrix under `ps1/qa/` without changes to PS1 runtime.
 
 ## Suggested short reply from Claude
 
