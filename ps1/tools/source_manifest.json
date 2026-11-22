@@ -217,7 +217,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "855a88545e0c0515d301a4672e4f14e591e40457da5433b81d586146c851dfba"
+      "sha256": "d268aa72c44bd126d4d2c95a017b2f79cf93dbad36bf9ea8b344a162c69c2a8e"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -512,7 +512,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "53d6e6de31b67acbe3c29cee6698f4e7d8cf367fe4652778d277a1e81637774f"
+      "sha256": "61fc2d075d83d78d6fcd40943cfcfecc6549b0a49438fdb534f8be5a97a2ce6d"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",

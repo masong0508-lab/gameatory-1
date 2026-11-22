@@ -260,12 +260,19 @@ static void cd_resume(void){ cdda_idle(); }
 #ifdef PCACHE1
 /* stage 19: one 4 KiB page (2 sectors) per fetch into the next of NSLOT single-page slots (FIFO replacement).  With the measured resident set
    (t/resident62.txt) the rest of the working set is small, and a single page per seek reads 4 times less than a 16 KiB cluster. */
+#ifdef COLD1PASS
+static u32 cold_m5; static void cold_all(void); static int pal_bg_zero(void);
+#endif
 #ifdef PCPAIR
 static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pair */
 /* out of line: the miss path grew, and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve, gread ... */
 __attribute__((noinline))
 #endif
 static const u8 *cd_fetch(u32 pg){
+#ifdef COLD1PASS
+  /* speed item M5: the game's first data read comes in the boot's black screen (BG palette all zero, no OBJ shown): COLD.BIN first */
+  if(!cold_m5 && !rom_miss_count && pal_bg_zero()) cold_all();
+#endif
 #ifdef PCPAIR
   /* speed item M3: the aligned 8 KiB pair (4 sectors, one seek) into two adjacent slots, unless the other page of the pair is already in
      memory (resident or in a slot).  A pair never wraps round the slot ring: when only the last slot is left, the pair starts again at
@@ -621,9 +628,14 @@ static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel 
    cd_read's retries), every group is marked loaded only after the read, and the I-cache is flushed once.  Only in the menus before the
    first level start: the renderer is off and its world window, which the last groups overlap, is not loaded yet; main() copied the boot
    image out of the cold homes long before.  At the level start sf3_init() drops the groups over the world window as before, and later
-   loads go through the per-group path below.  present() starts it at the first quiet picture after the first data read (the language
-   screen, waiting for a press; P6 latches presses made meanwhile); the first cold call starts it if that comes earlier. */
+   loads go through the per-group path below.  It starts at the game's first page miss when that comes in the boot's black screen (the
+   BG palette all zero; the white flash has faded out, the guest builds the language screen and presents nothing), so the 2.6 s read
+   freezes no animation (at the first quiet picture after the first data read, the language screen, it stopped the panning backdrop and
+   the sliding list for the whole read); else present() starts it at the first quiet picture after the first data read (P6 latches
+   presses made meanwhile); the first cold call starts it if that comes earlier. */
 static u32 cold_m5;   /* 0 not yet, 1 read, 2 never (a level had started first: the level clock ran or the renderer was on) */
+/* every BG palette entry is black (the backdrop too): M5's test for the boot's black screen in cd_fetch */
+static int pal_bg_zero(void){ const volatile u32*p=(const volatile u32*)PAL; u32 o=0; for(u32 i=0;i<128;i++) o|=p[i]; return !(o&0x7fff7fffu); }
 __attribute__((noinline)) static void cold_all(void){
   if(cold_m5) return;
   cold_m5=2; if(*(volatile u32*)(EW+0x1e00) || sf3_ok) return;

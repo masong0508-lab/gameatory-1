@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 KP=${KPLAN:-0}
 if [ "$KP" = 1 ]; then DBG=${PADDBG--DPADDBG}; else DBG=${PADDBG-}; fi
 # PS1 speed stage 3, boot and CD quick wins, one flag each: -DEXEPACK packed PSX.EXE (ps1rt/exepack.py, crt0 unpacks it), -DCOLD1PASS
-# COLD.BIN in one pass at the language screen, -DPCPAIR 8 KiB page pairs while no level clock runs, -DCDPADPOLL pad polls during CD
+# COLD.BIN in one pass in the boot's black screen, -DPCPAIR 8 KiB page pairs while no level clock runs, -DCDPADPOLL pad polls during CD
 # waits and long loads.  BOOTF= (set empty) builds without them; any subset works.  -DCDSTAT, -DCDDA_DATARADIO, -DCDPADPOLL_AB and
 # -DPCPAIR_LEVEL are TEST-only measurement switches.
 BOOTF=${BOOTF-"-DEXEPACK -DCOLD1PASS -DPCPAIR -DCDPADPOLL"}
