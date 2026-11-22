@@ -67,7 +67,7 @@
     {
       "source": "stage8/interp_fallback/interp/interp_asm.s",
       "target": "interp/interp_asm.s",
-      "sha256": "5f150fcd78aee9fe714b194f1d837df8a490a3dc4e6424cd6b8a072207da6812"
+      "sha256": "d4f9d645611a100defb6b0c8ca9d97a2e015c4742692de9b8131dd167a993400"
     },
     {
       "source": "stage8/interp_fallback/interp/test_host.c",
