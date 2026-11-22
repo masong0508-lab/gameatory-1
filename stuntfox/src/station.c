@@ -798,10 +798,12 @@ int st_view(void)
         return hangar_view();
     }
     sprites(!s2f.paused);
-    if (s2f.paused)
+    if (s2f.paused) {
+        stw.same = 0;                                    /* (the room's words are off while paused: all of it again after) */
         return 1;
+    }
     u32 sg = st_sig();
-    if (sg != stw.sig)
+    if (sg != stw.sig || PB_LEVEL_END)                   /* (a level's end: Payback's two lines take turns there, each on a new picture) */
         stw.sig = sg, stw.same = 0;
     if (stw.same >= 2)
         return 2;
