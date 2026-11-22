@@ -293,7 +293,7 @@ class BuildProfileTests(unittest.TestCase):
         (self.tree / 't/disc7.sh').write_text('printf "%s\\n" "KPLAN=$KPLAN" "NAME=$1" "CFLAGS=$2" "SNAP=$3" > "$RECORD"\n')
         self.record = self.tree / 'record.txt'
         self.env = dict(os.environ, ROM=str(self.tree / 'synthetic-input.bin'), RECORD=str(self.record))
-        for key in ('KPLAN', 'PADDBG', 'NPAGES', 'RPG', 'BOOTF'):
+        for key in ('KPLAN', 'PADDBG', 'NPAGES', 'RPG', 'BOOTF', 'CLOCKF', 'DISP'):
             self.env.pop(key, None)
 
     def profile(self, script, **settings):
@@ -324,6 +324,21 @@ class BuildProfileTests(unittest.TestCase):
         for flag in items:
             self.assertNotIn(flag, flags)
         self.assertIn('-DPCACHE1', flags)
+
+    def test_release_has_the_stage1_clock_and_stage2_dispatch_items(self):
+        clock = ('-DRTC64', '-DRTC_TIMERS', '-DRTC_PRESENT', '-DRTC_PMAX=100', '-DRTC_GFRAMES', '-DRTC_QUANT', '-DRTC_DT')
+        dispatch = ('-DDISP_D3', '-DDISP_D1', '-DDISP_D4', '-DDISP_D2')
+        for script in ('tools12/build.sh', 'tools12/build_test_assist.sh'):
+            flags = self.profile(script)['CFLAGS'].split()
+            for flag in clock + dispatch:
+                self.assertIn(flag, flags, script)
+            for flag in ('-DSPEEDPROF', '-DDISP_PROF', '-DDISP_D1CHK', '-DDISP_FREEZE_GF'):
+                self.assertFalse(any(f == flag or f.startswith(flag + '=') for f in flags), (script, flag))
+        flags = self.profile('tools12/build.sh', CLOCKF='', DISP='')['CFLAGS'].split()
+        for flag in clock + dispatch:
+            self.assertNotIn(flag, flags)
+        for flag in ('-DSF3_DEFER', '-DPCACHE1', '-DEXEPACK'):
+            self.assertIn(flag, flags)
 
     def test_test_variant_adds_menu_assist_and_debug_log(self):
         for script, settings in (('tools12/build_test_assist.sh', {}), ('tools12/build.sh', {'KPLAN': '1'})):
