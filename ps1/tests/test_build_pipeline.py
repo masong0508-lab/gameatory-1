@@ -29,6 +29,7 @@ def manifest_source(target):
 
 BUILD_SCRIPT = manifest_source('ps1rt/build.sh')
 LINT = manifest_source('tools/mips1_lint.py')
+PATCH_CHECK = manifest_source('tools/disp_patch_check.py')
 MOCK_TOOL = r'''#!/usr/bin/env python3
 import json, os
 from pathlib import Path
@@ -84,6 +85,7 @@ class BuildDriverTests(unittest.TestCase):
         shutil.copyfile(BUILD_SCRIPT, self.tree / 'ps1rt/build.sh')
         (self.tree / 'tools').mkdir()
         shutil.copyfile(LINT, self.tree / 'tools/mips1_lint.py')
+        shutil.copyfile(PATCH_CHECK, self.tree / 'tools/disp_patch_check.py')
         self.good_elf = self.root / 'linked-fixture.elf'
         self.good_elf.write_bytes(elf_fixture.clean_program())
         self.bad_elf = self.root / 'linked-fixture-teq.elf'
@@ -154,6 +156,25 @@ class BuildDriverTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Missing input: ../tools/mips1_lint.py', result.stderr)
         self.assertEqual(self.events(), [])
+        self.assert_old_outputs()
+
+    def test_preflight_names_the_dispatch_patch_check(self):
+        (self.tree / 'tools/disp_patch_check.py').unlink()
+        result = self.run_build('--check')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing input: ../tools/disp_patch_check.py', result.stderr)
+        self.assertEqual(self.events(), [])
+        self.assert_old_outputs()
+
+    def test_wrong_dispatch_patch_word_fails_the_build_before_a_disc(self):
+        import test_disp_patch
+        elf = self.root / 'linked-fixture-dispatch.elf'
+        elf.write_bytes(test_disp_patch.program(patch=lambda new: [new[2]] + new[1:]))
+        result = self.run_build(MOCK_ELF=str(elf))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not `j rt_mcache`', result.stdout + result.stderr)
+        self.assertIn('PS1 build step failed: disp-patch-check-1', result.stderr)
+        self.assertFalse(any(e['tool'] in ('genisoimage', 'isoinfo') for e in self.events()))
         self.assert_old_outputs()
 
     def test_non_r3000a_instruction_fails_the_build_before_a_disc(self):

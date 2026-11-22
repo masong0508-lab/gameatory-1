@@ -30,7 +30,7 @@ for tool in python3 "$PS1_CC" "$PS1_LD" "$PS1_OBJCOPY" "$PS1_GENISOIMAGE" "$PS1_
     if ! command -v "$tool" >/dev/null 2>&1; then echo "Missing tool: $tool" >&2; missing=1; fi
 done
 for file in "$ROM" ../mkps1.py rt.c crt0.s font.h hw_pad.h hw_card.h hw_cdda.h hw_radio.h hw_stub.h \
-    ppu12.h "$LINK_SCRIPT" "$SF3SRC" ../sf/ps1.h ../sf/sfmem.h ../sf/sfdata.s ../tools/mips1_lint.py \
+    ppu12.h "$LINK_SCRIPT" "$SF3SRC" ../sf/ps1.h ../sf/sfmem.h ../sf/sfdata.s ../tools/mips1_lint.py ../tools/disp_patch_check.py \
     ../rd/doll.c ../rd/ragdoll_ps1.c ../rd/ragdoll_ps1.h ../rd/gte_rp.h ../rd/ps1.h \
     "../out/$BOOT" ../out/SF3M.BIN "../out/$PRD/payback_P.map" "../out/$PRD/payback_P.bin" \
     "../out/$PRD/meta_P.pkl" "../out/$PRD/coldtab_P.bin" "../out/$PRD/rompages_P.pkl" "$PROGPKL"; do
@@ -110,6 +110,8 @@ mkexe() {
         ${DOLLDEF:+--defsym=__doll_addr=$DOLLDEF} -o "$WORK/payback.elf"
     # every compiled function must consist of R3000A (MIPS I + COP0 + GTE) instructions only: the build fails otherwise
     run "mips1-lint-$PASS" python3 ../tools/mips1_lint.py "$WORK/payback.elf"
+    # the dispatch boot patch words (rt.c dsp_new, PLAN.md Stage 2) decode to the blob stubs they assume; without dispatch code nothing is checked
+    run "disp-patch-check-$PASS" python3 ../tools/disp_patch_check.py "$WORK/payback.elf"
     run "binary-$PASS" "$PS1_OBJCOPY" -O binary "$WORK/payback.elf" "$WORK/payback.bin"
     run "exe-$PASS" python3 - "$WORK/payback.bin" "$WORK/$NAME.exe" <<'PY'
 import struct, sys

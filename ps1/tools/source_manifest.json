@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "2797bf1324a79b7be50590a08e509eafef257c74aae86d3830e029d0616036f8"
+      "sha256": "6d942bef7970abc02362eeecce0f40d3e368c1fc51b5a97984fe244d90ebe45b"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
@@ -217,7 +217,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "1ffa38146646daabd1573dae7325b5837f322a427ea691229c307e24faa85699"
+      "sha256": "96f534fb6083fe8bf807e5a2b906fadf27dd282ae5c9d6f25fba18f8dc347d9f"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -512,7 +512,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "f772a945bedfa54bdf4efb797f11bb61e7e3d1c36250031a3d848e5714e707da"
+      "sha256": "99e613f5a08fa1df686008d8d155cc7f8fdea48559f86ee0c2b84f0b2cbdc62d"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -763,6 +763,12 @@
       "source": "tools/mips1_lint.py",
       "target": "tools/mips1_lint.py",
       "sha256": "e58c48380c1b8d1dd397ee494d0f0b74b0930790ad332abc15ed003a1566d2e8"
+    }
+,
+    {
+      "source": "tools/disp_patch_check.py",
+      "target": "tools/disp_patch_check.py",
+      "sha256": "9784b87879affe39f8732ab71912b495ac34ca1b420bebabebe0ce30cb8a56e4"
     }
   ],
   "patches": [

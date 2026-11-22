@@ -32,7 +32,15 @@ static void dec(u32 v){ char b[12]; int n=0; if(!v) b[n++]='0'; while(v){b[n++]=
 
 /* ---------------------------------------------------------------- ROM page store (resident pages shipped in the EXE) */
 static u32 rp_n; static const u32 *rp_idx; static const u8 *rp_data; static u32 rom_miss_count, rom_miss_last, cd_sectors, cd_time_rc;
+#ifdef DISP_D3
+/* stage 20 D3: the page table is the translator's reserved ROMPG (t2m.py Cfg.ROMPG, 2048 x u32), so the blob's own RT_MEMRD fast path reads
+   the same table as rom_page(): non-zero = resident, cleared on every eviction (cd_fetch).  Zeroed in main(); the absolute symbol keeps the
+   name for the test rig (misses.csv). */
+#define rom_pg ((const u8**)0x8002a000)
+__asm__(".globl rom_pg\n.set rom_pg, 0x8002a000\n");
+#else
 static const u8 *rom_pg[2048];
+#endif
 /* ---------------------------------------------------------------- CD-ROM (polling driver, no IRQ): whole sectors, every one identified by its own header
    ROM data pages (4 KiB = 2 sectors) are fetched on demand from ROM.BIN on the disc into a FIFO-replaced page cache. */
 #define CD0 (*(volatile u8*)0x1F801800)
@@ -204,6 +212,29 @@ static void cd_read(u32 lba,u32 nsec,u8*dst){
 }
 static void cd_idle(void){ if(cd_reading) cd_pause(); }
 #endif
+#ifdef DISP_PROF
+/* TEST-ONLY (stage 20 dispatch measurements): where the time of a level-loop iteration goes, in hblank lines (RC1, 15734 per second).  RC1 is
+   extended to 32 bits by dsp_rc(), which runs at every timer read, CD page fetch and present (each well within its 4.1-s wrap).  The phases are
+   cut at the limiter's two timer reads, told apart by the caller's return address that RT_CC saved at 0x801fffc8 (get_time 0x08077c84 is a leaf
+   up to its TM3 read): game logic = t_last read (guest 0x08024758) -> the next elapsed read (0x0802471c); limiter spin = the rest.  Lines spent
+   in CD page fetches (dsp_cdl) and in present() (dsp_prl, without its own fetches) are taken out of both phases. */
+#ifndef PROF_RA_E
+#define PROF_RA_E 0x800a1424u     /* host return address of the elapsed read (guest 0x08024720) in this blob (payback_P.map) */
+#endif
+#ifndef PROF_RA_T
+#define PROF_RA_T 0x800a14d8u     /* host return address of the t_last read (guest 0x0802475c) */
+#endif
+static u32 dsp_rch, dsp_rcl;
+static u32 dsp_rc(void){ u32 t=RC1_VAL&0xffff; if(t<dsp_rcl) dsp_rch+=0x10000; dsp_rcl=t; return dsp_rch|t; }
+u32 dsp_cdl, dsp_prl, dsp_lgl, dsp_spl, dsp_lgn, dsp_spn;
+static u32 dsp_ph, dsp_ph0, dsp_cd0, dsp_pr0;
+static void dsp_phase(u32 ra){
+  u32 t=dsp_rc(), ph=ra==PROF_RA_T?1u:(ra==PROF_RA_E?2u:0u);
+  if(!ph||ph==dsp_ph) return;
+  u32 net=(t-dsp_ph0)-(dsp_cdl-dsp_cd0)-(dsp_prl-dsp_pr0);
+  if(dsp_ph==1){ dsp_lgl+=net; dsp_lgn++; } else if(dsp_ph==2){ dsp_spl+=net; dsp_spn++; }
+  dsp_ph=ph; dsp_ph0=t; dsp_cd0=dsp_cdl; dsp_pr0=dsp_prl; }
+#endif
 #ifdef PCACHE1
 /* stage 19: one 4 KiB page (2 sectors) per fetch into the next of NSLOT single-page slots (FIFO replacement).  With the measured resident set
    (t/resident62.txt) the rest of the working set is small, and a single page per seek reads 4 times less than a 16 KiB cluster. */
@@ -211,7 +242,11 @@ static const u8 *cd_fetch(u32 pg){
   u32 s=slot_next; slot_next=(slot_next+1)%NSLOT;
   if(slot_owner[s]) rom_pg[slot_owner[s]-1]=0;
   slot_owner[s]=0;
+#ifdef DISP_PROF
+  { u32 t0=dsp_rc(); cd_read(CD_ROM_LBA+pg*2,2,PCACHE+s*4096); dsp_cdl+=dsp_rc()-t0; }
+#else
   cd_read(CD_ROM_LBA+pg*2,2,PCACHE+s*4096);
+#endif
   slot_owner[s]=pg+1; rom_pg[pg]=PCACHE+s*4096;
   rom_miss_count++; rom_miss_last=pg<<12;
   return rom_pg[pg];
@@ -447,7 +482,20 @@ static u32 vc_n(u32 v){
   return 1;
 #endif
 }
+#ifdef DISP_FREEZE_GF
+/* TEST-ONLY (dispatch equivalence check, never a release): the guest stops for good at its first IO read of GBA frame DISP_FREEZE_GF.  Under the
+   virtual clock and the menu assist (KPLAN, no pad input) every build reaches that read through the same guest instructions, so the rig can
+   compare guest RAM (EWRAM, IWRAM, palette, OAM, VRAM shadow, io[]) between a build with the dispatch patches and one without. */
+u32 dsp_frozen;
+static void dsp_freeze(void){ dsp_frozen=1; dbg("DISP FREEZE at guest frame "); dec(g_gframes); dbg("\n"); for(;;){} }
+#endif
 u32 io_read(u32 off,u32 size){
+#ifdef DISP_FREEZE_GF
+  if(g_gframes>=DISP_FREEZE_GF) dsp_freeze();
+#endif
+#ifdef DISP_PROF
+  if(off==0x10c) dsp_phase(*(volatile u32*)0x801fffc8);   /* TEST-ONLY: a TM3 read (the limiter's get_time); 0x801fffc8 = the RT_CC-saved $31 of this read */
+#endif
   io_nread++;
   if(off==0x130||off==0x131){
   adv_poll();
@@ -480,7 +528,16 @@ void io_write(u32 off,u32 size,u32 val){
   if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick(); }
 }
 /* ---------------------------------------------------------------- C helpers called from RT_CC */
+#ifdef DISP_PROF
+/* TEST-ONLY counters of the C calls the dispatch work removes (PLAN.md Stage 2): RT_MISS C calls, h_memrd calls (and of them ROM reads),
+   h_memwr calls, D1 cache fills.  The test rig reads them by symbol and divides by the level clock (one tick per level-loop iteration). */
+u32 dsp_nmiss, dsp_nmrd, dsp_nrom, dsp_nmwr, dsp_nfill;
+#define DSP_PROF(x) (x)
+#else
+#define DSP_PROF(x) ((void)0)
+#endif
 u32 h_memrd(u32 ea,u32 kind){
+  DSP_PROF((dsp_nmrd++, dsp_nrom+=((ea>>24)==8||(ea>>24)==10||(ea>>24)==12)));    /* TEST-ONLY: every call, and the ROM reads among them */
   static const u8 SZ[5]={1,1,2,2,4}; u32 size=SZ[kind]; u32 v;
   if((ea>>24)==8||(ea>>24)==10||(ea>>24)==12) v=rom_read(ea,size);
   else if((ea>>24)==13) v=1;
@@ -493,6 +550,7 @@ u32 h_memrd(u32 ea,u32 kind){
   return v;
 }
 u32 h_memwr(u32 ea,u32 size,u32 val){
+  DSP_PROF(dsp_nmwr++);
   if(ea-0x8017f000u<0x400) io_write(ea-0x8017f000u,size,val);
   else if(ea>=0x80180000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
   else if((ea>>24)==13) {}
@@ -526,6 +584,13 @@ static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel 
    find it in the cold table, read the 16 KiB groups of COLD.BIN that cover the function (and its out-of-line stubs) into their fixed
    home addresses, flush the I-cache, and return the host entry for RT_MISS to tail-jump to. */
 /* cold_find: host entry of a function in the cold table (its groups are loaded from the disc), 0 if the address is not in the table */
+static u32 vene[24][4] __attribute__((aligned(16))); static u32 vene_g[24], nvene;   /* resident veneer copies (stage 12, below): never recycled */
+#ifdef DISP_D2
+static u32 cf_perm;      /* stage 20 D2: the host entry cold_find returned last can never go away (a veneer copy, or a span whose groups all lie below the renderer's world window) */
+#define CF_PERM(x) (cf_perm=(x))
+#else
+#define CF_PERM(x) ((void)0)
+#endif
 static u32 cold_find(u32 addr){
   u32 g=addr&~1u; const u32*ct=(const u32*)coldtab; u32 n=ct[0]; const u32*r=ct+1; u32 lo=0,hi=n; cold_calls++;
   while(lo<hi){ u32 m=(lo+hi)>>1; u32 v=r[m*4]; if(v==g){ lo=m; goto found; } if(v<g) lo=m+1; else hi=m; }
@@ -536,12 +601,11 @@ found:;
   /* stage 12: a tiny, position-independent cold function (the bx rN veneers, 12 bytes) whose group lies inside the renderer's data window used to switch the 3D renderer off when the HUD/text code reached it
      in a level (the group load would overwrite the world).  Its few words are read from the disc and kept in a small resident table instead; the group is not loaded. */
   if(sf3_ok && g0==g1 && he-hs<=16 && he>SF_WORLD_LO && hs<0x8011b200u && !cold_loaded[g0]){
-    static u32 vene[24][4] __attribute__((aligned(16))); static u32 vene_g[24], nvene;
     u32*const vtmp=(u32*)__veneer_scratch;   /* dedicated linker-reserved 4 KiB, outside PPU CLUT/row buffers and renderer code */
-    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g) return (u32)vene[q]+(host-hs);
+    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g){ CF_PERM(1); return (u32)vene[q]+(host-hs); }
     if(nvene<24){ u32 dst=COLD_HOST+g0*16384, off=hs-dst, sec=off>>11, left=CD_COLD_PAGES*2-g0*8-sec; cd_read(CD_COLD_LBA+g0*8+sec,left<2?left:2,(u8*)vtmp);
       const u32*src=(const u32*)((u8*)vtmp+(off&2047)); u32 nw=(he-hs)>>2, ok=1; for(u32 q=0;q<nw;q++){ u32 op=src[q]>>26; if(op==1||(op>=4&&op<=7)) ok=0; }
-      if(ok){ for(u32 q=0;q<4;q++) vene[nvene][q]=q<nw?src[q]:0; vene_g[nvene]=g; nvene++; flush_icache(); dbg("VENEER resident copy "); hex(g); dbg("\n"); return (u32)vene[nvene-1]+(host-hs); } } }
+      if(ok){ for(u32 q=0;q<4;q++) vene[nvene][q]=q<nw?src[q]:0; vene_g[nvene]=g; nvene++; flush_icache(); dbg("VENEER resident copy "); hex(g); dbg("\n"); CF_PERM(1); return (u32)vene[nvene-1]+(host-hs); } } }
   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){ u32 lo=COLD_HOST+k*16384, hi=lo+16384;      /* only a group that would really be loaded can hit the renderer's data (stage 7: groups already in memory used to trigger this too) */
     if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) {
 #ifdef COLD_RECOVER     /* stage 12/13 alternative: load the group, renderer off, restored when the level clock runs again (present()) */
@@ -560,15 +624,322 @@ found:;
     cd_read(CD_COLD_LBA+k*8,left<8?left:8,(u8*)dst);
     cold_loaded[k]=1; cold_loads++; loaded=1; }
   if(loaded){ last_cold_pres=g_pres; flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
+  CF_PERM(COLD_HOST+(g1+1)*16384u<=SF_WORLD_LO);     /* every group of the span ends below the world window: never dropped (present()) */
   return host;
 }
+/* ---------------------------------------------------------------- stage 20 dispatch phase 1 (PLAN.md Stage 2), each item behind its own flag:
+   D3 -DDISP_D3  RT_MEMRD's first word `j RT_MEMRD_SLOW` -> nop: the blob's own fast path serves aligned lb/lbu/lh/lhu/lw from resident ROM pages
+   D1 -DDISP_D1  RT_MISS words 0-1 -> `j rt_mcache; addu $24,$25,$0`: a 512 x 8 B cache of cold_find results at 0x80028400 in front of the C call
+   D4 -DDISP_D4  RT_MEMRD -> `j rd_front`, RT_MEMWR -> `j wr_front`: EWRAM/IWRAM by GBA address without the C call (the IO page still goes to C first)
+   D2 -DDISP_D2  h_miss links a `jal RT_MISS` call site to its permanent host entry: queued at 0x80029400, written at the next present, one FlushCache
+   test only: -DDISP_D1CHK checks every D1 hit against the cold table (dsp_mchk_bad = 0 expected), -DDISP_PROF counts the C calls.
+   The blob addresses are the stubs of t2m.py runtime() (cfg 'P'): RT_MISS 0x80030008, rt_miss_ret 0x80030028, RT_MEMRD 0x80030044, its ROM fast path
+   0x8003004c, kind dispatch 0x8003009c, RT_MEMRD_SLOW 0x80030128, RT_MEMWR 0x8003013c, RT_CC 0x80030150.  dsp_boot() compares every word the new code
+   relies on before it patches anything; on a mismatch it patches nothing and says so on the TTY. */
+#if defined(DISP_D1)||defined(DISP_D2)||defined(DISP_D3)||defined(DISP_D4)
+#define DISP_ANY 1
+#endif
+#if defined(DISP_D1CHK)&&!defined(DISP_D1)
+#error "DISP_D1CHK checks the D1 cache: it needs -DDISP_D1"
+#endif
+#ifdef DISP_ANY
+u32 dsp_ok;             /* the boot patches are in (read by the test rig) */
+#endif
+#ifdef DISP_D1
+#define MCACHE ((volatile u32*)0x80028400)   /* 512 x {key = guest target >> 1 (0xffffffff = empty), host entry}, in the reserved area below ROMPG */
+static void dsp_mclear(void){ for(u32 i=0;i<1024;i+=2) MCACHE[i]=0xffffffffu; }   /* at boot and wherever a cold group is dropped */
+static inline u32 dsp_mslot(u32 addr){ return ((addr>>1)^(addr>>12))&511; }       /* = rt_mcache */
+#else
+#define dsp_mclear() ((void)0)
+#endif
+#ifdef DISP_D2
+/* D2: rules of dispatch.md D2 for the call site at ra-8 and the target addr (as RT_MISS got it): ra word-aligned in the hot blob or in a loaded cold group;
+   the site is `jal RT_MISS` (0x0c00c002); the `li $25` before it encodes addr exactly (lui+ori at ra-16/ra-12, or lui alone at ra-12 when the low half is 0) */
+#define LQ ((volatile u32*)0x80029400)       /* 64 x {site, target, host, 0}: 0x80029400..0x80029800, in the reserved area */
+#define LQ_N 64u
+u32 lq_n, d2_linked, d2_queued, d2_full, d2_stale, d2_batches;     /* read by the test rig: keep them external */
+static int d2_site_ok(u32 addr,u32 ra){
+  if(ra&3) return 0;
+  u32 s=ra-8;
+  if(!(s>=0x80030310u&&s<0x80044288u)){ u32 k=(s-COLD_HOST)>>14; if(s<COLD_HOST||k>=COLDGROUPS||!cold_loaded[k]) return 0; }
+  const volatile u32*w=(const volatile u32*)s;
+  if(w[0]!=0x0c00c002u) return 0;
+  u32 hi=0x3c190000u|(addr>>16), lo=0x37390000u|(addr&0xffff);
+  return (w[-1]==lo&&w[-2]==hi)||((addr&0xffff)==0&&w[-1]==hi);
+}
+/* 1 = the site is linked or queued (do not cache: the next calls from it must reach h_miss until the queue is written) */
+static int d2_link(u32 addr,u32 ra,u32 host){
+  if(!cf_perm||!d2_site_ok(addr,ra)) return 0;
+  u32 s=ra-8;
+  for(u32 q=0;q<lq_n;q++) if(LQ[4*q]==s) return 1;
+  if(lq_n>=LQ_N){ d2_full++; return 1; }
+  LQ[4*lq_n]=s; LQ[4*lq_n+1]=addr; LQ[4*lq_n+2]=host; lq_n++; d2_queued++; return 1;
+}
+/* at a present: write the queued sites (each checked again: its group may have been dropped since), then one FlushCache */
+static void d2_apply(void){
+  if(!lq_n) return;
+  u32 n=0;
+  for(u32 q=0;q<lq_n;q++){ u32 s=LQ[4*q], addr=LQ[4*q+1], host=LQ[4*q+2];
+    if(d2_site_ok(addr,s+8)){ *(volatile u32*)s=0x0c000000u|((host>>2)&0x03ffffffu); n++; } else d2_stale++; }
+  lq_n=0; d2_linked+=n; d2_batches++;
+  if(n) flush_icache();
+  if(d2_batches<=8||(d2_batches&63)==0){ dbg("DISP D2 linked "); dec(n); dbg("total "); dec(d2_linked); dbg("stale "); dec(d2_stale); dbg("full "); dec(d2_full); dbg("\n"); }
+}
+#endif
+#ifdef DISP_D1CHK
+/* TEST-ONLY: every D1 hit comes here (RT_CC from rt_mcache, a2 = the cached host) and is checked against the cold table without side effects: the same host
+   (or the function's resident veneer copy) and every group of its span loaded.  A mismatch is counted and printed; the call then takes the normal path. */
+u32 dsp_mchk_hits, dsp_mchk_bad;
+static u32 h_miss2(u32 addr,u32 ra);
+u32 h_mchk(u32 addr,u32 ra,u32 cached){
+  u32 g=addr&~1u, ok=0; const u32*ct=(const u32*)coldtab; u32 n=ct[0]; const u32*r=ct+1; u32 lo=0,hi=n; dsp_mchk_hits++;
+  while(lo<hi){ u32 m=(lo+hi)>>1; u32 v=r[m*4]; if(v==g){ lo=m; goto found; } if(v<g) lo=m+1; else hi=m; }
+  goto out;
+found:;
+  { u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3]; int vq=-1;
+    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g) vq=(int)q;
+    if(vq>=0) ok=(cached==(u32)vene[vq]+(host-hs));
+    else if(cached==host){ ok=1; for(u32 k=(hs-COLD_HOST)>>14;k<=(he-1-COLD_HOST)>>14;k++) if(!cold_loaded[k]) ok=0; } }
+out:
+  if(ok) return cached;
+  dsp_mchk_bad++; if(dsp_mchk_bad<=16){ dbg("DISP D1 CHECK MISMATCH target "); hex(addr); dbg("cached "); hex(cached); dbg("\n"); }
+  MCACHE[2*dsp_mslot(addr)]=0xffffffffu;
+  return h_miss2(addr,ra);
+}
+#endif
+#ifdef DISP_D1
+/* D1 fill: only a cold_find result (never the interpreter), and not when D2 has linked or queued the call site */
+#define MC_FILL(a,h) do{ if(dsp_ok){ u32 s_=dsp_mslot(a); MCACHE[2*s_+1]=(h); MCACHE[2*s_]=(a)>>1; DSP_PROF(dsp_nfill++); } }while(0)
+#else
+#define MC_FILL(a,h) ((void)0)
+#endif
+#ifdef DISP_D2
+#define D2_LINK(a,ra,h) (dsp_ok&&d2_link((a),(ra),(h)))
+#else
+#define D2_LINK(a,ra,h) 0
+#endif
 #ifdef NO_INTERP
 static const u32 ip_enters = 0;  /* diagnostic value for the full-cold simulator */
-u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
+u32 h_miss(u32 addr,u32 ra){ (void)ra; DSP_PROF(dsp_nmiss++); u32 h=cold_find(addr); if(h){ if(!D2_LINK(addr,ra,h)) MC_FILL(addr,h); return h; } gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
 #else
 #include "interp_glue.h"
-/* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts) */
-u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; interp_target=addr&~1u; return (u32)interp_enter; }
+/* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts).  a1 = the caller's $31 when the stage 20 RT_MISS patch is in (rt_mcache) */
+u32 h_miss(u32 addr,u32 ra){ (void)ra; DSP_PROF(dsp_nmiss++); u32 h=cold_find(addr); if(h){ if(!D2_LINK(addr,ra,h)) MC_FILL(addr,h); return h; } interp_target=addr&~1u; return (u32)interp_enter; }
+#endif
+#ifdef DISP_D1CHK
+static u32 h_miss2(u32 addr,u32 ra){ return h_miss(addr,ra); }
+#endif
+#ifdef DISP_ANY
+/* The new code.  rt_mcache: RT_MISS jumps here with $24 = $25 = the guest target and $31 = the caller's return address; it uses only $1, $2, $3, $24, $25
+   and $28, which the C call it replaces clobbers too ($2 carries its result), so flags ($4-$7), guest registers and $31 are untouched. */
+__asm__(
+  ".pushsection .text,\"ax\",@progbits\n.set push\n.set noreorder\n.set noat\n.align 2\n"
+#if defined(DISP_D1)||defined(DISP_D2)
+  ".globl rt_mcache\n.type rt_mcache,@function\n"
+  "rt_mcache:\n"
+#ifdef DISP_D1
+  " srl $1,$24,1\n"                 /* key = target >> 1: the Thumb bit does not matter */
+  " srl $2,$24,12\n"
+  " xor $2,$2,$1\n"
+  " andi $2,$2,511\n"               /* slot = ((t >> 1) ^ (t >> 12)) & 511 */
+  " sll $2,$2,3\n"
+  " lui $25,0x8003\n"
+  " addu $2,$2,$25\n"
+  " lw $25,-0x7c00($2)\n"           /* key[slot], 0x80028400 + 8 * slot */
+  " lw $2,-0x7bfc($2)\n"            /* host[slot] (load delay of the key) */
+  " bne $25,$1,rt_mslow\n"
+  " lui $25,0x8002\n"               /* delay slot: first word of the slow path */
+#ifdef DISP_D1CHK
+  " addu $3,$2,$0\n"                /* TEST-ONLY: a2 = the cached host, checked by h_mchk through RT_CC */
+  " lui $25,%hi(h_mchk)\n"
+  " j rt_mcc\n"
+  " addiu $25,$25,%lo(h_mchk)\n"
+#else
+  " jr $2\n"                        /* hit: straight to the host entry */
+  " nop\n"
+#endif
+#else
+  " lui $25,0x8002\n"
+#endif
+  "rt_mslow:\n"                     /* RT_MISS's own body: h_miss = HELP+8 through RT_CC, back through rt_miss_ret (jr $2) */
+  " ori $25,$25,0x8008\n"
+  " lw $25,0($25)\n"
+  "rt_mcc:\n"
+  " addu $2,$31,$0\n"               /* a1 = the caller's return address (D2) */
+  " lui $28,0x8003\n"
+  " j 0x80030150\n"
+  " ori $28,$28,0x0028\n"
+  ".size rt_mcache,.-rt_mcache\n"
+#endif
+#ifdef DISP_D4
+  /* rd_front, from RT_MEMRD: $24 = address, $2 = kind (0 lbu, 1 lb, 2 lhu, 3 lh, 4 lw), $28 = return.  The IO page first (to C: io_read and the clock),
+     then EWRAM 0x801b0000 + (a & 0x3ffff) and IWRAM 0x801f0000 + (a & 0x7fff), = g2h(), into the blob's kind dispatch (alignment checks, the load, jr $28);
+     anything else: the ROM fast path (D3) or C */
+  ".globl rd_front\n.type rd_front,@function\n"
+  "rd_front:\n"
+  " lui $1,0x8018\n"
+  " addiu $1,$1,-0x1000\n"          /* 0x8017f000: the IO page as the blob addresses it */
+  " subu $1,$24,$1\n"
+  " sltiu $1,$1,0x400\n"
+  " bne $1,$0,rd_slow\n"
+  " srl $25,$24,24\n"
+  " addiu $1,$25,-2\n"
+  " beq $1,$0,rd_ew\n"
+  " addiu $1,$25,-3\n"
+  " bne $1,$0,rd_rom\n"
+  " andi $25,$24,0x7fff\n"
+  " lui $1,0x801f\n"
+  " j 0x8003009c\n"
+  " addu $25,$25,$1\n"
+  "rd_ew:\n"
+  " sll $25,$24,14\n"
+  " srl $25,$25,14\n"
+  " lui $1,0x801b\n"
+  " j 0x8003009c\n"
+  " addu $25,$25,$1\n"
+  "rd_rom:\n"
+#ifdef DISP_D3
+  " j 0x8003004c\n"
+  " nop\n"
+#endif
+  "rd_slow:\n"
+  " j 0x80030128\n"
+  " nop\n"
+  ".size rd_front,.-rd_front\n"
+  /* wr_front, from RT_MEMWR (its delay slot `ori $25,$25,0x8004` has run, so $25 is not used): $24 = address, $2 = size 1/2/4, $3 = value.  The same windows;
+     aligned sb/sh/sw; the IO page, a misaligned store and anything else take RT_MEMWR's own body, rebuilt here (h_memwr = HELP+4 through RT_CC) */
+  ".globl wr_front\n.type wr_front,@function\n"
+  "wr_front:\n"
+  " lui $1,0x8018\n"
+  " addiu $1,$1,-0x1000\n"
+  " subu $1,$24,$1\n"
+  " sltiu $1,$1,0x400\n"
+  " bne $1,$0,wr_slow\n"
+  " srl $25,$24,24\n"
+  " addiu $1,$25,-2\n"
+  " beq $1,$0,wr_ew\n"
+  " addiu $1,$25,-3\n"
+  " bne $1,$0,wr_slow\n"
+  " andi $25,$24,0x7fff\n"
+  " lui $1,0x801f\n"
+  " b wr_st\n"
+  " addu $25,$25,$1\n"
+  "wr_ew:\n"
+  " sll $25,$24,14\n"
+  " srl $25,$25,14\n"
+  " lui $1,0x801b\n"
+  " addu $25,$25,$1\n"
+  "wr_st:\n"
+  " addiu $1,$2,-4\n"
+  " beq $1,$0,wr_w\n"
+  " addiu $1,$2,-2\n"
+  " beq $1,$0,wr_h\n"
+  " addiu $1,$2,-1\n"
+  " bne $1,$0,wr_slow\n"
+  " nop\n"
+  " jr $28\n"
+  " sb $3,0($25)\n"
+  "wr_w:\n"
+  " andi $1,$24,3\n"
+  " bne $1,$0,wr_slow\n"
+  " nop\n"
+  " jr $28\n"
+  " sw $3,0($25)\n"
+  "wr_h:\n"
+  " andi $1,$24,1\n"
+  " bne $1,$0,wr_slow\n"
+  " nop\n"
+  " jr $28\n"
+  " sh $3,0($25)\n"
+  "wr_slow:\n"
+  " lui $25,0x8002\n"
+  " ori $25,$25,0x8004\n"
+  " lw $25,0($25)\n"
+  " j 0x80030150\n"
+  " nop\n"
+  ".size wr_front,.-wr_front\n"
+#endif
+  /* the new words of the boot patches, in the order of dsp_at[] below.  Assembled (never executed here) so that the linker resolves the jumps and
+     mips1_lint checks them with the rest of the code; ps1/tools/disp_patch_check.py decodes them in the linked ELF. */
+  ".globl dsp_new\n.type dsp_new,@function\n"
+  "dsp_new:\n"
+#if defined(DISP_D1)||defined(DISP_D2)
+  " j rt_mcache\n"                  /* 0x80030008 */
+  " addu $24,$25,$0\n"              /* 0x8003000c: RT_MISS's first word, now in the delay slot */
+#endif
+#ifdef DISP_D4
+  " j rd_front\n"                   /* 0x80030044 */
+  " j wr_front\n"                   /* 0x8003013c */
+#elif defined(DISP_D3)
+  " nop\n"                          /* 0x80030044: falls through into the ROM fast path (its delay slot 0x80030048 is a nop) */
+#endif
+  ".size dsp_new,.-dsp_new\n"
+  ".globl dsp_new_end\ndsp_new_end:\n"
+  ".set pop\n.popsection\n");
+extern const u32 dsp_new[], dsp_new_end[];
+/* patched words: address and the original word (t2m.py runtime()), in the order of dsp_new */
+static const u32 dsp_at[][2]={
+#if defined(DISP_D1)||defined(DISP_D2)
+  {0x80030008u,0x0320c021u},       /* RT_MISS: addu $24,$25,$0 */
+  {0x8003000cu,0x3c198002u},       /*          lui $25,0x8002 */
+#endif
+#ifdef DISP_D4
+  {0x80030044u,0x0800c04au},       /* RT_MEMRD: j RT_MEMRD_SLOW */
+  {0x8003013cu,0x3c198002u},       /* RT_MEMWR: lui $25,0x8002 */
+#elif defined(DISP_D3)
+  {0x80030044u,0x0800c04au},
+#endif
+};
+/* words the new code relies on, checked and left as they are */
+static const u32 dsp_keep[][2]={
+  {0x80030010u,0x37398008u},{0x80030014u,0x8f390000u},     /* RT_MISS: ori $25,$25,0x8008 (HELP+8); lw $25,0($25) */
+  {0x80030018u,0x3c1c8003u},{0x8003001cu,0x379c0028u},     /*          la $28,rt_miss_ret */
+  {0x80030020u,0x0800c054u},{0x80030024u,0x00000000u},     /*          j RT_CC; nop */
+  {0x80030028u,0x00400008u},{0x8003002cu,0x00000000u},     /* rt_miss_ret: jr $2; nop */
+  {0x80030048u,0x00000000u},                               /* RT_MEMRD delay slot: nop */
+  {0x8003004cu,0x0018ce02u},{0x80030050u,0x332100f9u},     /* ROM fast path: srl $25,$24,24; andi $1,$25,0xf9 (region test) */
+  {0x80030078u,0x3c198002u},{0x8003007cu,0x3739a000u},     /*                la $25,ROMPG (0x8002a000) */
+  {0x8003008cu,0x13200026u},{0x80030094u,0x33010fffu},     /*                beqz $25,RT_MEMRD_SLOW; andi $1,$24,0xfff */
+  {0x8003009cu,0x2441fffcu},{0x800300a0u,0x1020000fu},     /* kind dispatch: addiu $1,$2,-4; beqz $1,lw */
+  {0x800300ecu,0x8f220000u},{0x800300f0u,0x03800008u},     /*                lw $2,0($25); jr $28 */
+  {0x80030128u,0x3c198002u},{0x8003012cu,0x37398000u},     /* RT_MEMRD_SLOW: la $25,HELP+0 */
+  {0x80030130u,0x8f390000u},{0x80030134u,0x0800c054u},     /*                lw $25,0($25); j RT_CC */
+  {0x80030140u,0x37398004u},{0x80030148u,0x0800c054u},     /* RT_MEMWR: ori $25,$25,0x8004 (the patched word's delay slot); j RT_CC */
+  {0x80030150u,0x3c1d801fu},{0x80030154u,0x37bdff90u},     /* RT_CC: la $29,0x801fff90 */
+  {0x80030184u,0x03002021u},{0x80030188u,0x00402821u},     /*        a0 = $24; a1 = $2 */
+  {0x8003018cu,0x00603021u},{0x80030190u,0x0320f809u},     /*        a2 = $3; jalr $25 */
+  {0x800301c4u,0x03800008u},                               /*        jr $28 */
+};
+/* a hash of the rest of the ROM fast path and the kind dispatch (0x8003004c..0x80030128, which D3 and D4 run): ((h << 5) | (h >> 27)) ^ word */
+#define DSP_FAST_HASH 0x5b2dc86du
+static void dsp_boot(void){
+  u32 n=sizeof dsp_at/sizeof dsp_at[0], bad=0, h=0;
+  if((u32)(dsp_new_end-dsp_new)!=n) bad=1;
+  for(u32 i=0;i<n&&!bad;i++) if(*(volatile u32*)dsp_at[i][0]!=dsp_at[i][1]) bad=dsp_at[i][0];
+  for(u32 i=0;i<sizeof dsp_keep/sizeof dsp_keep[0]&&!bad;i++) if(*(volatile u32*)dsp_keep[i][0]!=dsp_keep[i][1]) bad=dsp_keep[i][0];
+  for(u32 a=0x8003004cu;a<0x80030128u;a+=4) h=((h<<5)|(h>>27))^*(volatile u32*)a;
+  if(!bad&&h!=DSP_FAST_HASH) bad=0x8003004cu;
+  if(bad){ dbg("DISP boot patches NOT applied: the blob word at "); hex(bad); dbg("is not the expected one (fast path hash "); hex(h); dbg(")\n"); return; }
+  for(u32 i=0;i<n;i++) *(volatile u32*)dsp_at[i][0]=dsp_new[i];
+  dsp_ok=1; flush_icache();
+  dbg("DISP boot patches applied:");
+#ifdef DISP_D3
+  dbg(" D3");
+#endif
+#ifdef DISP_D1
+  dbg(" D1");
+#endif
+#ifdef DISP_D4
+  dbg(" D4");
+#endif
+#ifdef DISP_D2
+  dbg(" D2");
+#endif
+#ifdef DISP_D1CHK
+  dbg(" D1CHK");
+#endif
+  dbg(", words "); dec(n); dbg("\n");
+}
 #endif
 
 /* ---------------------------------------------------------------- GPU
@@ -770,15 +1141,20 @@ static void gs_dump(void){
     if(bpe){ dbg("ped "); dec(pi); dec(*(const s32*)(bpe+4)); dec(*(const s32*)(bpe+8)); }
     dbg("\n"); } }
 #endif
+#ifdef DISP_PROF
+static void present_(void);
+static void present(void){ u32 t0=dsp_rc(), c0=dsp_cdl; present_(); dsp_prl+=(dsp_rc()-t0)-(dsp_cdl-c0); }   /* TEST-ONLY timing wrapper */
+#define present present_
+#endif
 static void present(void){
   cd_idle();             /* a data read left running since the last picture is paused now (reads that follow each other need no Pause) */
   sv_service(); cdda_service();
 #ifdef SF3_DEFER
   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
   { static int tried; if(!tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && (u32)*(volatile s16*)(EW+0x1e66)<=10u){ tried=1; sf3_first_map=*(volatile s16*)(EW+0x1e66); dbg("guest map "); dec(sf3_first_map); dbg("\n"); dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
-      sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
+      sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
   if(sf3_retry && !sf3_ok && g_pres-last_cold_pres>=6 && *(volatile u32*)(EW+0x1e00)!=sf3_clk0){ sf3_retry=0; dbg("sf3 re-init after overlay load\n");
-    sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
+    sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
 #endif
   g_pres++;
 #ifndef PRES_DBG_EVERY
@@ -797,10 +1173,14 @@ static void present(void){
                 u32 a=lo<SF_WORLD_LO?SF_WORLD_LO:lo, b=hi>we?we:hi;
                 if(a<b){ u32 s0=(a-SF_WORLD_LO)>>11, s1=(b-1-SF_WORLD_LO)>>11; cd_read(sf3_w_lba+s0,s1-s0+1,(u8*)(SF_WORLD_LO+s0*2048)); }
                 cold_loaded[k]=0; nrest++; } }
+            dsp_mclear();
             sf3_ok=1; dbg("SF3 renderer data restored from the world file, groups "); dec(nrest); dbg("level clock "); dec(c); dbg("\n"); }
           else { dbg("SF3 re-init after cold-code conflict, level clock "); dec(c); dbg("\n");
-            sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } } }
+            sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } } }
       else rclk=0; } }
+#endif
+#ifdef DISP_D2
+  d2_apply();             /* stage 20 D2: the call sites queued since the last picture, after this present's group drops */
 #endif
   if((g_pres%PRES_DBG_EVERY)==1){ dbg("present "); dec(g_pres); dbg(" tick "); dec(io_nd); dbg("gf "); dec(g_gframes); dbg("clk "); dec(*(volatile u32*)(EW+0x1e00)); dbg("map "); dec(*(volatile u16*)(EW+0x1d40)); dbg("nent "); dec(*(volatile u16*)(IW+0xc)); dbg("dsp "); hex(io16(0)); dbg("keys "); hex(io_keys); dbg("PPU n2 "); dec(pp_n2); dbg("n4 "); dec(pp_n4); dbg("up "); dec(pp_nup); dbg("rb "); dec(pp_nrb); dbg("rst "); dec(pp_nreset); dbg("lost "); dec(pp_lost); dbg("fade "); dec(pp_nfade); dbg("w "); dec(pp_fade_w); dbg("fb "); dec(pp_nfb); dbg("obj "); dec(pp_nobj); dbg("disp "); hex(pp_disp); dbg("\n"); }
   u32 rc=RC1_VAL; u32 lines=(rc-last_rc)&0xffff;   /* scanlines of CPU time since the previous present = guest logic time */
@@ -986,8 +1366,15 @@ int main(void){
   memcpy(EW,p,0x40000); p+=0x40000; memcpy(IW,p,0x8000); p+=0x8000; memcpy(PAL,p,0x400); p+=0x400; memcpy(VRAM,p,0x18000); p+=0x18000; memcpy(OAM,p,0x400); p+=0x400; memcpy(io,p,0x400);
   io_vc=b[32]; io_nread=b[33]; for(int i=0;i<4;i++) io_tm[i]=b[34+i]; io_nd=b[38]; io_keys=PAD[(io_nd/30)%6];
   const u32 *rp=(const u32*)rompack; rp_n=rp[0]; rp_idx=rp+1; rp_data=(const u8*)(rp+1+rp_n);
+#ifdef DISP_D3
+  for(u32 i=0;i<2048;i++) rom_pg[i]=0;          /* ROMPG is outside the BSS: a real BIOS (and a packed EXE) leaves it undefined */
+#endif
   for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&2047]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted) */
   dbg("boot image loaded, rom pages "); dec(rp_n); dbg("\n");
+#ifdef DISP_ANY
+  dsp_mclear();             /* the D1 cache (reserved area, undefined at power-on) is empty before RT_MISS can reach it */
+  dsp_boot();
+#endif
   last_rc=RC1_VAL;
   static u32 regs[32]; for(int i=0;i<32;i++) regs[i]=b[i];
   { extern u8 __sfbss_start[],__sfbss_end[]; for(u8*q=__sfbss_start;q<__sfbss_end;q++) *q=0; }

@@ -63,8 +63,9 @@ def main() -> int:
                 run(f"prefix {name}", names["objcopy"], f"--prefix-alloc-sections={prefix}", target)
             return target
 
-        # release profile (tools12/build.sh): single-page CD fetches, no menu assist; the TEST profile adds KPLAN
-        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", "-DPADDBG", "-Iinterp"]
+        # release profile (tools12/build.sh): single-page CD fetches, no menu assist, dispatch phase 1 (D3 D1 D4 D2); the TEST profile adds KPLAN
+        dispatch = ["-DDISP_D3", "-DDISP_D1", "-DDISP_D4", "-DDISP_D2"]
+        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", "-DPADDBG", *dispatch, "-Iinterp"]
         test_runtime = [*runtime, "-DKPLAN", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]
@@ -81,6 +82,7 @@ def main() -> int:
         (objects / "symbols.c").write_text(SYMBOLS)
         modules.append(compile_source("native-check/symbols.c", "symbols", ["-Os"]))
         lint = PS1_ROOT / "tools" / "mips1_lint.py"
+        patch_check = PS1_ROOT / "tools" / "disp_patch_check.py"
 
         def link_and_report(label: str, elf: str, objects_: list[str]) -> None:
             run(f"{label} layout link", names["ld"], "--defsym=ip_stacks=0x8002c000", "-T", "ps1rt/ps1.ld",
@@ -96,10 +98,18 @@ def main() -> int:
             if symbols["__ppu_start"] != 0x8017a000 or symbols["__veneer_scratch"] != 0x8017b000:
                 raise PreparationError("unexpected PPU/veneer scratch allocation")
             print(run(f"{label} R3000A instruction check", sys.executable, str(lint), elf).strip().splitlines()[-1])
+            print(run(f"{label} dispatch patch check", sys.executable, str(patch_check), elf).strip().splitlines()[0])
 
         link_and_report("Release", "native-check/layout.elf", modules)
         test_modules = [compile_source("ps1rt/rt.c", "test_runtime", test_runtime), *modules[1:]]
         link_and_report("Test (KPLAN)", "native-check/test-layout.elf", test_modules)
+        # dispatch: the D1 debug cross-check (test only) and single items link, and their patch words decode
+        for label, flags in (("Test (D1CHK)", [*runtime, "-DDISP_D1CHK", "-DDISP_PROF"]),
+                             ("Dispatch D3 only", [f for f in runtime if f not in dispatch[1:]]),
+                             ("Dispatch D2 only", [f for f in runtime if f not in dispatch[:3]]),
+                             ("Dispatch D1 D4", [f for f in runtime if f not in (dispatch[0], dispatch[3])])):
+            name = label.lower().replace(" ", "_").replace("(", "").replace(")", "")
+            link_and_report(label, f"native-check/{name}.elf", [compile_source("ps1rt/rt.c", name, flags), *modules[1:]])
         print("Native module compile/link passed with explicit PS1 RAM allocations.")
 
         def reject(label: str, expected: str, *command: str) -> None:
@@ -111,6 +121,8 @@ def main() -> int:
                "-DNSLOT=3", "-c", "ps1rt/rt.c", "-o", "native-check/invalid-cache.o")
         reject("empty single-page cache", "NSLOT must be at least one", names["cc"], *common, *runtime,
                "-DNSLOT=0", "-c", "ps1rt/rt.c", "-o", "native-check/invalid-cache1.o")
+        reject("D1 debug check without D1", "DISP_D1CHK checks the D1 cache", names["cc"], *common,
+               *[f for f in runtime if f != "-DDISP_D1"], "-DDISP_D1CHK", "-c", "ps1rt/rt.c", "-o", "native-check/invalid-d1chk.o")
         compile_source("ps1rt/rt.c", "cluster_runtime", cluster_runtime)
         cache64 = compile_source("ps1rt/rt.c", "cache64", [*runtime, "-DNSLOT=64"])
         reject("cache/ragdoll overlap", "ROM page cache overlaps ragdoll code", names["ld"],
@@ -121,7 +133,8 @@ def main() -> int:
         reject("ragdoll/scratch overlap", "ragdoll code overlaps PPU scratch", names["ld"],
                "--defsym=ip_stacks=0x8002c000", "-T", "ps1rt/ps1.ld", *modules, oversized,
                "-o", "native-check/invalid-scratch.elf")
-        print("Rejected partial CD-fetch groups, an empty single-page cache, cache/ragdoll overlap and ragdoll/scratch overlap.")
+        print("Rejected partial CD-fetch groups, an empty single-page cache, the D1 debug check without D1, cache/ragdoll overlap "
+              "and ragdoll/scratch overlap.")
         # Discovery runs all translated cold code in a 16 MiB simulator. Its
         # deliberate virtual cache is legal only in the simulator linker, and
         # the full-cold profile does not need interpreter fallback.
