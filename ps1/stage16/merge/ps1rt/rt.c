@@ -17,6 +17,7 @@ typedef unsigned int u32; typedef int s32; typedef unsigned short u16; typedef s
 #define DL ((volatile u32*)0x8017c000)
 extern u8 __blob_start[];
 extern u8 bootimg[], rompack[];
+extern u8 __ppu_start[], __veneer_scratch[];
 extern void *memset(void*,int,unsigned);
 void *memset(void*d,int c,unsigned n){u8*p=d;while(n--)*p++=c;return d;}
 void *memcpy(void*d,const void*s,unsigned n){u8*p=d;const u8*q=s;while(n--)*p++=*q++;return d;}
@@ -43,8 +44,20 @@ extern const u32 CD_ROM_LBA, CD_COLD_LBA, CD_COLD_PAGES, CD_SNAP_LBA, CD_SNAP_N,
 #endif
 #define PCACHE ((u8*)PCACHE_ADDR)
 #ifndef NSLOT
-#define NSLOT 64
+#define NSLOT 8
 #endif
+#if NSLOT < 4 || (NSLOT % 4) != 0
+#error "NSLOT must be at least four and a multiple of four (CD fetch batches)"
+#endif
+/* Export the actual compiled cache configuration to the linker. This tiny
+ * retained function is never called; its absolute symbols let all linker
+ * variants reject overlap with resident pages or a relocated ragdoll module.
+ */
+__attribute__((used)) static void ps1_memory_layout(void){
+  __asm__ volatile(".globl __ps1_pcache_start\n.set __ps1_pcache_start, %0\n"
+                   ".globl __ps1_pcache_end\n.set __ps1_pcache_end, %1\n"
+                   : : "i"(PCACHE_ADDR), "i"(PCACHE_ADDR+NSLOT*4096u));
+}
 static u32 slot_owner[NSLOT], slot_next, cd_ready;
 static void cd_ack(void){ CD0=1; CD3=0x1f; }
 static u32 cd_dbg;
@@ -374,9 +387,13 @@ u32 h_memwr(u32 ea,u32 size,u32 val){
 }
 static void gpu_panic(const char*m,u32 a){ dbg(m); hex(a); dbg("\n"); for(;;){} }
 extern const u32 COLD_HOST; extern const u8 coldtab[];
-#ifndef SF_WORLD_LO
-#define SF_WORLD_LO 0x800C9000u    /* = SF_WORLD_ADDR of sf/sfmem.h: the renderer data starts here; cold overlay groups must stay below */
+#ifndef SF_WORLD_ADDR
+#define SF_WORLD_ADDR 0x800C9000u
 #endif
+#ifndef SF_WORLD_LO
+#define SF_WORLD_LO SF_WORLD_ADDR
+#endif
+_Static_assert(SF_WORLD_LO == SF_WORLD_ADDR, "runtime and renderer world bounds must match");
 static int sf3_ok; static u32 sf3_cfl, sf3_cfl_clk;   /* sf3_cfl: a cold load hit the renderer data (renderer off) while the level clock was sf3_cfl_clk; present() restores the renderer when the level runs again */
 #ifndef COLDGROUPS
 #define COLDGROUPS 64
@@ -399,7 +416,7 @@ found:;
      in a level (the group load would overwrite the world).  Its few words are read from the disc and kept in a small resident table instead; the group is not loaded. */
   if(sf3_ok && g0==g1 && he-hs<=16 && he>SF_WORLD_LO && hs<0x8011b200u && !cold_loaded[g0]){
     static u32 vene[24][4] __attribute__((aligned(16))); static u32 vene_g[24], nvene;
-    u32*const vtmp=(u32*)0x801ac000u;   /* merge (stage 16): 4 KiB scratch in the spare part of the PPU-lite RAM (PP_MEM+0x400..0x1400 of 17 KiB, only the first 0xA00 bytes are used) instead of 4 KiB of runtime bss */
+    u32*const vtmp=(u32*)__veneer_scratch;   /* dedicated linker-reserved 4 KiB, outside PPU CLUT/row buffers and renderer code */
     for(u32 q=0;q<nvene;q++) if(vene_g[q]==g) return (u32)vene[q]+(host-hs);
     if(nvene<24){ u32 dst=COLD_HOST+g0*16384, off=hs-dst, sec=off>>11, left=CD_COLD_PAGES*2-g0*8-sec; cd_read(CD_COLD_LBA+g0*8+sec,left<2?left:2,(u8*)vtmp);
       const u32*src=(const u32*)((u8*)vtmp+(off&2047)); u32 nw=(he-hs)>>2, ok=1; for(u32 q=0;q<nw;q++){ u32 op=src[q]>>26; if(op==1||(op>=4&&op<=7)) ok=0; }

@@ -1,4 +1,19 @@
-# Payback: Stunt Fox
+# Payback: Stunt Fox / Star-FlyBack
+
+This repository contains three related targets. Choose a target before building;
+their controls, save extensions and validation status differ.
+
+| Target | What it contains | Start here |
+| --- | --- | --- |
+| `payback-mod/` | The 16 MiB GBA milestone: Payback's engine, stadium, rebuilt free-roam city, builder and helicopter-based Arwing | The play/build instructions below |
+| `stuntfox/` | The larger GBA engine: custom rendering and physics, campaign, Fox Station, flight, space walks and radio; standalone or merged with Payback | [Stunt Fox README](stuntfox/README.md) |
+| `ps1/` | The staged PlayStation translation, runtime and renderer; later stages include patches over earlier work | [Current PS1 status and handoff](ps1/STATUS.md) |
+
+The [pre-port validation notes](docs/pre-port-validation.md) record the repaired
+standalone build, full-world simulator, native-save compatibility and actual
+GBA emulator checks, with artifact hashes and remaining acceptance work.
+
+## GBA playability milestone
 
 A Payback (GBA, Europe) mod with a stadium stunt park, a rebuilt free-roam city,
 dash plates, speed-dependent loops, an in-game builder, and an Arwing space arena.
@@ -64,7 +79,24 @@ sh payback-mod/asm/build.sh
 JSON report records exact source/output/patch hashes, runtime provenance, map
 allocation and remaining ROM space.
 
-## Verify
+## Repository regression checks
+
+The same command runs the ROM-free regression gates locally and in GitHub
+Actions. It covers the Payback mod, Stunt Fox's content/arena generators,
+campaign save recovery, mission VM and radio, and PS1 build integrity.
+Install Python 3, Pillow, GCC, Clang/LLD/LLVM 19, and `patch`. CI uses Ubuntu
+24.04 and LLVM 19 so compiler changes cannot silently alter the RAM budgets.
+
+```sh
+python3 tools/check.py --report test-results.json
+```
+
+Use `--suite mod`, `--suite stuntfox`, or `--suite ps1` to run one group.
+`--rom ORIGINAL.gba` explicitly enables the content/arena cases that need the
+original game. The default run keeps those integration cases separate and
+does not use a local ROM or atlas cache. No ROM is needed or uploaded by CI.
+
+### GBA artifact and emulator checks
 
 ```sh
 python3 -m unittest discover -s payback-mod/tests -p 'test_*.py' -v
@@ -81,6 +113,12 @@ completion, builder actions, natural vehicle retry, Arwing flight and map
 reloads. Tests use documented RAM positioning for repeatable setup and real
 game buttons for the behaviors under test.
 
-Physical hardware, native game-save compatibility, and a complete story
-playthrough remain outside this milestone's validation. Emulator checkpoint
-round trips are tested separately from the game's own saves.
+The milestone's native profiles and statistics saved by **Quit** now pass
+28 checks across 11 fresh emulator processes, including original-game-to-mod
+and mod-to-original compatibility. These are 512-byte EEPROM saves; the test
+does not use emulator checkpoints. See [native save checks](payback-mod/harness/README.md#native-eeprom-saves-and-cold-boots)
+for the exact scope and command.
+
+Physical hardware and a complete story playthrough remain unverified. Live
+builder edits still reset on map change or level reload. The larger `stuntfox/`
+engine has its own campaign save extension and separate validation scope.

@@ -314,15 +314,19 @@ def air_path(g, p, q, exact=False, hmax=None):
 
 
 def polyline_len(pts):
-    return sum(math.sqrt((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + ((q[2] - p[2]) / 1024.0) ** 2) for p, q in zip(pts, pts[1:]))
+    # Python 3.12 changed builtin sum's float precision. Use an explicit
+    # algorithm so a generator's truncated ring heights do not depend on it.
+    return math.fsum(math.sqrt((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + ((q[2] - p[2]) / 1024.0) ** 2) for p, q in zip(pts, pts[1:]))
 
 
 def resample(pts, spacing):
     """Points every `spacing` (cells; height counts in cells) along a polyline, first and last included."""
+    if len(pts) < 2:
+        return list(pts)
     total = polyline_len(pts)
     n = max(1, int(round(total / spacing)))
     out = [pts[0]]
-    want = [total * i / n for i in range(1, n + 1)]
+    want = [total * i / n for i in range(1, n)]
     acc, k = 0.0, 0
     for p, q in zip(pts, pts[1:]):
         d = math.sqrt((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + ((q[2] - p[2]) / 1024.0) ** 2)
@@ -331,6 +335,9 @@ def resample(pts, spacing):
             out.append((p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t))
             k += 1
         acc += d
+    # Interpolating t ~= 1 can put an integer endpoint just below its intended
+    # height. Keep the exact endpoint before fit_ring and integer conversion.
+    out.append(pts[-1])
     return out
 
 

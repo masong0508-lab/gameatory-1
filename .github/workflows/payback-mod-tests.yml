@@ -1,24 +1,32 @@
-name: Payback mod tooling tests
+name: Stunt Fox regression gates
 
 concurrency:
-  group: payback-mod-${{ github.head_ref || github.ref_name }}
+  group: stuntfox-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 on:
   push:
     paths:
       - "payback-mod/**"
+      - "stuntfox/**"
+      - "ps1/**"
+      - "tools/**"
+      - "README.md"
       - ".github/workflows/payback-mod-tests.yml"
   pull_request:
     paths:
       - "payback-mod/**"
+      - "stuntfox/**"
+      - "ps1/**"
+      - "tools/**"
+      - "README.md"
       - ".github/workflows/payback-mod-tests.yml"
   workflow_dispatch:
 
 jobs:
   rom-free-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,12 +35,16 @@ jobs:
       - name: Install host and ARM compilers
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang lld llvm
+          sudo apt-get install -y -qq build-essential clang-19 lld-19 llvm-19 patch
+          echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
+          clang-19 --version
           command -v cc
+      - name: Install image fixture dependency
+        run: python -m pip install Pillow
       - name: Syntax check
-        run: python -m compileall -q payback-mod
-      - name: Runtime behavior, map codec, ROM bounds and patch regression tests
-        run: python -m unittest discover -s payback-mod/tests -p "test_*.py" -v
+        run: python -m compileall -q payback-mod stuntfox tools ps1/tests ps1/tools
+      - name: Gameplay logic, campaign saves, content and ARM/MIPS build integrity
+        run: python tools/check.py --report test-results.json
       - name: Compile ARM7TDMI in-game editor
         run: |
           sh payback-mod/asm/build.sh
@@ -55,4 +67,12 @@ jobs:
         with:
           name: payback-mod-offline-toolkit
           path: payback-mod-toolkit.tar.gz
+          retention-days: 7
+      - name: Preserve gate results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stuntfox-regression-results
+          path: test-results.json
+          if-no-files-found: warn
           retention-days: 7

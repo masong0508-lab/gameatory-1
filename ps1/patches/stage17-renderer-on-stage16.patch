@@ -1,0 +1,202 @@
+--- a/sf/sf3.c
++++ b/sf/sf3.c
+@@ -819,24 +819,85 @@
+   u32 v[6]; for (int i = 0; i < 6; i++) v[i] = XY(cxs + hx[i] * rr / 4, cys + hy[i] * rr / 3 * 1);
+   for (int i = 1; i < 5; i++) put_f3x(bucket(key), 0, rgb, v[0], v[i], v[i + 1]);
+ }
++/* ---- stage 17 trees: Gouraud-shaded canopies, firs in tiers, distance LOD ----
++   A tree is a camera-facing cut-out (Payback's trees are round/conical cut-outs too): every vertex carries one of the four
++   grass lights, so the canopy shades smoothly from the lit upper left to the dark lower right (one Gouraud triangle is the
++   same cost as a flat one).  Near trees (z < T17_NEAR) have an irregular rim and leaf flecks, middle ones a plain rim, far
++   ones a hexagon / one cone: no more work per far tree than the old two hexagons.  Pieces are submitted last-drawn first
++   (a bucket's newest primitive is drawn first). */
++#define T17_NEAR 2600
++#define T17_MID 4200
++static inline void gt3(int bk, u32 c0, u32 a, u32 c1, u32 b, u32 c2, u32 c) {
++  u32 *p = pnew(6); if (!p) return;
++  p[1] = 0x30000000 | c0; p[2] = a; p[3] = c1; p[4] = b; p[5] = c2; p[6] = c; link_ot(bk, p, 6);
++}
++static const s8 t17_cs[10][2] = { { 0, 16 }, { 9, 13 }, { 15, 5 }, { 15, -5 }, { 9, -13 }, { 0, -16 }, { -9, -13 }, { -15, -5 }, { -15, 5 }, { -9, 13 } };   /* (x, y up) 16ths, a 10-gon */
++static void tree17(int k, const Tree *t, int kind, s32 x, s32 base, s32 z, s32 h, s32 R) {
++  (void)k;
++  CV c; cpu_cam(x, base, z, 0, &c);
++  if (c.z < 420 || c.z > 6000) return;
++  if (c.z < 760 && (c.x < 360 && c.x > -360)) return;
++  s32 zz = c.z; int sx = 160 + H_FOCAL * c.x / zz, sby = 120 - H_FOCAL * c.y / zz;
++  int rp = H_FOCAL * R / zz, hp = H_FOCAL * h / zz;
++  if (sx + rp < 0 || sx - rp > 319 || sby - hp - 8 > 300 || sby + 8 < -50) return;
++  if (rp > 200) return;
++  int key = zz, bk = bucket(key), near = zz < T17_NEAR, mid = zz < T17_MID;
++  u32 cl[4] = { flat_col(3, 0, 0), flat_col(3, 1, 0), flat_col(3, 2, 0), flat_col(3, 3, 0) };
++  u32 trunkc = flat_col(10, 1, 0);
++  int tw = H_FOCAL * (h / 16) / zz; if (tw < 1) tw = 1;
++  if (kind == 1) {
++    /* a fir: tiers (bottom, top: 25ths of the height; half width: 16ths of the crown), top first; each tier a fan from its apex over a
++       ragged lower edge, lit on the left */
++    static const u8 T3[3][3] = { { 16, 25, 8 }, { 10, 19, 12 }, { 4, 13, 16 } };
++    static const u8 T2[2][3] = { { 11, 25, 10 }, { 4, 17, 16 } };
++    static const u8 T1[1][3] = { { 4, 25, 16 } };
++    const u8 (*tr)[3] = near ? T3 : mid ? T2 : T1; int n = near ? 3 : mid ? 2 : 1;
++    for (int i = 0; i < n; i++) {
++      int dk = near ? i : mid ? 2 * i : 1;          /* darker tiers lower down */
++      int hw = rp * tr[i][2] >> 4, yb = sby - hp * tr[i][0] / 25, yt = sby - hp * tr[i][1] / 25, ra = hp / 25 + 1;
++      u32 ca = cl[dk > 3 ? 0 : 3 - dk], cb = cl[dk > 2 ? 0 : 2 - dk], cm = cl[dk > 1 ? 0 : 1 - dk], cd = cl[0];
++      u32 pa = XY(sx, yt), p0 = XY(sx - hw, yb), p1 = XY(sx - hw / 2, yb - ra), p2 = XY(sx, yb + (ra >> 1)), p3 = XY(sx + hw / 2, yb - ra), p4 = XY(sx + hw, yb);
++      if (near) {
++        gt3(bk, ca, pa, cm, p3, cd, p4); gt3(bk, ca, pa, cm, p2, cm, p3);
++        gt3(bk, ca, pa, cb, p1, cm, p2); gt3(bk, ca, pa, cb, p0, cb, p1);
++      } else { gt3(bk, ca, pa, cm, p2, cd, p4); gt3(bk, ca, pa, cb, p0, cm, p2); }
++    }
++    int th = hp * (near || mid ? 6 : 5) / 25;
++    u32 *p = pnew(5);
++    if (p) { p[1] = 0x28000000 | trunkc; p[2] = XY(sx - tw, sby - th); p[3] = XY(sx + tw, sby - th); p[4] = XY(sx - tw, sby); p[5] = XY(sx + tw, sby); link_ot(bk, p, 5); }
++    return;
++  }
++  /* a broad tree: a fan from a bright point up and left of the middle over a 10-gon (6-gon far) rim, the rim's light by its direction */
++  int cy = sby - hp + rp, ncv = near ? 10 : mid ? 10 : 6;
++  u32 hv = (u32)(x * 73856093u ^ z * 19349663u) >> 7;
++  int ox[10], oy[10]; u32 oc[10];
++  for (int i = 0; i < ncv; i++) {
++    int ux, uy;
++    if (ncv == 10) { ux = t17_cs[i][0]; uy = t17_cs[i][1]; } else { static const s8 hx[6] = { 0, 14, 14, 0, -14, -14 }, hy[6] = { 16, 8, -8, -16, -8, 8 }; ux = hx[i]; uy = hy[i]; }
++    int rr = near ? (((hv >> i) & 1) ? 16 : 13) : 16;      /* a ragged outline: leaf clumps */
++    ox[i] = sx + ux * rp * rr / 256; oy[i] = cy - uy * rp * rr / 256;
++    int lit = (uy - ux) * 3 / 20 + 2;                        /* light from the upper left, 0..3 */
++    oc[i] = cl[lit < 0 ? 0 : lit > 3 ? 3 : lit];
++  }
++  int bx = sx - rp / 4, by = cy - rp / 4; u32 pb_ = XY(bx, by);
++  if (near) {   /* leaf flecks: two dark and two light, fixed by the tree's place */
++    int f0 = (int)(hv & 7), f1 = (int)((hv >> 3) & 7);
++    int dx0 = rp * (f0 - 3) / 12, dy0 = rp * (f1 - 3) / 12;
++    u32 fd = XY(sx + rp / 3 + dx0 / 2, cy + rp / 4 + dy0 / 2);
++    gt3(bk, cl[3], XY(sx - rp / 3, cy - rp / 3), cl[2], XY(sx - rp / 3 + rp / 6, cy - rp / 3 + rp / 6), cl[2], XY(sx - rp / 3 - rp / 6, cy - rp / 3 + rp / 6));
++    gt3(bk, cl[0], fd, cl[0], XY(sx + rp / 3 + dx0 / 2 + rp / 5, cy + rp / 4 + dy0 / 2 + rp / 8), cl[0], XY(sx + rp / 3 + dx0 / 2 - rp / 8, cy + rp / 4 + dy0 / 2 + rp / 5));
++    gt3(bk, cl[0], XY(sx + rp / 8, cy - rp / 6), cl[0], XY(sx + rp / 3, cy - rp / 6 + rp / 6), cl[0], XY(sx + rp / 14, cy - rp / 6 + rp / 5));
++  }
++  for (int i = 0; i < ncv; i++) { int j = i + 1 == ncv ? 0 : i + 1; gt3(bk, cl[3], pb_, oc[i], XY(ox[i], oy[i]), oc[j], XY(ox[j], oy[j])); }
++  u32 *p = pnew(5);
++  if (p) { p[1] = 0x28000000 | trunkc; p[2] = XY(sx - tw, cy); p[3] = XY(sx + tw, cy); p[4] = XY(sx - tw, sby); p[5] = XY(sx + tw, sby); link_ot(bk, p, 5); }
++}
+ static void draw_tree(int k) {
+   const Tree *t = &trees[k]; int kind = t->kind;
+   if (kind < 2) {
+     int x = t->x * 4, z = t->z * 4, h = t->h * 8, base = t->base * 64, rr = t->r * 4;
+-    CV c; cpu_cam(x, base, z, 0, &c);
+-    if (c.z < 420 || c.z > 6000) return;
+-    if (c.z < 760 && (c.x < 360 && c.x > -360)) return;
+     int R = 3 * h / 8; if (rr > R) R = rr;
+-    s32 zz = c.z; int sx = 160 + H_FOCAL * c.x / zz, sy = 120 - H_FOCAL * (c.y + h - R) / zz, rp = H_FOCAL * R / zz;
+-    if (sx + rp < 0 || sx - rp > 319 || sy + rp < -50 || sy - rp > 300) return;
+-    if (rp > 200) return;
+-    int key = zz;
+-    int tw = H_FOCAL * (h / 16) / zz; if (tw < 1) tw = 1;
+-    int sbx = 160 + H_FOCAL * c.x / zz, sby = 120 - H_FOCAL * c.y / zz;
+-    u32 *p = pnew(5);
+-    if (p) { p[1] = 0x28000000 | flat_col(10, 1, 0); p[2] = XY(sbx - tw, sy); p[3] = XY(sbx + tw, sy); p[4] = XY(sbx - tw, sby); p[5] = XY(sbx + tw, sby); link_ot(bucket(key), p, 5); }
+-    hexagon(sx, sy, rp, flat_col(3, 1, 0), key);
+-    hexagon(sx - rp / 5, sy - rp / 5, rp * 3 / 4, flat_col(3, 2, 0), key);
++    tree17(k, t, kind, x, base, z, h, R);
+   } else if (kind < 6) {
+     int e = kind - 2, cx = t->x & 127, cz = t->z & 127; int bot = (((int)t->base << 8) | t->h) << 5;
+     int ax, az, bx, bz;
+@@ -917,6 +978,9 @@
+     obox(x + ((sx * c + sz * s) >> 14), y + 30, z + ((sz * c - sx * s) >> 14), ya, 14, 30, 36, 1); }
+ }
+ 
++#ifndef OLDMODELS
++#include "models.h"
++#endif
+ /* ------------------------------------------------------------------------------------------- HUD */
+ static int fontx_ok;
+ static void hud_str(int x, int y, const char *s, u32 rgb) {
+@@ -1032,7 +1096,9 @@
+ }
+ 
+ /* ------------------------------------------------------------------------------------------- stage 3 entry points */
+-typedef struct { s32 x, y, z; u16 yaw; u8 kind, spare; } SfEnt;     /* units (1024 a cell); kind 0 car, 1 person */
++#include "../include/sf_entity.h"
++int sf3_sin(int a) { return fsin(a); }
++u8 sf3_plook, sf3_ppol; u32 sf3_mt = 0xffff;    /* the controlled entity's look / police flag (set by gather3); test view number shown in the HUD */
+ u32 sf3_ph[8], sf3_cnt[32]; /* PROFILE: TICKS8 (1/270 line) per phase: sky island city ground car/ents hud send; counters proj leaf clip prim */
+ u32 sf3_hash;
+ s32 sf3_score, sf3_hp, sf3_clock; u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames, sf3_stat_gpu;
+@@ -1051,13 +1117,17 @@
+   if (*(const u32 *)SF_WORLD != 0x57334653) { dbg("SF3W bad magic\n"); return -1; }
+   sf3_cd_read(lba + wsec + asec, (sbytes + 2047) / 2048, sf_tmp); { u32 nf = sbytes - 8192; for (u32 i = 0; i < nf; i++) ((u8 *)SF_SIDE)[i] = sf_tmp[i]; if (!sf3_map_loads) for (u32 i = 0; i < 4096; i++) sint_tab[i] = ((const s16 *)(sf_tmp + nf))[i]; }
+   world_init(); upload_all(lba + wsec);
++#ifndef OLDMODELS
++  models_upload();
++#endif
+   for (u32 i = 0; i < 3072 + 1024 + 2304; i++) ((volatile u16 *)SF_ST)[i] = 0;
+   sf3_map_cur = n; sf3_map_x = sx; sf3_map_y = sy; sf3_map_z = sz; sf3_map_loads++; cam_first = 1;
+   return 0;
+ }
+ u32 sf3_first_map;   /* stage 13: the map the guest's level runs on (0 when the renderer starts with the program) */
+ int sf3_init(void) {
+-  dbg("sf3_init a\n"); timers_init(); GP1 = 0x04000002; DPCR |= 0x08000800;
++  dbg("sf3_init a\n"); timers_init();
++GP1 = 0x04000002; DPCR |= 0x08000800;
+   if (sf3_map_load(sf3_first_map)) return -1;
+   dbg("sf3 init ok\n"); sf3_have = 1; return 0;
+ }
+@@ -1126,6 +1196,17 @@
+     if (p) { p[1] = 0x28000000 | 0x90B0E0; p[2] = XY(hx - r, hy - r); p[3] = XY(hx + r, hy - r); p[4] = XY(hx - r, hy + r); p[5] = XY(hx + r, hy + r); link_ot(bucket(zdepth(rd_pos[di][3][0], rd_pos[di][3][1], rd_pos[di][3][2]) - 8), p, 5); } }
+ }
+ /* one frame of the city from the guest's player: position in units, heading in 65536 a turn (our convention), pkind 0 on foot 1 in a vehicle */
++#ifdef TREETEST
++/* TEST-ONLY (stage 17): fixed poses at Freedom City's park trees: the player stands d units before the tree at cell (cx, cz), looking along heading hd (the camera is 820 behind him) */
++int sf3_treepose(int n, s32 *x, s32 *y, s32 *z, int *hd) {
++  static const struct { u8 cx, cz; u16 d, hd; } P[] = { { 21, 61, 1500, 0x4000 }, { 23, 61, 1300, 0x0000 }, { 25, 63, 1300, 0x4000 }, { 25, 68, 1500, 0xC000 }, { 10, 56, 1800, 0x0000 }, { 23, 61, 3600, 0x8000 } };
++  if (n >= (int)(sizeof P / sizeof P[0])) return 0;
++  s32 tx = P[n].cx * 1024 + 512, tz = P[n].cz * 1024 + 512, ty = 0;
++  for (int i = 0; i < ntree; i++) if (trees[i].kind < 2 && (trees[i].x >> 8) == P[n].cx && (trees[i].z >> 8) == P[n].cz) { tx = trees[i].x * 4; tz = trees[i].z * 4; ty = trees[i].base * 64; break; }
++  s32 s = fsin(P[n].hd), c = fcos(P[n].hd);
++  *x = tx - (s * P[n].d >> 14); *z = tz - (c * P[n].d >> 14); *y = ty; *hd = P[n].hd; sf3_hide_player = 1; return 1;
++}
++#endif
+ int sf3_frame(int oy, s32 px, s32 py, s32 pz, int heading, int pkind, const SfEnt *ents, int nents, int hud) {
+   if (!sf3_have) return -1;
+   u32 t0 = HLINES();
+@@ -1157,12 +1238,23 @@
+   city_draw(); PH(2);
+ ground_draw();
+   PH(3);
++#ifdef OLDMODELS
+   if (pkind) car_draw(px, py, pz, car_h);
+   else if (!sf3_hide_player) billboard(px, py, pz, 45, 0, 150, flat_col(7, 2, 0), zdepth(px, py, pz));
+   for (int i = 0; i < nents; i++) {
+     const SfEnt *e = &ents[i]; if (e->kind == 0) car_draw(e->x, e->y, e->z, e->yaw);
+     else { CV cc; cpu_cam(e->x, e->y, e->z, 0, &cc); if (cc.z > 60 && cc.z < 5000) billboard(e->x, e->y, e->z, 40, 0, 140, flat_col(10, 1, 0), cc.z); }
+   }
++#else
++  n_t0v = n_t0p = n_veh = n_ped = 0; t_vehl = t_pedl = 0;
++  /* stage 17: the player first (always full detail), then the entities nearest first so the far ones get the cheap model when the primitive pool runs short */
++  if (pkind) veh_draw(px, py, pz, car_h, sf3_plook, sf3_ppol, 0);
++  else if (!sf3_hide_player) ped_draw(px, py, pz, car_h, 128, ROW_HERO, 0);
++  { int n = nents > 40 ? 40 : nents;    /* two passes, near first (the cheap levels and the primitive pool check do the rest) */
++    for (int pass = 0; pass < 2; pass++) for (int k = 0; k < n; k++) { const SfEnt *e = &ents[k]; int d = zdepth(e->x, e->y, e->z); if ((d < 1300) != (pass == 0) || d < -400 || d > 9000) continue;
++      if (e->kind == 0) veh_draw(e->x, e->y, e->z, e->yaw, e->look, e->pol, d);
++      else ped_draw(e->x, e->y, e->z, e->yaw, e->spare & 127, ped_row(e->spare & 127, e->pol, e->look == 0xFE), d); } }
++#endif
+   PH(4);
+ #ifdef SPINHASH
+   { u32 h = 2166136261u; u32 lo = ADDR(pbs), hi = lo + PBW * 4, ol = ADDR(otc), oh = ol + OTN * 4;   /* link words that point at static variables (binary-layout dependent) are masked */
+@@ -1173,7 +1265,7 @@
+   for (int di = 0; di < 4; di++) if (rd_live[di]) doll_draw(di);
+   if (hud) {
+     char b[80], *e;
+-    e = fmt_s(b, "ENG "); e = fmt_int(e, sf3_stat_eng, 0); e = fmt_s(e, " Q "); e = fmt_int(e, nprim, 0); e = fmt_s(e, " OVF "); e = fmt_int(e, sf3_stat_ovf, 0); e = fmt_s(e, " LOD "); e = fmt_int(e, lod, 0); e = fmt_s(e, " MAP "); e = fmt_int(e, sf3_map_cur, 0);
++    e = fmt_s(b, "ENG "); e = fmt_int(e, sf3_stat_eng, 0); e = fmt_s(e, " Q "); e = fmt_int(e, nprim, 0); e = fmt_s(e, " OVF "); e = fmt_int(e, sf3_stat_ovf, 0); e = fmt_s(e, " LOD "); e = fmt_int(e, lod, 0); e = fmt_s(e, " MAP "); e = fmt_int(e, sf3_map_cur, 0); if (sf3_mt != 0xffff) { e = fmt_s(e, " MT "); e = fmt_int(e, sf3_mt, 0); }
+     hud_box(4, 4, 232, 11); hud_str(6, 6, b, 0xC0FFC0);
+     e = fmt_s(b, "SCORE "); e = fmt_int(e, sf3_score, 0); e = fmt_s(e, " HP "); e = fmt_int(e, sf3_hp, 0); e = fmt_s(e, " CLK "); e = fmt_int(e, sf3_clock, 0);
+     hud_box(4, 16, 232, 11); hud_str(6, 18, b, 0xFFE080);
+@@ -1183,6 +1275,9 @@
+   gp0(0xE1000400 | TPAGE(320, 0, 1, 0)); gp0(0xE3000000 | (oy << 10)); gp0(0xE4000000 | 319 | ((oy + 239) << 10)); gp0(0xE5000000 | (oy << 11));
+   list_send(); PH(6);
+   sf3_cnt[0] = c_proj; sf3_cnt[1] = c_leaf; sf3_cnt[2] = c_clip; sf3_cnt[3] = t_cb / 268; sf3_cnt[4] = t_cr / 268; sf3_cnt[5] = t_ct / 268; sf3_cnt[6] = t_gc / 268; sf3_cnt[7] = t_clipt / 268; sf3_ph[7] = 0; sf3_cnt[8] = t_rect / 268; sf3_cnt[9] = t_qoff / 268; sf3_cnt[10] = t_qf / 268; sf3_cnt[11] = c_box; sf3_cnt[12] = c_rect; sf3_cnt[13] = c_cells; sf3_cnt[14] = c_cullcell; sf3_cnt[15] = c_cleaf; sf3_cnt[16] = t_wg / 268; sf3_cnt[17] = t_fw / 268; sf3_cnt[18] = t_top / 268; sf3_cnt[19] = c_wg; sf3_cnt[20] = c_wcell; sf3_cnt[21] = c_wq; sf3_cnt[22] = c_wf; sf3_cnt[23] = t_pa / 268; sf3_cnt[24] = t_pb / 268; sf3_cnt[25] = t_pc / 268; sf3_cnt[26] = t_pd / 268; sf3_cnt[27] = t_pf / 268;
++#ifndef OLDMODELS
++  sf3_cnt[28] = t_vehl; sf3_cnt[29] = t_pedl; sf3_cnt[30] = n_veh; sf3_cnt[31] = n_ped;
++#endif
+   u32 t1 = HLINES(); u32 eng = (t1 - t0) & 0xffff;
+   sf3_stat_eng = eng; sf3_stat_prim = nprim; sf3_stat_ovf = ovf; sf3_stat_lod = lod; sf3_frames++; ovf = 0;
+   { int budget = FIELDS * 263 - 70; static int calm;

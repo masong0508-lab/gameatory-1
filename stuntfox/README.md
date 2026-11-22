@@ -168,9 +168,31 @@ Payback ROM at build time**. No ROM data is stored in this repository.
 
 ### Build
 
-Needs Python 3, clang and ld.lld (no devkitARM).
+Needs Python 3, Pillow, and Clang/LLD/LLVM 19 (`clang`, `ld.lld`,
+`llvm-objcopy` and `llvm-nm` on PATH; no devkitARM).
 
     python3 build.py "Payback (Europe) (En,Fr,De,Es,It).gba" -o stuntfox.gba
+
+The standalone link reserves at least 3 KiB below the system stack. Rendering,
+city drawing, model drawing and fixed-point math stay in fast ARM IWRAM;
+physics and the startup model-normal calculation run from ROM. This fixes the
+standalone build's IWRAM overflow without borrowing the stack. The LLVM 19.1.7
+validation build uses 28,500 bytes for IWRAM code/state and leaves 4,012 bytes
+below the system stack. The linker rejects a future build that violates the
+reserve, and startup uses the same linker-defined stack addresses.
+
+From this folder, `python3 ../tools/check.py --suite stuntfox` runs the host
+regression gates and compiles/links the complete standalone engine against a
+synthetic world without a game ROM. The physics simulator now reads the entire
+world and checks section bounds before following offsets; the old 256 KiB
+buffer truncated the current 444,448-byte world and crashed. Its larger buffer
+is host-only and adds no cartridge RAM use.
+
+For actual gameplay, the [portable mGBA smoke test](tests/emulator/README.md)
+covers both standalone and merged builds without the historical `SP` helper
+tree. It tests real button input, driving/flight transitions, settings and
+pause/recovery. Campaign completion, on-device campaign-save recovery, optional
+remix audio and physical hardware need separate acceptance runs.
 
 ### Controls
 
@@ -306,3 +328,4 @@ saves that, so the next start does not switch it on; START CAMPAIGN then goes on
 `tests/save/` builds the codec and the slot logic on the PC (checksums, a power cut at every block,
 a chip that wraps long requests); `tests/s2/save.py` runs the same on the emulator, power cycle by power
 cycle.
+

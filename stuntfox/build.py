@@ -35,7 +35,10 @@ import mkradio  # noqa: E402
 
 CFLAGS = ['--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-O2', '-ffreestanding', '-fno-builtin',
           '-nostdlib', '-fomit-frame-pointer', '-ffunction-sections', '-Wall', '-Wno-unused-function']
-ARM_FILES = {'render.c', 'citydraw.c', 'fx.c', 'physics.c', 'model.c'}  # hot code: ARM, IWRAM
+# Keep drawing and its fixed-point math in fast RAM. The expanded collision code no
+# longer fits there alongside the renderer and its stack; use Thumb ROM for physics,
+# as the merge build already does.
+ARM_FILES = {'render.c', 'citydraw.c', 'fx.c', 'model.c'}
 
 
 def run(cmd):
@@ -48,28 +51,43 @@ def run(cmd):
     return r.stdout
 
 
+def link_standalone(build_dir=BUILD, gen=GEN):
+    """Compile and link the real game using the supplied generated world/tables.
+
+    Kept separate from cartridge input/output so the same ARM build can run in
+    CI against synthetic world data, without a player's ROM or its logo.
+    """
+    os.makedirs(build_dir, exist_ok=True)
+    objs = []
+    sources = [os.path.join(SRC, f) for f in sorted(os.listdir(SRC))
+               if f.endswith(('.c', '.s')) and f not in MERGE_ONLY]
+    sources.append(os.path.join(gen, 'tables.c'))
+    for src in sources:
+        name = os.path.basename(src)
+        obj = os.path.join(build_dir, name + ('.iw.o' if name in ARM_FILES else '.o'))
+        if src.endswith('.s'):
+            run(['clang', '--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-c', src, '-o', obj,
+                 '-Wa,-I' + gen])
+        else:
+            mode = '-marm' if os.path.basename(src) in ARM_FILES else '-mthumb'
+            run(['clang'] + CFLAGS + [mode, '-I' + SRC, '-c', src, '-o', obj])
+        objs.append(obj)
+    elf = os.path.join(build_dir, 'stuntfox.elf')
+    run(['ld.lld', '-T', os.path.join(SRC, 'gba.ld'), '--gc-sections', '-e', '_start', '-o', elf] + objs)
+    symbols = {p[2]: int(p[0], 16) for p in (line.split() for line in run(['llvm-nm', elf]).splitlines())
+               if len(p) == 3}
+    print('standalone: %d bytes of IWRAM code/data, %d bytes clear below the system stack' %
+          (symbols['__bss_end'] - symbols['__iwram_start'], symbols['__stack_top'] - symbols['__bss_end']))
+    return elf, symbols
+
+
 def build(payback, out):
     os.makedirs(GEN, exist_ok=True)
     rom = open(payback, 'rb').read()
     data, stats = mkworld.build(rom)
     open(os.path.join(GEN, 'world.bin'), 'wb').write(data)
     mkassets.main(os.path.join(GEN, 'tables.c'))
-    objs = []
-    sources = [os.path.join(SRC, f) for f in sorted(os.listdir(SRC))
-               if f.endswith(('.c', '.s')) and f not in MERGE_ONLY]
-    sources.append(os.path.join(GEN, 'tables.c'))
-    for src in sources:
-        name = os.path.basename(src)
-        obj = os.path.join(BUILD, name + ('.iw.o' if name in ARM_FILES else '.o'))
-        if src.endswith('.s'):
-            run(['clang', '--target=armv4t-none-eabi', '-mcpu=arm7tdmi', '-c', src, '-o', obj,
-                 '-Wa,-I' + GEN])
-        else:
-            mode = '-marm' if os.path.basename(src) in ARM_FILES else '-mthumb'
-            run(['clang'] + CFLAGS + [mode, '-I' + SRC, '-c', src, '-o', obj])
-        objs.append(obj)
-    elf = os.path.join(BUILD, 'stuntfox.elf')
-    run(['ld.lld', '-T', os.path.join(SRC, 'gba.ld'), '--gc-sections', '-e', '_start', '-o', elf] + objs)
+    elf, _ = link_standalone()
     run(['llvm-objcopy', '-O', 'binary', elf, out])
     img = bytearray(open(out, 'rb').read())
     img[4:0xa0] = rom[4:0xa0]                     # logo from the player's own cartridge

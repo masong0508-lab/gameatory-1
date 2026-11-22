@@ -6,25 +6,28 @@
    Layers (GBA mode 4 + OBJ):
      L1  the page the game draws into (2 pages of 240x160 indices, the VRAM shadow itself): transparent blits (id 2) are done here by the CPU, guest
          page writes land here too.  Uploaded as an 8 bpp texture, drawn with a CLUT in which index 0 is transparent.
-     L0  opaque image blits (id 4: the big backdrops) are NOT copied: the image is uploaded once to a VRAM atlas (8 bpp strips) and drawn as a GPU textured
-         quad per blit (list per page, reset by a full-screen cover).  L1 is cleared under the rect.
+     L0  opaque image blits (id 4: the big backdrops) use a two-page VRAM cache (8 bpp strips), then copy the requested pixels back into the guest's page.
+         Evicting a cached image cannot erase a previously drawn backdrop; a full cache can also fall back to a direct ROM copy.
      OBJ OAM sprites: the OBJ tile VRAM (4 bpp) is repacked to a 256x128 4 bpp texture, one CLUT per palette bank, one textured quad per 8x8 tile.
    Fades: id 1 (gfx_fade_flip) rewrites the BG palette like the original (ROM table, swapped channels, whiten by (P-256)>>3); id 3 (gfx_effect) is a fade
    to black: modelled as a brightness ramp (approximation, see README).  Composition order: backdrop colour, L0, L1, OBJ; in the level the sf3 3D view is
    drawn first and L1 (index 0 transparent) + OBJ over it. */
 #ifndef PPU12_H
 #define PPU12_H
+#include "../include/ps1_vram.h"
 #define PP_PAL_ROM   0x086367a8u      /* the 256 colour source palette of gfx_fade_flip (guest ROM address) */
 #define PP_IMG_BASE  0x0809d694u      /* image data base of the blit routines */
-#define PP_MEM       0x801abc00u      /* 17 KB of RAM between the renderer's bss end (0x801abb2a) and guest EWRAM (0x801b0000) */
+#ifndef PP_MEM
+#define PP_MEM       ((u32)__ppu_start)  /* linker-reserved 4 KiB, independent of renderer growth */
+#endif
 #define PP_CLUT      ((u16*)(PP_MEM))              /* 4 x 256 halfwords: opaque BG, transparent BG, OBJ 4 bpp banks, OBJ 8 bpp (2 KB) */
 #define PP_ROW       ((u8*)(PP_MEM+0x800))         /* 512 B row buffer */
-#define AT_X0 576                     /* VRAM atlas for L0 images: 3 texture pages of 128 hw x 256 rows at x=576,704,832, y=256 */
-#define AT_NPG 3
-#define L1_X 448                      /* L1 upload area (120 hw x 160 rows) at (448,256) */
-#define L1_Y 256
-#define OT_X 960                      /* OBJ tile texture (64 hw x 128 rows, 4 bpp) at (960,256) */
-#define CLUT_Y 496
+#define AT_X0 PS1_VRAM_PPU_ATLAS_X     /* two cached backdrop pages; a cache miss falls back to the ROM */
+#define AT_NPG PS1_VRAM_PPU_ATLAS_PAGES
+#define L1_X PS1_VRAM_PPU_L1_X         /* separate from world atlas page 6 at (448,256) */
+#define L1_Y PS1_VRAM_PPU_L1_Y
+#define OT_X PS1_VRAM_PPU_OBJ_X
+#define CLUT_Y PS1_VRAM_PPU_CLUT_Y
 #define PP_NIMG 40
 #ifndef PP_DBG
 #define PP_DBG 0
@@ -43,7 +46,9 @@ static void pp_dispcnt(u32 v){ pp_push(0x20,v); }
 /* ---- ROM access */
 static void rom_copy(u8*dst,u32 off,u32 n){ while(n){ const u8*p=rom_page(off>>12); u32 o=off&4095,k=4096-o; if(k>n) k=n; for(u32 i=0;i<k;i++) dst[i]=p[o+i]; dst+=k; off+=k; n-=k; } }
 /* ---- GPU */
+#ifndef PP_GPUREAD
 #define PP_GPUREAD (*(volatile u32*)0x1F801810)
+#endif
 /* VRAM -> CPU: one row of hw halfwords (even) at (x,y) into dst (hw/2 words) */
 static void pp_vread_row(int x,int y,int hw,u32*dst){ gp0(0xC0000000); gp0(XY(x,y)); gp0(XY(hw,1)); for(int i=0;i<hw/2;i++){ while(!(GP1&0x08000000)){} dst[i]=PP_GPUREAD; } }
 static void pp_gwait(void){ while(!(GP1&0x04000000)){} }
@@ -62,13 +67,13 @@ static int pp_atlas_get(u32 hdr){
   for(int attempt=0;attempt<2;attempt++){
     int pg[2],py[2]; int ok=pp_nimg<PP_NIMG;
     u16 tmp[AT_NPG]; for(int k=0;k<AT_NPG;k++) tmp[k]=pp_pgy[k];
-    for(u32 s=0;s<ns&&ok;s++){ int f=-1; for(int k=0;k<AT_NPG;k++) if(tmp[k]+h<=256){ f=k; break; } if(f<0){ ok=0; break; } pg[s]=f; py[s]=tmp[f]; tmp[f]+=h; }
+    for(u32 s=0;s<ns&&ok;s++){ int f=-1; for(int k=0;k<AT_NPG;k++) if(tmp[k]+h<=PS1_VRAM_PPU_ATLAS_PAGE_H){ f=k; break; } if(f<0){ ok=0; break; } pg[s]=f; py[s]=tmp[f]; tmp[f]+=h; }
     if(!ok){ if(attempt==0){ pp_nimg=0; for(int k=0;k<AT_NPG;k++) pp_pgy[k]=0; pp_nl0[0]=pp_nl0[1]=0; pp_nreset++; continue; } return -1; }
     for(int k=0;k<AT_NPG;k++) pp_pgy[k]=tmp[k];
     PpImg*I=&pp_img[pp_nimg]; I->key=hdr; I->w=w; I->h=h; I->ns=ns;
     for(u32 s=0;s<ns;s++){
       u32 sw=w-256*s; if(sw>256) sw=256; u32 swe=(sw+3)&~3u; I->pg[s]=pg[s]; I->py[s]=py[s]; I->sw[s]=sw;
-      int X=AT_X0+128*pg[s], Y=256+py[s]; u32 nw=(swe/2)*h; u32 nwe=(nw+1)&~1u;
+      int X=AT_X0+PS1_VRAM_PPU_ATLAS_PAGE_W*pg[s], Y=PS1_VRAM_PPU_ATLAS_Y+py[s]; u32 nw=(swe/2)*h; u32 nwe=(nw+1)&~1u;
       gp0(0x01000000); gp0(0xA0000000); gp0(XY(X,Y)); gp0(XY(swe/2,h));
       for(u32 r=0;r<h;r++){ rom_copy(PP_ROW,src+r*w+256*s,sw); for(u32 i=sw;i<swe;i++) PP_ROW[i]=0; for(u32 i=0;i<swe;i+=4) gp0(PP_ROW[i]|(PP_ROW[i+1]<<8)|(PP_ROW[i+2]<<16)|((u32)PP_ROW[i+3]<<24)); }
       (void)nwe;
@@ -108,9 +113,9 @@ static void pp_blit4(u32 img,int x,int y,u32 disp){
   for(u32 s=0;s<I->ns;s++){
     int c0=256*s, c1=c0+I->sw[s]; int a=cx>c0?cx:c0, b=(cx+w)<c1?(cx+w):c1; if(b<=a) continue;
     int hw0=((a-c0)>>2)<<1, hw1=((b-c0+3)>>2)<<1; int hw=hw1-hw0; if(hw>128) hw=128;
-    int X=AT_X0+128*I->pg[s]+hw0;
+    int X=AT_X0+PS1_VRAM_PPU_ATLAS_PAGE_W*I->pg[s]+hw0;
     for(int r=0;r<h;r++){
-      pp_vread_row(X,256+I->py[s]+cy+r,hw,(u32*)PP_ROW);
+      pp_vread_row(X,PS1_VRAM_PPU_ATLAS_Y+I->py[s]+cy+r,hw,(u32*)PP_ROW);
       const u8*sr=PP_ROW+((a-c0)-2*hw0); u8*d=pg+(y+r)*240+x+(a-cx);
       for(int i=0;i<b-a;i++) d[i]=sr[i]; } }
   pp_nrb++;
@@ -145,7 +150,7 @@ static void pp_cluts(void){
     PP_CLUT[i]=nz; PP_CLUT[256+i]=i?nz:0; }
   for(int b=0;b<16;b++) for(int k=0;k<16;k++){ u32 v=pp_col(*(volatile u16*)(PAL+0x200+2*(b*16+k)),pp_bright); PP_CLUT[512+b*16+k]=k?((v&0x7fff)|0x8000):0; }
   for(int i=0;i<256;i++){ u32 v=pp_col(*(volatile u16*)(PAL+0x200+2*i),pp_bright); PP_CLUT[768+i]=i?((v&0x7fff)|0x8000):0; }
-  pp_vload(0,CLUT_Y,256,4,(const u32*)PP_CLUT,512);
+  pp_vload(PS1_VRAM_PPU_CLUT_X,CLUT_Y,PS1_VRAM_PPU_CLUT_W,PS1_VRAM_PPU_CLUT_H,(const u32*)PP_CLUT,PS1_VRAM_PPU_CLUT_W*PS1_VRAM_PPU_CLUT_H/2);
 }
 static const u8 PP_SZ[3][4][2]={{{8,8},{16,16},{32,32},{64,64}},{{16,8},{32,8},{32,16},{64,32}},{{8,16},{8,32},{16,32},{32,64}}};
 /* general textured quad: 4 vertex positions (x,y pairs in PS1 pixels) in Z order (top-left, top-right, bottom-left, bottom-right of the texture rectangle) */
@@ -166,10 +171,10 @@ static void pp_obj(void){
   int use4=0,use8=0;
   for(int i=0;i<128;i++){ u32 a0=oam[i*4], a1=oam[i*4+1], a2=oam[i*4+2]; if(((a0>>8)&3)==2) continue; if(((a0>>10)&3)==2) continue; if(((a0>>14)==3)) continue; if((a2&1023)<512) continue; (void)a1; if(a0&0x2000) use8=1; else use4=1; }
   if(!use4&&!use8) return;
-  if(use4){ const u32*s=(const u32*)(VRAM+0x14000); gp0(0x01000000); gp0(0xA0000000); gp0(XY(OT_X,256)); gp0(XY(64,128));
-    for(u32 r=0;r<128;r++) for(u32 c=0;c<32;c++) gp0(s[((r>>3)*32+c)*8+(r&7)]); }
-  if(use8){ const u32*s=(const u32*)(VRAM+0x14000); gp0(0x01000000); gp0(0xA0000000); gp0(XY(OT_X,384)); gp0(XY(64,128));
-    for(u32 r=0;r<128;r++) for(u32 c=0;c<16;c++){ const u32*q=s+((r>>3)*16+c)*16+(r&7)*2; gp0(q[0]); gp0(q[1]); } }
+  if(use4){ const u32*s=(const u32*)(VRAM+0x14000); gp0(0x01000000); gp0(0xA0000000); gp0(XY(OT_X,PS1_VRAM_PPU_OBJ4_Y)); gp0(XY(PS1_VRAM_PPU_OBJ_W,PS1_VRAM_PPU_OBJ_H));
+    for(u32 r=0;r<PS1_VRAM_PPU_OBJ_H;r++) for(u32 c=0;c<32;c++) gp0(s[((r>>3)*32+c)*8+(r&7)]); }
+  if(use8){ const u32*s=(const u32*)(VRAM+0x14000); gp0(0x01000000); gp0(0xA0000000); gp0(XY(OT_X,PS1_VRAM_PPU_OBJ8_Y)); gp0(XY(PS1_VRAM_PPU_OBJ_W,PS1_VRAM_PPU_OBJ_H));
+    for(u32 r=0;r<PS1_VRAM_PPU_OBJ_H;r++) for(u32 c=0;c<16;c++){ const u32*q=s+((r>>3)*16+c)*16+(r&7)*2; gp0(q[0]); gp0(q[1]); } }
   int nq=0;
   for(int pri=3;pri>=0;pri--) for(int i=127;i>=0;i--){
     u32 a0=oam[i*4], a1=oam[i*4+1], a2=oam[i*4+2];
@@ -180,8 +185,8 @@ static void pp_obj(void){
     int bw=dbl?2*w:w, bh=dbl?2*h:h;
     int y=a0&255; if(y>=160) y-=256; int x=a1&511; if(x>=256) x-=512; if(x<=-bw||y<=-bh||x>=240) continue;
     u32 tile=a2&1023; if(tile<512) continue; int tw=w/8, th=h/8; int b8=(a0>>13)&1;
-    u32 cl=b8?PP_CL(0,CLUT_Y+3):(((a2>>12))|((CLUT_Y+2)<<6));   /* 4 bpp: 16 banks side by side: x = 16*bank */
-    u32 tpb=b8?PP_TP8(OT_X,384):PP_TP4(OT_X,256); if(gm==1) tpb|=(bm<<5);
+    u32 cl=b8?PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+3):PP_CL(PS1_VRAM_PPU_CLUT_X+16*(a2>>12),CLUT_Y+2);   /* 4 bpp: 16 banks side by side: x = 16*bank */
+    u32 tpb=b8?PP_TP8(OT_X,PS1_VRAM_PPU_OBJ8_Y):PP_TP4(OT_X,PS1_VRAM_PPU_OBJ4_Y); if(gm==1) tpb|=(bm<<5);
     u32 cmd=(gm==1)?0x2f000000:0x2d000000;
     int hf=aff?0:(a1>>12)&1, vf=aff?0:(a1>>13)&1;
     int pa=256,pb=0,pc=0,pd=256; s32 det=65536;
@@ -190,7 +195,7 @@ static void pp_obj(void){
       /* texture slot of this tile */
       u32 slot; if(map1d) slot=tile+(u32)(ty*tw+tx)*(b8?2:1); else slot=tile+(u32)ty*32+(u32)tx*(b8?2:1);
       slot-=512; if(slot>=512) continue;
-      int u,v; if(b8){ u32 n=slot>>1; u=(n&15)*8; v=(n>>4)*8+128; } else { u=(slot&31)*8; v=(slot>>5)*8; }   /* the 8 bpp texture sits at y=384 = texture page y 256 + 128 */
+      int u,v; if(b8){ u32 n=slot>>1; u=(n&15)*8; v=(n>>4)*8+(PS1_VRAM_PPU_OBJ8_Y&255); } else { u=(slot&31)*8; v=(slot>>5)*8+(PS1_VRAM_PPU_OBJ4_Y&255); }   /* the 8 bpp texture sits at y=384 = texture page y 256 + 128 */
       int ue=u+8>255?255:u+8, ve=v+8>255?255:v+8;     /* exclusive edge: a tile of 8 texels spans 8 texel units */
       if(!aff){
         int dx=x+(hf?(tw-1-tx):tx)*8, dy=y+(vf?(th-1-ty):ty)*8; if(dx<=-8||dx>=240||dy<=-8||dy>=160) continue;
@@ -222,8 +227,8 @@ static void pp_draw(int oy,int level){
   u32 base=lp?0xa000:0;
   if(!level){ u32 c=pp_col(*(volatile u16*)(PAL),pp_bright); pp_rect(0,0,320,240,((c&31)<<3)|(((c>>5)&31)<<11)|(((c>>10)&31)<<19)); }
   /* the page (backdrops from blit 4 + transparent blits + guest writes): upload as 8 bpp (120 hw per row), draw with the transparent-0 CLUT (row 497) */
-  pp_vload(L1_X,L1_Y,120,160,(const u32*)(VRAM+base),9600);
-  pp_q(0,0,320,240,0,0,240,160,PP_CL(0,CLUT_Y+1),PP_TP8(L1_X,L1_Y),0x2d000000);   /* u 0..240 over 320 px, v 0..160 over 240 lines: exact 4:3 / 3:2 point sampling */
+  pp_vload(L1_X,L1_Y,PS1_VRAM_PPU_L1_W,PS1_VRAM_PPU_L1_H,(const u32*)(VRAM+base),PS1_VRAM_PPU_L1_W*PS1_VRAM_PPU_L1_H/2);
+  pp_q(0,0,320,240,0,0,240,160,PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+1),PP_TP8(L1_X,L1_Y),0x2d000000);   /* u 0..240 over 320 px, v 0..160 over 240 lines: exact 4:3 / 3:2 point sampling */
   if(d&0x1000) pp_obj();
 }
 #endif

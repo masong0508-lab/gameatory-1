@@ -1,8 +1,13 @@
 /* Stunt Fox memory map: code and data in ROM, hot code in IWRAM, big buffers in EWRAM. */
 ENTRY(_start)
+/* model_draw and the polygon clipper use substantial local arrays. Keep at least
+   3 KiB below the system SP even when code grows; never borrow the IRQ/BIOS area. */
+__stack_top = 0x03007f00;
+__stack_irq_top = 0x03007fa0;
+__stack_reserve = 0xc00;
 MEMORY {
     rom   (rx)  : ORIGIN = 0x08000000, LENGTH = 32M
-    iwram (rwx) : ORIGIN = 0x03000000, LENGTH = 0x7e00
+    iwram (rwx) : ORIGIN = 0x03000000, LENGTH = 0x7300
     ewram (rw)  : ORIGIN = 0x02000000, LENGTH = 256K
 }
 SECTIONS {
@@ -24,3 +29,4 @@ SECTIONS {
     .assets : { . = ALIGN(4); *(.assets) } > rom
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.attributes) *(.comment) }
 }
+ASSERT(__bss_end <= __stack_top - __stack_reserve, "standalone IWRAM leaves less than 3 KiB for the system stack")

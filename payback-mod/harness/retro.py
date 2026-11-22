@@ -6,7 +6,9 @@ savestates, and canonical GBA RAM reads/writes work with a stock mGBA core.
 """
 import ctypes as C
 import os
+from pathlib import Path
 import struct
+import tempfile
 from PIL import Image
 
 S = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +37,7 @@ POLL = C.CFUNCTYPE(None)
 STATE = C.CFUNCTYPE(C.c_int16, C.c_uint, C.c_uint, C.c_uint, C.c_uint)
 
 class Emu:
-    def __init__(self, system, rom, *, capture_video=True):
+    def __init__(self, system, rom, *, capture_video=True, save_path=None):
         rom = os.fspath(rom)
         self.system = system
         self.lib = C.CDLL(CORES[system])
@@ -43,6 +45,8 @@ class Emu:
         self.frame = None
         self.frames = 0
         self.capture_video = capture_video
+        self.save_path = Path(save_path) if save_path is not None else None
+        self.loaded_save_bytes = 0
         self.maps = []
         self.closed = False
         self.buttons = set()
@@ -81,6 +85,16 @@ class Emu:
             L.retro_deinit()
             self.closed = True
             raise RuntimeError('libretro core could not load ROM')
+        if self.save_path is not None and self.save_path.exists():
+            try:
+                self._load_save_ram(self.save_path.read_bytes())
+            except Exception:
+                L.retro_unload_game()
+                L.retro_deinit()
+                self.closed = True
+                raise
+        self._last_save_ram = self.mem(0) if self.save_path is not None else None
+        self._saved_byte_count = self.loaded_save_bytes
 
     def _env(self, cmd, data):
         cmd &= 0xffff
@@ -135,6 +149,57 @@ class Emu:
             address, size = (0x02000000, 0x40000) if kind == 2 else (0x06000000, 0x18000)
             return self.read(address, size)
         return C.string_at(p, n) if p else b''
+
+    def _load_save_ram(self, data):
+        """Load battery-backed memory before the first emulated frame.
+
+        mGBA initially exposes a 128 KiB autodetection buffer. Once Payback
+        accesses its EEPROM, the core reports its actual 512-byte size. Accept
+        standard smaller GBA save sizes in that initial buffer, without padding
+        or resizing the file itself. Other capacity mismatches are errors.
+        """
+        pointer = self.lib.retro_get_memory_data(0)  # RETRO_MEMORY_SAVE_RAM
+        capacity = self.lib.retro_get_memory_size(0)
+        autodetect_size = (self.system == 'gba' and capacity == 0x20000
+                           and len(data) in (512, 8192, 32768, 65536, 131072))
+        if not pointer or not data or (len(data) != capacity and not autodetect_size):
+            raise ValueError(f'save RAM size {len(data)} does not fit core capacity {capacity}')
+        C.memmove(pointer, data, len(data))
+        self.loaded_save_bytes = len(data)
+
+    def flush_save(self):
+        """Atomically persist the core's native EEPROM/SRAM, never a savestate."""
+        if self.save_path is None:
+            raise RuntimeError('save_path was not configured')
+        if self.closed:
+            raise RuntimeError('emulator is closed')
+        if not self.frames:
+            raise RuntimeError('save RAM has not been initialized by an emulated frame')
+        data = self.mem(0)
+        if not data:
+            raise RuntimeError('core does not expose battery-backed save RAM')
+        if data == self._last_save_ram:
+            # Before EEPROM autodetection finishes, mGBA still exposes its
+            # initial 128 KiB buffer. Do not replace a 512-byte existing save
+            # (or create an empty oversized one) merely by opening the ROM.
+            return self._saved_byte_count
+        self.save_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.save_path.parent,
+                                             prefix=self.save_path.name + '.',
+                                             suffix='.tmp', delete=False) as handle:
+                temporary = handle.name
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.save_path)
+            self._last_save_ram = data
+            self._saved_byte_count = len(data)
+        finally:
+            if temporary is not None and os.path.exists(temporary):
+                os.unlink(temporary)
+        return len(data)
 
     def save_state(self):
         n = self.lib.retro_serialize_size(); b = C.create_string_buffer(n)
@@ -196,9 +261,13 @@ class Emu:
 
     def close(self):
         if not self.closed:
-            self.lib.retro_unload_game()
-            self.lib.retro_deinit()
-            self.closed = True
+            try:
+                if self.save_path is not None and self.frames:
+                    self.flush_save()
+            finally:
+                self.lib.retro_unload_game()
+                self.lib.retro_deinit()
+                self.closed = True
 
     def __enter__(self): return self
 

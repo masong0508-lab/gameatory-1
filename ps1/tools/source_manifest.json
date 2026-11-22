@@ -1,0 +1,797 @@
+{
+  "schema": 1,
+  "profile": "stage16-18-source",
+  "base_commit": "109c747067bc4ab6ced2d9713656c658f00c9441",
+  "description": "ROM-free source assembly; translated guest, extracted world data and disc are generated separately.",
+  "files": [
+    {
+      "source": "PREPARED.md",
+      "target": "README.md",
+      "sha256": "208c75852aff9ca4ec9b88c86bb21a3b260fc0e7b433f557d023425f37383119"
+    },
+    {
+      "source": "stage7/integration/armdec.py",
+      "target": "armdec.py",
+      "sha256": "3dc5253e20a2d4aa96e97f48a7d79ec1978d37563746ec6473bfd92abb1440e0"
+    },
+    {
+      "source": "stage7/integration/build_ps1.sh",
+      "target": "build_ps1.sh",
+      "sha256": "8d38fc46f14f4b553c8b042ce0f91157f5f36fdf6265ec6c31dc800306e25009"
+    },
+    {
+      "source": "stage7/integration/cg.py",
+      "target": "cg.py",
+      "sha256": "d88379a88847f888171cb12f736ba5edcaa5e475108a7547b36763649ff9be90"
+    },
+    {
+      "source": "stage7/integration/disc.py",
+      "target": "disc.py",
+      "sha256": "5deab3cc42b7de8ff76d4ddd5bbd75f3fb0b8be1d1792a2cbeedf24280ebad1e"
+    },
+    {
+      "source": "stage16/merge/endsz.sh",
+      "target": "endsz.sh",
+      "sha256": "b64115b9618d31904da44ea74c1de8273ee50bfcd8fdcc6983de3cf3ffa08fde"
+    },
+    {
+      "source": "stage7/integration/gbaenv.py",
+      "target": "gbaenv.py",
+      "sha256": "2c7230ad1a1f2c654d1520fd9316f8f7fd7f1103f852cd71aa2c2a7a006d2235"
+    },
+    {
+      "source": "include/ps1_vram.h",
+      "target": "include/ps1_vram.h",
+      "sha256": "275ae58352f1c47ee33505c8c7f945917ad3e8cea5a6ab10e85544c95b866ca4"
+    },
+    {
+      "source": "include/sf_entity.h",
+      "target": "include/sf_entity.h",
+      "sha256": "c39844fef4009522d7120934cedb3c082d51aab367808ce814539fa55384dbc5"
+    },
+    {
+      "source": "stage8/interp_fallback/interp/fuzz.py",
+      "target": "interp/fuzz.py",
+      "sha256": "47f133af6b4fe6022e1401d333fa89e84c59ab35c0a16d463b22b238df1a406b"
+    },
+    {
+      "source": "stage8/interp_fallback/interp/interp.c",
+      "target": "interp/interp.c",
+      "sha256": "2120bb1ea727c2158befd2b120082ae01d6688fd5cd35fb9ace032364b77a6cd"
+    },
+    {
+      "source": "stage8/interp_fallback/interp/interp.h",
+      "target": "interp/interp.h",
+      "sha256": "ce894715d355bd93b0bb4abfd0005e1041e96f2c9508f3484c50e7f57bd8ee96"
+    },
+    {
+      "source": "stage8/interp_fallback/interp/interp_asm.s",
+      "target": "interp/interp_asm.s",
+      "sha256": "5f150fcd78aee9fe714b194f1d837df8a490a3dc4e6424cd6b8a072207da6812"
+    },
+    {
+      "source": "stage8/interp_fallback/interp/test_host.c",
+      "target": "interp/test_host.c",
+      "sha256": "b1e8dab3eec37d421d6d15bc0f8f41c4e8e676f46224b7561367afb9d4ff0c31"
+    },
+    {
+      "source": "stage7/integration/lockstep2.py",
+      "target": "lockstep2.py",
+      "sha256": "31498bebee77eae924c3380a1d0953c6d277c4c2b65ca3a681d3c1760a6aa411"
+    },
+    {
+      "source": "stage7/integration/mgba/cover3.py",
+      "target": "mgba/cover3.py",
+      "sha256": "8b44234dd41e1239879672a153d4acb75f0fc43b0f36d1c29fb77317c159bd78"
+    },
+    {
+      "source": "stage7/integration/mgba/cover_level.py",
+      "target": "mgba/cover_level.py",
+      "sha256": "a59c80a3b27835d45b451c8df6727b3f48349ff103cabdc585f25e8a2051d04f"
+    },
+    {
+      "source": "stage7/integration/mgba/emu.py",
+      "target": "mgba/emu.py",
+      "sha256": "573c39f9e81f11cba346a1f95b7d9f1f0e99437f85c321a9003e734d3c3e670f"
+    },
+    {
+      "source": "stage7/integration/mgba/gbashim.c",
+      "target": "mgba/gbashim.c",
+      "sha256": "f2a6eba5100c2a78173e0614e8e1321feedd70d6188bc3a5995c43a1ac81dda5"
+    },
+    {
+      "source": "stage7/integration/mgba/padlog.py",
+      "target": "mgba/padlog.py",
+      "sha256": "c61528bfc0a2c242f48ac41743511957cfec5f02c6757336f9477806e165832b"
+    },
+    {
+      "source": "stage7/integration/mgba/scenes.py",
+      "target": "mgba/scenes.py",
+      "sha256": "665427fc68175362d7898c593d3b2d6bc8cea275a1912d9d089220288f4f5657"
+    },
+    {
+      "source": "stage7/integration/mips.py",
+      "target": "mips.py",
+      "sha256": "a35913c040acd8a3ef6d34740cdb7eb040cced22cba02ae5088fb9194f0c8fc6"
+    },
+    {
+      "source": "stage7/integration/mkcold.py",
+      "target": "mkcold.py",
+      "sha256": "fe9bcbf58265b1c975390ae36174d5b4d1a6e95f9d607461d23eae62e054811e"
+    },
+    {
+      "source": "stage7/integration/mkps1.py",
+      "target": "mkps1.py",
+      "sha256": "8e615431ff949d5447cbe9845ec1bbe1237cb699f54018c4c802ae7ce3bcf52d"
+    },
+    {
+      "source": "stage7/integration/mkresident.py",
+      "target": "mkresident.py",
+      "sha256": "caa980618f1f147b5dc7e2f9ad5433a4a204bee991a9a075d92644e4c7484daf"
+    },
+    {
+      "source": "stage7/integration/msim.py",
+      "target": "msim.py",
+      "sha256": "a7421d93417a40a8d86d85e8ebe9f43638bc598329a9036cdd43a7533a978538"
+    },
+    {
+      "source": "stage16/merge/out_kp/kplan.h",
+      "target": "out/kp/kplan.h",
+      "sha256": "864279772c8ced4ec5c8224a8171c54876e2c38b58ba50897cbc93615782c63b"
+    },
+    {
+      "source": "stage7/integration/prune.py",
+      "target": "prune.py",
+      "sha256": "8b64c0e0165f6853c962549838c37af46d6bb0e522f74693f5692f09000d5236"
+    },
+    {
+      "source": "stage16/merge/ps1rt/build.sh",
+      "target": "ps1rt/build.sh",
+      "sha256": "9d4f8f52ba75973eccc8c67e17807faf74ad4f6049ebff412642906ee611da29"
+    },
+    {
+      "source": "stage7/integration/ps1rt/crt0.s",
+      "target": "ps1rt/crt0.s",
+      "sha256": "e34c423be31e85d5193f9cf9e2cbc396ea88e836fc2307e62d07242f26715327"
+    },
+    {
+      "source": "stage7/integration/ps1rt/font.h",
+      "target": "ps1rt/font.h",
+      "sha256": "839a7848763547a4b2cd36b879d56098a209b014ac13c6cd2a5a075dc94a92f8"
+    },
+    {
+      "source": "stage16/merge/ps1rt/hw_card.h",
+      "target": "ps1rt/hw_card.h",
+      "sha256": "0cfdbd4633d4282111f4d01a3273e227ca2988be9825f144149d80d914e43af7"
+    },
+    {
+      "source": "stage7/integration/ps1rt/hw_cdda.h",
+      "target": "ps1rt/hw_cdda.h",
+      "sha256": "374478d1caa86a167fc1738e4de53e01109ab72e32aebcfc1c4753953c859470"
+    },
+    {
+      "source": "stage16/merge/ps1rt/hw_pad.h",
+      "target": "ps1rt/hw_pad.h",
+      "sha256": "d161113bd6229ae7d3aaca7afaf3c5460c4348ad59c33a224a398b4acb4037e0"
+    },
+    {
+      "source": "stage16/merge/ps1rt/hw_radio.h",
+      "target": "ps1rt/hw_radio.h",
+      "sha256": "43074e8de7e5656701db7f50e0ba4d42ec8085a0cec97e4482ff14bf55eb5649"
+    },
+    {
+      "source": "stage16/merge/ps1rt/hw_stub.h",
+      "target": "ps1rt/hw_stub.h",
+      "sha256": "25e31840c8c4d502cc84ef49afa5df50a3c60bbe91dd1440466d0c617e4675a2"
+    },
+    {
+      "source": "stage16/merge/ps1rt/interp_glue.h",
+      "target": "ps1rt/interp_glue.h",
+      "sha256": "b070b9ac1e8445437373b82065fe7d96cd36dd261b6ef081bae1d5a84db391f8"
+    },
+    {
+      "source": "stage7/integration/ps1rt/mkfont.py",
+      "target": "ps1rt/mkfont.py",
+      "sha256": "4077312f765727e073ce8dfbc59217f0f698ef9302628217f1f8f8d1a09ca2df"
+    },
+    {
+      "source": "stage16/merge/ps1rt/ppu12.h",
+      "target": "ps1rt/ppu12.h",
+      "sha256": "bc9d7fba823fa0c1f28af6aeb28609ed8b91d7d09a4a95bf42abeac993861703"
+    },
+    {
+      "source": "stage16/merge/ps1rt/ps1.ld",
+      "target": "ps1rt/ps1.ld",
+      "sha256": "6a476ad97f7cf3815045f13569a3da2bfdd4747559ecb75632d645fdb7161dbd"
+    },
+    {
+      "source": "stage16/merge/ps1rt/ps1_f.ld",
+      "target": "ps1rt/ps1_f.ld",
+      "sha256": "dbb0fe5d6339500c184bac5188f376bac0f4b9b6a7a2983e597f7110ac99fee4"
+    },
+    {
+      "source": "stage16/merge/ps1rt/ps1_probe.ld",
+      "target": "ps1rt/ps1_probe.ld",
+      "sha256": "974d94548d2bd7a28a5a79832012cca4ea7636af21c72b909da7c7abd6e01f24"
+    },
+    {
+      "source": "stage16/merge/ps1rt/rt.c",
+      "target": "ps1rt/rt.c",
+      "sha256": "67704230d540c4437ea9a38cd6f71581ffe1d9560d1f3e5e660d6292ee1ba4fa"
+    },
+    {
+      "source": "stage7/integration/rd/doll.c",
+      "target": "rd/doll.c",
+      "sha256": "6bbd9315e074530ba54c26a9a5d7d97f223713e92f0fe9616608578064ea1112"
+    },
+    {
+      "source": "stage7/integration/rd/gte_rp.h",
+      "target": "rd/gte_rp.h",
+      "sha256": "d00900a479b628d85268b97cd0b87df55d1aaa0f9326bb6ece973d4f74f7f731"
+    },
+    {
+      "source": "stage7/integration/rd/ps1.h",
+      "target": "rd/ps1.h",
+      "sha256": "37888df760eeacc43b8445a6de54f078bdf3dc288cc0bae2b02060e6b0f3f1f0"
+    },
+    {
+      "source": "stage7/integration/rd/ragdoll_ps1.c",
+      "target": "rd/ragdoll_ps1.c",
+      "sha256": "6571b1a6c5dc161999ca88c584c853f552272eb6788a8ccc8f0f61e1caed7d4a"
+    },
+    {
+      "source": "stage7/integration/rd/ragdoll_ps1.h",
+      "target": "rd/ragdoll_ps1.h",
+      "sha256": "529e37628bd88629831e940b819bb46adc29a4f46b42bda4d8e6c1c66af9f269"
+    },
+    {
+      "source": "stage7/integration/rd/rt.inc",
+      "target": "rd/rt.inc",
+      "sha256": "2f85d56865c9f81ffd9b71a2ef31de114135f5f8ef57b6e73c1b18d1265857b9"
+    },
+    {
+      "source": "stage7/integration/run/empty.txt",
+      "target": "run/empty.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "stage7/integration/run/keys_c.txt",
+      "target": "run/keys_c.txt",
+      "sha256": "51d150d016dc1eb0bc8187ce61a91a82569597f4151bf623b1a492f30846535b"
+    },
+    {
+      "source": "stage7/integration/run/keys_map.txt",
+      "target": "run/keys_map.txt",
+      "sha256": "2b94ec5669e010d4640725e8cd931b0ddb2abbc6334916f29ccc37b43a1eada3"
+    },
+    {
+      "source": "stage7/integration/run/keys_p.txt",
+      "target": "run/keys_p.txt",
+      "sha256": "d37d462c7e6d2cae02930338caad9dc232ac7f2ca888144448d6911598a0c73b"
+    },
+    {
+      "source": "stage7/integration/run/keys_radio.txt",
+      "target": "run/keys_radio.txt",
+      "sha256": "50365a42446defbba51b3da182c4c7766397815711b3b49ad270597d5290500b"
+    },
+    {
+      "source": "stage7/integration/run/run7.sh",
+      "target": "run/run7.sh",
+      "sha256": "4476251e15f8924b838e9e473cd52bbbd96d9b390814a7f505d0335ec81f0df5"
+    },
+    {
+      "source": "stage7/integration/run/run_hw.sh",
+      "target": "run/run_hw.sh",
+      "sha256": "77a638a0e1cfd2fec8cffaca2d5b0e68b9e79f94c33b95a36ef52f6bba5fced7"
+    },
+    {
+      "source": "stage7/integration/run4.sh",
+      "target": "run4.sh",
+      "sha256": "45dac63113731439033a9c12309460f5872f8ae5f4f6629a50d23a58d671a1c5"
+    },
+    {
+      "source": "stage16/merge/run_s15.sh",
+      "target": "run_s15.sh",
+      "sha256": "138f489a8ac541dcc0900dc78e9d8eaa11d67ed6891e0b9c5b3913c0f252bd59"
+    },
+    {
+      "source": "stage7/integration/semantics.py",
+      "target": "semantics.py",
+      "sha256": "705b837a2d634036444061bd0c0488521ce64b3771bf284dc609c5eabc210065"
+    },
+    {
+      "source": "stage7/integration/sf/mk_sf3.py",
+      "target": "sf/mk_sf3.py",
+      "sha256": "7a8ed18351eb7a1eff8498f33cb5e069b0cd50aa5b3b472147a8785f58f476c7"
+    },
+    {
+      "source": "stage17/models/models.h",
+      "target": "sf/models.h",
+      "sha256": "0c9ab17ef14d3e17e5ec782d4d1cd60e9134f3a99a6e9a4931a8c5d1bc072e24"
+    },
+    {
+      "source": "stage7/integration/sf/poses.h",
+      "target": "sf/poses.h",
+      "sha256": "1123393360f909b976df73808e7fc6054bd66ca6c20127e2870a3a26da08a9d6"
+    },
+    {
+      "source": "stage7/integration/sf/ps1.h",
+      "target": "sf/ps1.h",
+      "sha256": "6673fe87684efd9a5b1cc3afed25319c532ed9215fb020cc4825828c11681234"
+    },
+    {
+      "source": "stage16/merge/sf/sf3.c",
+      "target": "sf/sf3.c",
+      "sha256": "32e2ef61dcbf7a7956b313bbb0002e30d3676b31b4c3f319e8b9c5b5a16d7001"
+    },
+    {
+      "source": "stage7/integration/sf/sf3_head.c",
+      "target": "sf/sf3_head.c",
+      "sha256": "ec33421952e77a498566012f8ee758db14b2b2acc82be2ff9e68b38c5437c4be"
+    },
+    {
+      "source": "stage7/integration/sf/sf3_tail.c",
+      "target": "sf/sf3_tail.c",
+      "sha256": "2839b2c6c9a1ece173a50de1c00f1e9f049413d1056affa019b8a9b3efdf081e"
+    },
+    {
+      "source": "stage7/integration/sf/sf_orig.c",
+      "target": "sf/sf_orig.c",
+      "sha256": "2036094011952cdcc1e3c77d8b9bdd271f862b19781ae23c6cb3e22b3d5b72ac"
+    },
+    {
+      "source": "stage7/integration/sf/sfdata.s",
+      "target": "sf/sfdata.s",
+      "sha256": "04adc494e4df079cb1c87f1de2e6c2934f9ef86d18ce133bf9f63f140def4fb8"
+    },
+    {
+      "source": "stage7/integration/sf/sfmem.h",
+      "target": "sf/sfmem.h",
+      "sha256": "89175cd891857971e1e72e8275264fd2cf1fd461ceec0f7a239d617158456ced"
+    },
+    {
+      "source": "stage7/integration/t/boot_chain.sh",
+      "target": "t/boot_chain.sh",
+      "sha256": "b1a34959a1715fae760b647c0940c3044db0c74f4cdb95d712c933af4b4710e1"
+    },
+    {
+      "source": "stage7/integration/t/covloop.sh",
+      "target": "t/covloop.sh",
+      "sha256": "3efd1c482e4580aa7c774e840655a410814291ed2136debe058603b6914c68c3"
+    },
+    {
+      "source": "stage7/integration/t/dis_host.py",
+      "target": "t/dis_host.py",
+      "sha256": "958c5e486b5ee30b1e55546bd26ee176bd5998061fc92e732b2f27bfed7de6af"
+    },
+    {
+      "source": "stage16/merge/t/disc7.sh",
+      "target": "t/disc7.sh",
+      "sha256": "e6306a8fcc135c97430ebf04114a43bb4349a12ffb9e5686a64832f894a9bc34"
+    },
+    {
+      "source": "stage7/integration/t/f1_variants.sh",
+      "target": "t/f1_variants.sh",
+      "sha256": "f7bb559c968cfcb1998b3e65db7ca8bad6a5484baad96580afff364057d85aad"
+    },
+    {
+      "source": "stage7/integration/t/final.sh",
+      "target": "t/final.sh",
+      "sha256": "99ec28a315c2fbef701ea7c5c05f5d3e0cb268b977a8177906f4131b336314e5"
+    },
+    {
+      "source": "stage7/integration/t/mk_disc.sh",
+      "target": "t/mk_disc.sh",
+      "sha256": "f33091e0201d6fe5b9e5d44802142cc5fa46eadbc3ca2d0a8172cc1c0e8e1fd9"
+    },
+    {
+      "source": "stage7/integration/t/mk_stage4.sh",
+      "target": "t/mk_stage4.sh",
+      "sha256": "038aec82fcb0ac94dc601dcd2ca7d39facf75cc282c3fd9da8e1d1bd6c06d2c0"
+    },
+    {
+      "source": "stage7/integration/t/mkrank.py",
+      "target": "t/mkrank.py",
+      "sha256": "2f29f2272bb318b4b4c1572d07351e212e0d14be06405a4daace16a6c165450c"
+    },
+    {
+      "source": "stage7/integration/t/mkrompages.py",
+      "target": "t/mkrompages.py",
+      "sha256": "e4e9509cd165de5dd82ca65cbf6977e7e00fb33936b0259f99317e80208e7bb3"
+    },
+    {
+      "source": "stage16/merge/t/mksim13.sh",
+      "target": "t/mksim13.sh",
+      "sha256": "c682eb1c6849b0dde7568be78c51b96b3d8ccdd63b262feeaf9c479e173b03fd"
+    },
+    {
+      "source": "stage7/integration/t/prof_world.py",
+      "target": "t/prof_world.py",
+      "sha256": "f1c011e48ff314b569ae81a149439875255c84928db68b3b5f75eb0ed970fda1"
+    },
+    {
+      "source": "stage7/integration/t/rebuild_f1.sh",
+      "target": "t/rebuild_f1.sh",
+      "sha256": "4cb896b24d12d95c4736c316a7c31ae3a33598d0843eb9dd45dc1b5221bfcde3"
+    },
+    {
+      "source": "stage7/integration/t/romwork.py",
+      "target": "t/romwork.py",
+      "sha256": "7df8fc77515c16a3b2c56e9457fb6312c950ceb9e8ad72635c3ebb6ae4cd2593"
+    },
+    {
+      "source": "stage7/integration/t/run_s4t.py",
+      "target": "t/run_s4t.py",
+      "sha256": "4f0a9a06838a8eb53371ad7340c54f96ef28ff50e3585e9b1dcc98278814ec7d"
+    },
+    {
+      "source": "stage16/merge/t/sim13.py",
+      "target": "t/sim13.py",
+      "sha256": "c25f5798d525c0c1fa766a3a33c6df2a4124655f88496e5e8cc8cc5d5b0223ff"
+    },
+    {
+      "source": "stage7/integration/t/sim4.py",
+      "target": "t/sim4.py",
+      "sha256": "95b20465409b77c823b71b461f40dde8d9f0b2ebb130d47a9765d32d15286530"
+    },
+    {
+      "source": "stage7/integration/t/snapdump.py",
+      "target": "t/snapdump.py",
+      "sha256": "0e685091e5880a3bae417e97ac5568e956643bccea0aacf47b6c6801cf77c794"
+    },
+    {
+      "source": "stage7/integration/t/step2to5.sh",
+      "target": "t/step2to5.sh",
+      "sha256": "fd541114ce6d6e8153ba8f582fbf3f29287073ba53e3713991d2284b8ff11bd8"
+    },
+    {
+      "source": "stage7/integration/t/step5.sh",
+      "target": "t/step5.sh",
+      "sha256": "feefdf81d45f4d5d90f0501a9797e267e6a91bf264d7b54657c072eda15e0c4e"
+    },
+    {
+      "source": "stage7/integration/t/swi5.s",
+      "target": "t/swi5.s",
+      "sha256": "f38bf391a4cb29ce53716283ff0020ae214df5a95d8b048d745b3cae81d14149"
+    },
+    {
+      "source": "stage7/integration/t/worldaddr.py",
+      "target": "t/worldaddr.py",
+      "sha256": "4be1230936ebe9b6bf76c2a56e6f752747b5b0249e8f124b931dbdaf0b0086f8"
+    },
+    {
+      "source": "stage7/integration/t2m.py",
+      "target": "t2m.py",
+      "sha256": "9d245719255e96b7e71e970cd2b0b5856950362b8984f8ce7a312d3458b4b96d"
+    },
+    {
+      "source": "stage7/integration/tools/mksf3.py",
+      "target": "tools/mksf3.py",
+      "sha256": "59b910b00642b2e8e5deb7ead3047d2ca5984fcc06e18fb80561c8e40aec97c4"
+    },
+    {
+      "source": "stage16/merge/tools12/armcall.py",
+      "target": "tools12/armcall.py",
+      "sha256": "366a9880ab1dea6f82ba984f8e9ad443c9a4d94c07fe43a6731db302d5a30eeb"
+    },
+    {
+      "source": "stage16/merge/tools12/armfade.py",
+      "target": "tools12/armfade.py",
+      "sha256": "287f1043fcc01c678e302a45eec64446e54035791e4832e6980fdd12edfb53a0"
+    },
+    {
+      "source": "stage16/merge/tools12/armppu.py",
+      "target": "tools12/armppu.py",
+      "sha256": "16a00b37c1f0f0140705ef3ca2eceeed45a952e5229c1a465c6e3d9268c3b7ab"
+    },
+    {
+      "source": "stage16/merge/tools12/armstub.py",
+      "target": "tools12/armstub.py",
+      "sha256": "0313337f454160990fdc1bffdc7bf2a021740b854fb73001a64b512a9ca478ff"
+    },
+    {
+      "source": "stage16/merge/tools12/armtrace.py",
+      "target": "tools12/armtrace.py",
+      "sha256": "79b1f377d2af62079730980e1f2d01208622c5e4e20c17514d49080c5880f811"
+    },
+    {
+      "source": "stage16/merge/tools12/armvw.py",
+      "target": "tools12/armvw.py",
+      "sha256": "01100cfa50687731fe7d1c63c2c0c01cab5b11ce1baf2f74cc3f99e75214afe1"
+    },
+    {
+      "source": "stage16/merge/tools12/armwho.py",
+      "target": "tools12/armwho.py",
+      "sha256": "666410fcff201a7efb73be7a2066a9f2f2e8e6237310238627b91a9b0e97a634"
+    },
+    {
+      "source": "stage16/merge/tools12/bestmatch.py",
+      "target": "tools12/bestmatch.py",
+      "sha256": "eb44eae63c1ec4ecc5119ca0ef06125178aa9c4959aa2164af3f805ba7109cf6"
+    },
+    {
+      "source": "stage16/merge/tools12/build.sh",
+      "target": "tools12/build.sh",
+      "sha256": "ee743089b21eddd82a855f3f869878a502b10b5f225936ee814818b7fd00704f"
+    },
+    {
+      "source": "stage16/merge/tools12/cmp2.py",
+      "target": "tools12/cmp2.py",
+      "sha256": "1350d726e84c5e5062fc2bb4fb47197f4c88a9a9c5b93b661e61ceb85f725505"
+    },
+    {
+      "source": "stage16/merge/tools12/cmpshot.py",
+      "target": "tools12/cmpshot.py",
+      "sha256": "0d7d005633de2414d868a5d9afde1275d032a0242ef30b5502eb812f85f7aa59"
+    },
+    {
+      "source": "stage16/merge/tools12/compose.py",
+      "target": "tools12/compose.py",
+      "sha256": "9c18eb8f304f2a2b220a942c78349057b78edee928316d6866e237cfa948b61e"
+    },
+    {
+      "source": "stage16/merge/tools12/flash.py",
+      "target": "tools12/flash.py",
+      "sha256": "4372b65109b7702a737cb244e1630e5985a3511d987996a5ada9d62fff171ba9"
+    },
+    {
+      "source": "stage16/merge/tools12/gbest.py",
+      "target": "tools12/gbest.py",
+      "sha256": "684278c16353f5e474e25aef88e2687dc5f99f419c5f709db522a4ebd3672407"
+    },
+    {
+      "source": "stage16/merge/tools12/gcmp.py",
+      "target": "tools12/gcmp.py",
+      "sha256": "52ed15cc325cff305a518769c6454af0276417b9b68656f781ce7f1595b5b3dc"
+    },
+    {
+      "source": "stage16/merge/tools12/gsim.py",
+      "target": "tools12/gsim.py",
+      "sha256": "40dd54413ccff4385529c86781acaf0e768cecdbd2afb34652aa49b9fe165fda"
+    },
+    {
+      "source": "stage16/merge/tools12/gsim_inj.py",
+      "target": "tools12/gsim_inj.py",
+      "sha256": "f6528093a513f79e35d04e74dba0c919eccaa959bd0340edaf90391527354731"
+    },
+    {
+      "source": "stage16/merge/tools12/gsim_pc.py",
+      "target": "tools12/gsim_pc.py",
+      "sha256": "819166a784788d53979589581d9eb7081318b4e4d5869f0791cacb506ad3001e"
+    },
+    {
+      "source": "stage16/merge/tools12/gsim_run.py",
+      "target": "tools12/gsim_run.py",
+      "sha256": "5ef4792833f6eb38bed6f1729357416361e6f7b0a7e304a5352b09bd2a0aea2b"
+    },
+    {
+      "source": "stage16/merge/tools12/gsim_vw.py",
+      "target": "tools12/gsim_vw.py",
+      "sha256": "3e40bce05098989ece2937daf9e8d8b2eee6aea47ff6f6e6e7100a5c746926b3"
+    },
+    {
+      "source": "stage16/merge/tools12/icmp.py",
+      "target": "tools12/icmp.py",
+      "sha256": "2331539689a7a2ce179e3ed8b3f02544270b98700d06ea015c5a578399b0ec71"
+    },
+    {
+      "source": "stage16/merge/tools12/montage.py",
+      "target": "tools12/montage.py",
+      "sha256": "d0f3d2a5ee5de706fc60a8778f0442b1c3773d6829cec2b482366d6e4ec098e6"
+    },
+    {
+      "source": "stage16/merge/tools12/objmodel.py",
+      "target": "tools12/objmodel.py",
+      "sha256": "70fa29042531b576db36e1a93bd65edb84b3f4e248d819e06500d3a4333f43ba"
+    },
+    {
+      "source": "stage16/merge/tools12/pagerender.py",
+      "target": "tools12/pagerender.py",
+      "sha256": "cd37b89a24e06d6d7f001f200e3317171197c3e12933785a600187bf8c3c56ca"
+    },
+    {
+      "source": "stage16/merge/tools12/ppu_model.py",
+      "target": "tools12/ppu_model.py",
+      "sha256": "15dab1be1076ac038ea9f051d662b5071e184de8767417f620223aedb4653c41"
+    },
+    {
+      "source": "stage16/merge/tools12/pvm.py",
+      "target": "tools12/pvm.py",
+      "sha256": "161678b2d20d9cb485a86a48534bd91b68de92390a0b88abc7274a94d4746be6"
+    },
+    {
+      "source": "stage16/merge/tools12/sheet.py",
+      "target": "tools12/sheet.py",
+      "sha256": "a435779631ea0c465bd856dbce63ae20a1b81cc4b994460ff5b82c17c83057bd"
+    },
+    {
+      "source": "stage16/merge/tools12/shots.py",
+      "target": "tools12/shots.py",
+      "sha256": "e868f1741b66ba1617826f97d5ca794509b3b5cb1a362f98005690611d2bf735"
+    },
+    {
+      "source": "stage16/merge/tools12/simrun.py",
+      "target": "tools12/simrun.py",
+      "sha256": "fb0c697ded69c7c1be241d0f6176fc9fc97ff138d6a769243e383d5d5d99ae41"
+    },
+    {
+      "source": "stage16/merge/tools12/tour12.py",
+      "target": "tools12/tour12.py",
+      "sha256": "b40771e7db9f6cd1b0577b16d1b6cd27d6efc5ec81d329cfa298400480dc9462"
+    },
+    {
+      "source": "stage16/merge/tools13/analyze.py",
+      "target": "tools13/analyze.py",
+      "sha256": "ed2ab27b75a567cfe5313cfcc8f159ec0f914557e2471a6ddfae61f714e24e93"
+    },
+    {
+      "source": "stage16/merge/tools13/mont.py",
+      "target": "tools13/mont.py",
+      "sha256": "a9c3e53253e329b13856eec89dcb29471e655c96d8a636beb17778da8e1ac370"
+    },
+    {
+      "source": "stage16/merge/tools13/padmap.py",
+      "target": "tools13/padmap.py",
+      "sha256": "aea362ee6c62f2a66f144845cc6e1581eac01cab2003e0f80ce26800fa1cd698"
+    },
+    {
+      "source": "stage16/merge/tools13/pcx.py",
+      "target": "tools13/pcx.py",
+      "sha256": "bd9c335f40155e5ce45d34a6f52c9780533b728f75ea11bb4c89548eadc3940b"
+    },
+    {
+      "source": "stage16/merge/tools13/pcxboot.py",
+      "target": "tools13/pcxboot.py",
+      "sha256": "431112b6377d7c087793a7367da27e95242c603b764fc6390b92216fd4e44f38"
+    },
+    {
+      "source": "stage16/merge/tools13/pcxsession.py",
+      "target": "tools13/pcxsession.py",
+      "sha256": "1b97a966306501a4ccfe4f491640101e777105980f90633978fc7e788d2240d4"
+    },
+    {
+      "source": "stage16/merge/tools13/rtrip.py",
+      "target": "tools13/rtrip.py",
+      "sha256": "4e810c03ece948a6ec57cbe10424ac9d48f2e73e058afa96fa6dd9c3d64cbe33"
+    },
+    {
+      "source": "stage16/merge/tools13/simsession.py",
+      "target": "tools13/simsession.py",
+      "sha256": "1f760720211cb3466fb6a311c12921f6c7fe5039d6ff763235bac514848328ff"
+    },
+    {
+      "source": "stage16/merge/tools13/tour13.py",
+      "target": "tools13/tour13.py",
+      "sha256": "f132b5777e75ab14a6b202605d614b3820de65a8cdfbd6eb47a6d97be8cae734"
+    },
+    {
+      "source": "stage16/merge/tools16/assist_sim.py",
+      "target": "tools16/assist_sim.py",
+      "sha256": "7e2fc8c7a4aa490b39ce45a20c2228ec33444dda03fc4d583b5d134a1578d40d"
+    },
+    {
+      "source": "stage16/merge/tools16/cursor_plan.py",
+      "target": "tools16/cursor_plan.py",
+      "sha256": "c2cc3f53ee260f091415aff2e08febed010dec049ffb84790929e215beaadeb6"
+    },
+    {
+      "source": "stage16/merge/tools16/cursor_probe.py",
+      "target": "tools16/cursor_probe.py",
+      "sha256": "d3bd15f59a183f580f996b47bc0fd4812d1e9d6fc367cfa687f069d3433de8d0"
+    },
+    {
+      "source": "stage16/merge/tools16/cursor_probe2.py",
+      "target": "tools16/cursor_probe2.py",
+      "sha256": "544f2f8097a3a3c616c8ba49262225986683a467c5426c9e7548aafea85f3226"
+    },
+    {
+      "source": "stage16/merge/tools16/s15session.py",
+      "target": "tools16/s15session.py",
+      "sha256": "9d5269342001b169cb491d1b966ce4130c787ccad31bf515f9d1ee6d6c73cc78"
+    },
+    {
+      "source": "stage7/integration/tools7/dumpworld.py",
+      "target": "tools7/dumpworld.py",
+      "sha256": "5dfd2ee4764f10b3f6b33f8dec6f9439ab9d5c07c90ee412a71d4f49291c7fbc"
+    },
+    {
+      "source": "stage7/integration/tools7/explore.py",
+      "target": "tools7/explore.py",
+      "sha256": "457d367ccc434a7a00babed2eaaea8d79b7f4c1dd950cf19335ce4f8374ece94"
+    },
+    {
+      "source": "stage7/integration/tools7/extra_touch.txt",
+      "target": "tools7/extra_touch.txt",
+      "sha256": "657d9d933b51c4a65d26592877cbc63e13458408e3b51448ab45103e3671eb19"
+    },
+    {
+      "source": "stage7/integration/tools7/mkcoldall.py",
+      "target": "tools7/mkcoldall.py",
+      "sha256": "79a3180d56e701a12a36bd298d29dba5bfac6c4ed80ea92ebb882a5454eec5e8"
+    },
+    {
+      "source": "stage7/integration/tools7/mkdisc2.py",
+      "target": "tools7/mkdisc2.py",
+      "sha256": "ed4355dc922ed609daaa0cf5f451edd93e5933320d63b8d452bfbfcca97c6a5f"
+    },
+    {
+      "source": "stage7/integration/tools7/mkiso_maps.py",
+      "target": "tools7/mkiso_maps.py",
+      "sha256": "727774dc83c95ab592a1d0a935859f77cf986d8f1de65b2e23bdadff17fefed9"
+    },
+    {
+      "source": "stage7/integration/tools7/mkiw.py",
+      "target": "tools7/mkiw.py",
+      "sha256": "7020bfba5479fd86affdc31237bd8a812c83b8564a49c0c636292c7791b5f406"
+    },
+    {
+      "source": "stage16/merge/tools7_mkkplan.py",
+      "target": "tools7/mkkplan.py",
+      "sha256": "7a49ae62487b40f218fca45403e47c62b788f1fe242ea649f14579ca34b2ea79"
+    },
+    {
+      "source": "stage7/integration/tools7/mkmaps7.py",
+      "target": "tools7/mkmaps7.py",
+      "sha256": "4fa85648f3e6ceab8cdb2d3bd5f41614923d592d629b12f9eded35ee67103f45"
+    },
+    {
+      "source": "stage7/integration/tools7/mkprog.py",
+      "target": "tools7/mkprog.py",
+      "sha256": "24765332d936ea194c9c9a81635dad8ba1547c96f4cad63533f7249f17098227"
+    },
+    {
+      "source": "stage7/integration/tools7/mkps1world.py",
+      "target": "tools7/mkps1world.py",
+      "sha256": "f4cb86a1dd534aa2c16d3b852eea1b9a7f567e1637e7bc4513677194e484063a"
+    },
+    {
+      "source": "stage7/integration/tools7/mksf3.py",
+      "target": "tools7/mksf3.py",
+      "sha256": "59b910b00642b2e8e5deb7ead3047d2ca5984fcc06e18fb80561c8e40aec97c4"
+    }
+  ],
+  "patches": [
+    {
+      "source": "stage10/patches/mkps1.py.patch",
+      "target": "mkps1.py",
+      "sha256": "2d4f9036f67d6282f16712231bd74c382838930c3fe0d51ebbb2281b5e297694",
+      "input_sha256": "8e615431ff949d5447cbe9845ec1bbe1237cb699f54018c4c802ae7ce3bcf52d",
+      "result_sha256": "9e1c17735ff6554d4cb1169e749cddfe518083da9c38049f55743127b8af82aa"
+    },
+    {
+      "source": "stage12/patches/t_sim4.py.patch",
+      "target": "t/sim4.py",
+      "sha256": "a7275c0ed905890a2e19e78c9ea1d42292f7272d955ef3aa4cafc7f151ca0bcc",
+      "input_sha256": "95b20465409b77c823b71b461f40dde8d9f0b2ebb130d47a9765d32d15286530",
+      "result_sha256": "d6a4c68c240265d71c78fcb2c8689be8d89086ebc2b8470907fed985e66d837d"
+    },
+    {
+      "source": "patches/stage17-runtime-on-stage16.patch",
+      "target": "ps1rt/rt.c",
+      "sha256": "0e59f85fef31558a88e11dd34d73c77c07c61a2e35b67f6743ad3334e153eba7",
+      "input_sha256": "67704230d540c4437ea9a38cd6f71581ffe1d9560d1f3e5e660d6292ee1ba4fa",
+      "result_sha256": "e14e82bddf715959b5ffd690a5e2dd13eb6a6a94a4a36a196f5911b591a3768a"
+    },
+    {
+      "source": "patches/stage17-renderer-on-stage16.patch",
+      "target": "sf/sf3.c",
+      "sha256": "1159161da6be6b51766d878a33f8e165bbad6a1d5d7edd0c230ff3f2d3a74746",
+      "input_sha256": "32e2ef61dcbf7a7956b313bbb0002e30d3676b31b4c3f319e8b9c5b5a16d7001",
+      "result_sha256": "c950be6a84ab55f4c76b2ea0aa9d13872dd8a45fcd2fa9da7dcd4a740d205d3e"
+    },
+    {
+      "source": "stage18/models/models.h.patch",
+      "target": "sf/models.h",
+      "sha256": "34d89486535be8b631dc4d005a9e15e84c1905f6a8008fb6d9314f60cf977429",
+      "input_sha256": "0c9ab17ef14d3e17e5ec782d4d1cd60e9134f3a99a6e9a4931a8c5d1bc072e24",
+      "result_sha256": "36cea97c92e61e6487e758d36e542c90aecf783f20e7f13b24653c63a6b9286e"
+    },
+    {
+      "source": "patches/stage18-models-vram.patch",
+      "target": "sf/models.h",
+      "sha256": "646b0c37eab3cad48fa433293e9a1114a3337f487dd6aa6f51797ea314737ab4",
+      "input_sha256": "36cea97c92e61e6487e758d36e542c90aecf783f20e7f13b24653c63a6b9286e",
+      "result_sha256": "eca1d875ad3d8185b2bf49a64e648625207a67727e7fabfdb3580557734be47f"
+    }
+  ]
+}

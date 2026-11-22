@@ -1,0 +1,41 @@
+--- a/sf/models.h
++++ b/sf/models.h
+@@ -1,14 +1,15 @@
+ /* models.h: stage 17, low-poly textured/shaded GTE models for the player, people and the vehicle classes.
+    Code only.  No Payback assets: every texel is generated here at map load, every colour comes from the map's own flat palette (side->flat).
+    Included by sf3.c after the camera / projection / packet code and before sf3_frame.  Entities arrive by descriptor (look index, police flag).
+-   VRAM use: texture page (960,256) 4 bit, only v < 128;  CLUT rows x 960, y 448..481 (34 rows of 16). */
++   VRAM use: shared allocation in ps1_vram.h; separate from PPU OBJ tiles and all world atlas pages. */
+ #ifndef MODELS_H
+ #define MODELS_H
++#include "../include/ps1_vram.h"
+ #pragma clang attribute push(__attribute__((minsize, noinline)), apply_to = function)
+ 
+ enum { T_SIDE, T_TOP, T_GLASS, T_WIN, T_FRONT, T_REAR, T_WHEEL, T_BUSWIN, T_POLICE, T_TAXI, T_ARMOR, T_TRACK, T_SHIRT, T_FACE, T_JEANS, T_HEAD, T_FLAT = 16 };
+-#define MTP TPAGE(960, 256, 0, 0)
+-#define MROW(r) CLUT(960, 448 + (r))
++#define MTP TPAGE(PS1_VRAM_MODEL_TPAGE_X, PS1_VRAM_MODEL_TPAGE_Y, 0, 0)
++#define MROW(r) CLUT(PS1_VRAM_MODEL_CLUT_X, PS1_VRAM_MODEL_CLUT_Y + (r))
+ enum { ROW_PED = 16, ROW_HERO = 32, ROW_COP = 33, NROWS = 34 };
+ static u16 mpal[NROWS][16];      /* 15 bit per palette entry (the CLUT rows and the flat faces use the same colours; index 0 is transparent) */
+ static int mdl_ready;
+@@ -50,8 +51,8 @@
+   for (int k = 0; k < 16; k++) pal_per(ROW_PED + k, flat_col(shirts[k & 7], 3, 0), flat_col((k >> 3) ? 10 : 1, 3, 0), skins[k & 3], hairs[(k >> 1) & 3]);
+   pal_per(ROW_HERO, flat_col(14, 3, 0), flat_col(6, 3, 0), skins[0], hairs[0]);      /* the stunt fox: orange jacket (M_GLOW), jeans (M_GLASS) */
+   pal_per(ROW_COP, flat_col(13, 3, 0), flat_col(1, 2, 0), skins[2], hairs[3]);      /* an officer: blue (M_SHIP), dark trousers */
+-  atlas_build(); vram_dma(960, 256, 32, 128, at_buf);
+-  vram_dma(960, 448, 16, NROWS, mpal);
++  atlas_build(); vram_dma(PS1_VRAM_MODEL_X, PS1_VRAM_MODEL_Y, PS1_VRAM_MODEL_W, PS1_VRAM_MODEL_H, at_buf);
++  vram_dma(PS1_VRAM_MODEL_CLUT_X, PS1_VRAM_MODEL_CLUT_Y, PS1_VRAM_MODEL_CLUT_W, NROWS, mpal);
+   mdl_ready = 1;
+ }
+ 
+@@ -129,7 +130,7 @@
+     if (q == Q_OK && mnz >= NEAR) put_f4(bucket(key), 0, col, &p[0], &p[1], &p[3], &p[2]); else { V3 w[4]; for (int i = 0; i < 4; i++) w[i] = tow(&lw[i]); clip_emit_flat(w, 4, bucket(key), 0, col, 2); }
+     return;
+   }
+-  int u0 = (tile & 3) << 5, v0 = (tile >> 2) << 5, u1 = u0 + 31, v1 = v0 + 31; int uv[8] = { u0, v0, u1, v0, u1, v1, u0, v1 };
++  int u0 = (PS1_VRAM_MODEL_X - PS1_VRAM_MODEL_TPAGE_X) * 4 + ((tile & 3) << 5), v0 = PS1_VRAM_MODEL_Y - PS1_VRAM_MODEL_TPAGE_Y + ((tile >> 2) << 5), u1 = u0 + 31, v1 = v0 + 31; int uv[8] = { u0, v0, u1, v0, u1, v1, u0, v1 };
+   msoft -= 10; mquad(lw, uv, FT4_MOD | (g << 16) | (g << 8) | g, MROW(row), MTP, key, 0, mnz >= NEAR ? p : 0);
+ }
+ /* a blob shadow: semi-transparent black quad on the ground (50 % of the ground behind) */

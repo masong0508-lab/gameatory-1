@@ -10,10 +10,10 @@ _start:
 start:
     mov     r0, #0x12               @ IRQ mode stack
     msr     cpsr_c, r0
-    ldr     sp, =0x03007fa0
+    ldr     sp, =__stack_irq_top
     mov     r0, #0x1f               @ system mode stack
     msr     cpsr_c, r0
-    ldr     sp, =0x03007f00
+    ldr     sp, =__stack_top
 
     ldr     r0, =__iwram_lma        @ copy IWRAM code and data from ROM
     ldr     r1, =__iwram_start

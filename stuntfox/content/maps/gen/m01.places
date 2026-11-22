@@ -7,9 +7,9 @@ place gr1.4 x=66.57 y=49.51 h=4105 r=1.1 ring_y air
 place gr1.5 x=71.29 y=53.78 h=4481 r=1.1 ring_x air
 place gr1.6 x=76.94 y=57.64 h=4377 r=1.1 ring_x air
 place gr1.7 x=82.59 y=61.51 h=4151 r=1.1 ring_x air
-place gr1.8 x=87.07 y=66.42 h=3935 r=1.1 ring_y air
-place gr1.9 x=90.32 y=72.44 h=3923 r=1.1 ring_y air
-place gr1.10 x=92.5 y=78.5 h=4095 r=1.1 ring_y air
+place gr1.8 x=87.07 y=66.42 h=3936 r=1.1 ring_y air
+place gr1.9 x=90.32 y=72.44 h=3924 r=1.1 ring_y air
+place gr1.10 x=92.5 y=78.5 h=4096 r=1.1 ring_y air
 place gr2.s x=44.5 y=47.5 h=1536 r=1.1 ring_y air
 place gr2.1 x=46.27 y=53.98 h=1396 r=1.1 ring_y air
 place gr2.2 x=47.5 y=60.53 h=1280 r=1.1 ring_y air
@@ -34,8 +34,8 @@ place gr3.6 x=82.12 y=77.89 h=2464 r=1.1 ring_y air
 place gr3.7 x=80.93 y=84.07 h=3876 r=1.1 ring_y air
 place gr3.8 x=81.5 y=89.47 h=2305 r=1.1 ring_y air
 place gr3.9 x=78.5 y=93.99 h=1024 r=0.8 ring_y air
-place gr3.10 x=78.5 y=100.8 h=1919 r=1.1 ring_y air
-place gr3.11 x=75.5 y=105.5 h=4095 r=1.1 ring_y air
+place gr3.10 x=78.5 y=100.8 h=1920 r=1.1 ring_y air
+place gr3.11 x=75.5 y=105.5 h=4096 r=1.1 ring_y air
 place gl1.s x=85.89 y=13.51 h=3904 r=1.6 ring_y air
 place gl1.1 x=85.5 y=19.5 h=3072 r=1.8 pad roof
 place gl1.2 x=76.5 y=19.5 h=4096 r=1.8 pad roof

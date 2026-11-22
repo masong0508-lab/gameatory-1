@@ -17,7 +17,7 @@ place gr2.5 x=85.16 y=76.5 h=3190 r=1.1 ring_x air
 place gr2.6 x=90.55 y=72.86 h=3386 r=1.1 ring_x air
 place gr2.7 x=95.6 y=68.48 h=3329 r=1.1 ring_x air
 place gr2.8 x=100.66 y=64.09 h=3573 r=1.1 ring_x air
-place gr2.9 x=106.5 y=62.5 h=4095 r=1.1 ring_x air
+place gr2.9 x=106.5 y=62.5 h=4096 r=1.1 ring_x air
 place gr3.s x=85.5 y=54.5 h=2048 r=1.1 ring_x air
 place gr3.1 x=80.19 y=49.86 h=2289 r=1.1 ring_x air
 place gr3.2 x=74.04 y=47.5 h=2614 r=1.1 ring_x air

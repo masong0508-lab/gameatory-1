@@ -71,8 +71,20 @@ the player can move afterward and that story/free-roam reloads have the correct
 flags and complete 16,384-cell ROM grid, excluding legitimate dynamic RAM columns.
 The earlier supplied and canonical baselines each failed five of these 21 checks.
 
-Setup teleports make scenarios repeatable. These are scripted integration tests,
-not a full manual playthrough. Native game-save formats, physical hardware,
+`harness/test_native_save.py` adds 28 checks across 11 fresh OS processes. It
+creates a native profile, enters an existing traffic car with L, and quits
+through the game's confirmation dialog. Quit commits the profile's carjacking
+total from zero to one. The test writes the core's native 512-byte EEPROM and
+cold-boots it in a separate process; emulator savestate APIs are prohibited.
+Both the original game and this mod write byte-identical saves. All four
+writer/reader combinations restore the profile and statistic without changing
+the saved bytes. Early close and an unchanged initial autodetection buffer
+also preserve existing files.
+
+Setup teleports make the vehicle scenarios repeatable. These are scripted
+integration tests, not a full manual playthrough. Native-save evidence covers
+profiles and statistics saved by Quit, not mid-level world resume, live builder
+edits, or the separate `stuntfox/` engine's campaign extension. Physical hardware,
 extended soak testing and completion of every story mission remain untested.
 
 ### Rendering-rate measurement

@@ -7,9 +7,17 @@ SECTIONS{ . = 0x80010000;
  . = ALIGN(16); .bootimg : { *(.bootimg) }
  /* the city renderer (stage 3; its sections carry the .sf prefix) sits above the guest VRAM shadow, in space nothing else uses */
  /* stage 7: the ragdoll solver (rd/doll.c, sections prefixed .dl) sits in the page-cache space that stage 7 gave up (NSLOT 16): __doll_addr from the build */
- . = DEFINED(__doll_addr) ? __doll_addr : 0x80163000; .doll : { *(.dl.text*) *(.dl.rodata*) *(.dl.data*) *(.dl.sdata*) }
+ . = DEFINED(__doll_addr) ? __doll_addr : 0x80163000; __doll_start = .; .doll : { *(.dl.text*) *(.dl.rodata*) *(.dl.data*) *(.dl.sdata*) }
  . = ALIGN(16); __dlbss_start = .; .dlbss : { *(.dl.bss*) *(.dl.sbss*) } __dlbss_end = .;
- ASSERT(. < 0x8017c000, "ragdoll code overlaps the draw ring")
+ ASSERT(__ps1_pcache_end <= __doll_start, "ROM page cache overlaps ragdoll code")
+ ASSERT(. <= 0x8017a000, "ragdoll code overlaps PPU scratch")
+ /* PPU palette/row storage and cold-veneer scratch are explicit allocations.
+    The old fixed 0x801abc00 area is occupied by the stage17/18 renderer. */
+ . = 0x8017a000; .ppuscratch (NOLOAD) : {
+   __ppu_start = .; . += 0x1000;
+   __veneer_scratch = .; . += 0x1000;
+ }
+ ASSERT(. == 0x8017c000, "PPU scratch overlaps the draw ring")
  . = 0x80199000; .sf : { *(.sf.text*) *(.sf.rodata*) *(.sf.data*) *(.sf.sdata*) *(.sfro) }
  . = ALIGN(16); __sfbss_start = .; .sfbss : { *(.sf.bss*) *(.sf.sbss*) } __sfbss_end = .;
  ASSERT(. < 0x801b0000, "renderer overlaps guest EWRAM")

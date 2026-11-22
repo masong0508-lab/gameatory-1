@@ -11,7 +11,9 @@ u8 model_body = M_CAR;                          /* material drawn for M_CAR face
 u8 model_legs = M_ROAD;                         /* ... and for M_SKY faces */
 u8 model_hull = M_SHIP;                         /* ... and for M_SHIP faces */
 
-void model_init(Model *md)
+/* Normals are prepared at start-up; their builder need not occupy the renderer's
+   fast RAM for every frame of the standalone game. */
+COLD void model_init(Model *md)
 {
     /* the solid part's centre (thin two-sided parts left out): normals point away from it */
     s32 cx = 0, cy = 0, cz = 0, cn = 0;
