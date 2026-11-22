@@ -27,7 +27,7 @@ Claude updates it at each milestone.
 | --- | --- |
 | `claude/snes-mashup-umjsjp` | Main line, verified work only. Base every new branch on it. |
 | `wip/gba-v12.29` | GBA v12.29, merged into the main line (6d03321); kept for reference |
-| `wip/ps1-rc7` | PS1 original port: intro, vehicle and quit fixes, timer wrap fix |
+| `wip/ps1-rc7` | PS1 original port: intro, vehicle and quit fixes, timer wrap fix (draft PR #3) |
 | `wip/ps1-speed-clock`, `wip/ps1-speed-dispatch`, `wip/ps1-speed-boot`, later `wip/ps1-speed` | PS1 speed work, wave 1 (see `ps1/STATUS.md`) |
 | `wip/*-unsaved` | Automatic snapshots of edits not yet committed, refreshed every few minutes; may not build |
 
@@ -48,14 +48,17 @@ Files Claude is changing now (please do not edit them):
 
 **GPT-6 tasks** (new paths only; one task per small pull request):
 
-1. `ps1/rebuild/`: make the PS1 build reproducible from the owner's files.
-   Claude seeds it with the rebuild plan, the two build tracks (reuse the
-   private inputs, or regenerate them from the ROM and the Amiga files) and
-   the sha256 of every private input. GPT-6 regenerates them, reports any
-   byte difference and makes the scripts path-independent. This is what lets
-   GPT-6 build and test PS1 changes.
+1. `ps1/rebuild/` (seeded in 862982f; GPT-6's from there): make the PS1
+   build reproducible from the owner's files. The seed has the rebuild plan,
+   the two build tracks (reuse the private inputs, or regenerate them from
+   the ROM and the Amiga files) and the sha256 of every private input.
+   GPT-6 regenerates them, reports any byte difference and makes the scripts
+   path-independent. This is what lets GPT-6 build and test PS1 changes.
+   Start with `ps1/rebuild/README.md`, "What to run first".
 2. `ps1/qa/`: a gameplay test matrix on the delivered discs, using the
-   emulator rig Claude seeds in `ps1/rig/`: walking, every vehicle type,
+   emulator rig in `ps1/rig/` (seeded in 862982f; GPT-6 may add sessions and
+   fix scripts there in small pull requests, and Claude carries the fixes
+   into the copies its own runs use): walking, every vehicle type,
    weapons, pause, quit, a second level, game over, memory-card save and
    load, the radio, a long soak, and a flicker scan. Report each defect as a
    GitHub issue with the emulator, core options and frame number.
