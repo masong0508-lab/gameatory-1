@@ -235,6 +235,15 @@ int main(void)
     CHECK(store_native(&stopped)); cold_load();
     CHECK(cp_active() && !C.resume_sg && cp_prog.acts[0] == 1);
     CHECK(!memcmp(&ship_progress, stopped.sg, sizeof ship_progress));
+
+    /* The station's SAVE...: the note says how the save went once it has (the header's word), and the B that closes the
+       menu is the menu's own (the station would otherwise change room on it). */
+    for (int i = 0; i < 400 && sw.busy; i++) cp_tick();
+    cp_open_at(2); card();
+    CHECK(sw.busy && C.sv == 1 && seen("SAVING...") && seen("SAVING"));
+    for (int i = 0; i < 400 && sw.busy; i++) cp_tick();
+    card(); CHECK(C.sv == 2 && seen("SAVED") && !seen("SAVING...") && !strcmp(msg, "SAVED"));
+    CHECK(cp_dock_keys(KEY_B, KEY_B, 1) && !C.q);
     printf("%d campaign ending checks passed\n", checks);
     return 0;
 }
