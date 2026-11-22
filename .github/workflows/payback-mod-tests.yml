@@ -1,5 +1,9 @@
 name: Payback mod tooling tests
 
+concurrency:
+  group: payback-mod-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 on:
   push:
     paths:
