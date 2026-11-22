@@ -545,7 +545,7 @@ static void term_key(u16 hit, u16 keys)
             } else {
                 sw_job_cancel();
                 stw.confirm = 0;
-                news("WALK CANCELLED. NO CREDITS LOST");
+                news("WALK CANCELLED. NO CREDITS LOST.");
             }
             break;
         }
@@ -1085,11 +1085,11 @@ static void screen(void)
         line(24, 78, stw.cur == 3, current ? (stw.confirm ? "A AGAIN: CANCEL WALK" : "CANCEL WALK") : "BACK");
         const char *detail = !cp_active() ? "START THE CAMPAIGN TO TAKE A WALK." :
                              !sw_pack ? "JET PACK REQUIRED: SHOP, 900 CR." :
-                             stw.cur < 3 ? brief[stw.cur] : "CANCEL KEEPS YOUR EARNED REWARDS.";
+                             stw.cur < 3 ? brief[stw.cur] : current ? "CANCEL KEEPS YOUR EARNED REWARDS." : "NO ACTIVE WALK TO CANCEL.";
         d_text(14, 98, detail, INK);
         d_text(14, 110, stw.cur < 3 ? "FLY THERE. HOLD SELECT TO BAIL OUT." : "* = CLEARED. REPLAYS STILL PAY.", HELP);
         help(stw.cur < 3 ? "A: TAKE + LAUNCH  <: MAP  B: BACK" :      /* (what A does on the line under the cursor) */
-             current ? "A: CANCEL WALK  <: MAP  B: BACK" : "A: BACK  <: MAP  B: BACK");
+             current ? "A: CANCEL WALK  <: MAP  B: BACK" : "A: CLOSE  <: MAP  B: BACK");
         break;
     }
     case T_SHOP:

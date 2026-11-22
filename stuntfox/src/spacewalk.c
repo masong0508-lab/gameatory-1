@@ -265,7 +265,8 @@ int sw_job_take(int job)
     if (!s2f.docked || sg_state != SG_DOCKED)
         return SWJ_DOCK;
     obj_n = job, obj_s = 0;
-    hint("Fly to marker. Hold SELECT to walk.");   /* (36 letters at most: see sw_hud) */
+    hint("At the marker, hold SELECT to walk.");   /* (where: near the station SELECT docks; 39 letters at most, sw_hud prints
+                                                      it from x 4) */
     return SWJ_READY;
 }
 

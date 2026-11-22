@@ -3404,7 +3404,8 @@ static int hint_pick(const u8 *me)
         h = H_CAR;                             /* (Tank Warfare's tank is no stunt car) */
     else if (mode == FLY && sg_state == SG_FLY) {
         s32 alt = ship.b.pos.y >> FX;
-        h = alt > SPACE_HI ? H_SPACE : alt > SPACE_LO ? -1 : !(told & 1 << H_ARWING) || ship.gear || calm < 1200 ? H_ARWING : H_CLIMB;
+        h = alt > SPACE_HI ? (sw_obj(0, 0) ? -1 : H_SPACE) :   /* (not while a walk is assigned: its hint says where SELECT walks) */
+            alt > SPACE_LO ? -1 : !(told & 1 << H_ARWING) || ship.gear || calm < 1200 ? H_ARWING : H_CLIMB;
     }
     if ((h < 0 || told & 1 << h) && mode != FLY && calm > 1800 && told & 1 << H_FOOT)
         h = H_CAMERA;
