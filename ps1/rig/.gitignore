@@ -1,0 +1,20 @@
+# made locally, never committed: cores, firmware images, builds, run outputs (they show the game)
+cores/
+system/
+build/
+openboot/build/
+states/
+runs/
+*.so
+*.o
+*.bin
+*.img
+*.iso
+*.cue
+*.chd
+*.mcd
+*.gme
+*.state
+*.state.json
+*.png
+*.zip
