@@ -20,6 +20,35 @@ EXE, ISO, ELF and nm listings, `.cue`/`.bin`/`.chd` discs, logs, screenshots and
 well as the ROM, the Amiga files and the music. Keep `TREE`, `SURV`, `OUTDIR` and the disc directory outside the
 repository. Only names, sizes, hashes and our own measurements go in.
 
+## Verify the owner's private package before building
+
+`check_owner_inputs.py` reads the published full SHA-256, byte size and relative path
+for every required input. It **never extracts** ZIP files and never prints game
+content. The owner handoff contains exactly 21 files; old `iso_*/` staging
+trees, private discs and EXEs are intentionally absent.
+
+```sh
+# From the repository root: check the untouched owner's archives directly.
+python3 ps1/rebuild/check_owner_inputs.py \
+    ps1/rebuild/private_inputs.sha256 /private/Payback-PS1-private-inputs.zip \
+    --rom /private/payback.gba
+# Expected: 21 expected files; 0 error(s); owner ROM MATCH.
+
+# Track A uses an unpacked SURV directory, and preflights its 14 staged files.
+python3 ps1/rebuild/check_owner_inputs.py \
+    ps1/rebuild/private_inputs.sha256 "$SURV" --release --rom "$ROM"
+# Expected: 14 expected files; 0 error(s); owner ROM MATCH.
+
+# ROM-free regression suite: adversarial ZIPs, mutations and original-ROM checks.
+python3 -m unittest discover -s ps1/rebuild/tests -v
+```
+
+The Track A script now performs the full 14-file and ROM verification itself
+before copying any data into the prepared tree; the earlier short hash-prefix
+checks remain as an additional guard. Neither command requires a locally
+installed emulator or compiler. Do not run the script inside a public
+repository checkout with private outputs as its destination.
+
 ## What to run first (GPT-6)
 
 From the top of the repository, with the owner's ROM and Amiga folder:
@@ -95,3 +124,4 @@ No script here has a default that points at a private location; a missing settin
   nm listing): `rigpages.py` with `pages_report.py` and `respages_opt.py`, `rigmiss.py`, `rigspeed.py`,
   `rigsession.py`, `rigprobe1.py`, `rigicon.py`, `rigweapon.py`. Their outputs show the game: keep them outside the
   repository.
+
