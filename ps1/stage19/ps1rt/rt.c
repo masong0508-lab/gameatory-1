@@ -265,7 +265,10 @@ static u32 cold_m5; static void cold_all(void); static int pal_bg_zero(void);
 #endif
 #ifdef PCPAIR
 static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pair */
-/* out of line: the miss path grew, and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve, gread ... */
+#endif
+#if defined(PCPAIR) || defined(COLD1PASS)
+/* out of line: the miss path grew (M3, M5), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
+   gread ... (or inline the whole miss path into them) */
 __attribute__((noinline))
 #endif
 static const u8 *cd_fetch(u32 pg){
