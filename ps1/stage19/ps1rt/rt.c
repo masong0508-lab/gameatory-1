@@ -35,6 +35,22 @@ static u32 rp_n; static const u32 *rp_idx; static const u8 *rp_data; static u32 
 static const u8 *rom_pg[2048];
 static u32 g_pres, g_gframes;   /* presented pictures, guest (GBA) frames */
 static u32 cd_rd_gf;            /* the guest frame in which the last data read ended (hw_cdda.h resumes the music after a quiet interval) */
+#ifdef CDSTAT
+static u32 cd_nreq, cd_npass;   /* test counters (speed stage 3): data requests (one Setloc+ReadN each, retries not counted), passes (retries counted) */
+#define CDSTAT_INC(v) ((v)++)
+#else
+#define CDSTAT_INC(v) ((void)0)
+#endif
+#if defined(CDPADPOLL) && !defined(CDSIM)
+/* speed item P6: the pad is also polled inside the CD driver's waits, once per PS1 field (263 hblank lines), so a press made while the guest
+   stands still for a read (a COLD.BIN pass, a page fetch, a map load) is not lost: pad_cdlat keeps the buttons seen down there until the
+   guest's next KEYINPUT read, which sees them pressed once (pad_cddeliv counts those reads); pad_latch gets them too (radio, map keys). */
+static u32 pad_cdt, pad_cdlat, pad_cdpolls, pad_cddeliv; static u32 pad_latch;
+static void cd_padpoll(void);
+#define CD_PADPOLL() cd_padpoll()
+#else
+#define CD_PADPOLL() ((void)0)
+#endif
 /* ---------------------------------------------------------------- CD-ROM (polling driver, no IRQ): whole sectors, every one identified by its own header
    ROM data pages (4 KiB = 2 sectors) are fetched on demand from ROM.BIN on the disc into a FIFO-replaced page cache. */
 #define CD0 (*(volatile u8*)0x1F801800)
@@ -90,7 +106,7 @@ static void cd_ack(void){ CD0=1; CD3=0x1f; }
 static u32 cd_flags(void){ CD0=1; u32 f=CD3&7; if(f) f=CD3&7; return f; }        /* psx-spx: the first non-zero read may be unstable: read again */
 static void cd_result(u8*r){ for(u32 n=0;(CD0&0x20)&&n<16;n++){ u8 b=CD1; if(!n) cd_stat=b; if(r&&n<8) r[n]=b; } }
 static u32 cd_waitint(u32 lim){
-  hl_start(); for(;;){ u32 f=cd_flags(); if(f) return f; if(hl_past()>lim) break; }
+  hl_start(); for(;;){ u32 f=cd_flags(); if(f) return f; if(hl_past()>lim) break; CD_PADPOLL(); }
   cd_timeouts++; if(cd_dbg<40){ cd_dbg++; dbg("CD timeout\n"); } return 0; }
 /* acknowledge whatever is pending (a sector of a read that is still running, a late second response, the end of a track) before a new command:
    psx-spx: responses queue up behind an unacknowledged one, so a command must never be sent with an interrupt pending */
@@ -122,6 +138,10 @@ static void cd_error_screen(u32 lba); static void cd_error_gone(void);
 #if !defined(CDSIM) || defined(SIMSIO)
 #include "hw_pad.h"     /* PS1 pad (SIO0) -> GBA KEYINPUT */
 #include "hw_card.h"    /* memory card + EEPROM save layer */
+#endif
+#if defined(CDPADPOLL) && !defined(CDSIM)
+static void cd_padpoll(void){ u32 t=RC1_VAL&0xffff; if(((t-pad_cdt)&0xffff)<263u) return; pad_cdt=t;
+  pad_poll(); pad_latch|=pad_raw; pad_cdlat|=pad_raw; pad_cdpolls++; }
 #endif
 #ifndef CDSIM
 #include "hw_cdda.h"    /* CD-DA playback */
@@ -155,6 +175,7 @@ static u32 cd_map[CD_RUN/32];
    overrun with a read speed-up), delivered late or delivered twice can never be taken for another one.
    Returns 0 when the request is complete, -1 on an error answer or a timeout, -2 when the drive went past the request with sectors missing. */
 static int cd_pass(u32 lba,u32 n,u8*dst,u32*left){
+  CDSTAT_INC(cd_npass);
   u32 first=0; while(first<n&&((cd_map[first>>5]>>(first&31))&1)) first++;
   u32 a=lba+first+150; u8 p[3]={bcd(a/4500),bcd((a/75)%60),bcd(a%75)}, r[8];
   if(cd_cmd(0x02,p,3,r)!=3) return -1;                            /* Setloc */
@@ -187,6 +208,7 @@ static int cd_pass(u32 lba,u32 n,u8*dst,u32*left){
 static void cd_read(u32 lba,u32 nsec,u8*dst){
   while(nsec>CD_RUN){ cd_read(lba,CD_RUN,dst); lba+=CD_RUN; nsec-=CD_RUN; dst+=CD_RUN*2048; }
   cdda_hold();                                                    /* a data seek ends CD-DA playback: remember the position, pause */
+  CDSTAT_INC(cd_nreq);
   if(!cd_ready) cd_init();
   for(u32 i=0;i<CD_RUN/32;i++) cd_map[i]=0;
   if(cd_dbg<12){ cd_dbg++; dbg("cd_read lba "); dec(lba); dec(nsec); dbg("\n"); }
@@ -221,7 +243,26 @@ static void cd_resume(void){ cdda_idle(); }
 #ifdef PCACHE1
 /* stage 19: one 4 KiB page (2 sectors) per fetch into the next of NSLOT single-page slots (FIFO replacement).  With the measured resident set
    (t/resident62.txt) the rest of the working set is small, and a single page per seek reads 4 times less than a 16 KiB cluster. */
+#ifdef PCPAIR
+static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pair */
+/* out of line: the miss path grew, and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve, gread ... */
+__attribute__((noinline))
+#endif
 static const u8 *cd_fetch(u32 pg){
+#ifdef PCPAIR
+  /* speed item M3: the aligned 8 KiB pair (4 sectors, one seek) into two adjacent slots, unless the other page of the pair is already in
+     memory (resident or in a slot).  A pair never wraps round the slot ring: when only the last slot is left, the pair starts again at
+     slot 0 and the last slot keeps its page for one more round. */
+  if(NSLOT>=2 && !rom_pg[pg^1u]){
+    if(slot_next>=NSLOT-1) slot_next=0;
+    u32 s=slot_next, lo=pg&~1u; slot_next=(slot_next+2)%NSLOT;
+    for(u32 k=0;k<2;k++){ if(slot_owner[s+k]) rom_pg[slot_owner[s+k]-1]=0; slot_owner[s+k]=0; }
+    cd_read(CD_ROM_LBA+lo*2,4,PCACHE+s*4096);
+    for(u32 k=0;k<2;k++){ slot_owner[s+k]=lo+k+1; rom_pg[lo+k]=PCACHE+(s+k)*4096; }
+    rom_miss_count++; rom_pairs++; rom_miss_last=pg<<12;
+    return rom_pg[pg];
+  }
+#endif
   u32 s=slot_next; slot_next=(slot_next+1)%NSLOT;
   if(slot_owner[s]) rom_pg[slot_owner[s]-1]=0;
   slot_owner[s]=0;
@@ -469,6 +510,9 @@ u32 io_read(u32 off,u32 size){
  io_keys=sim_keys;          /* TEST-ONLY (unicorn sim): the host script writes sim_keys */
 #elif !defined(AUTOKEYS)
  if(pad_gf!=g_gframes){ pad_gf=g_gframes; pad_frame_poll(); io_keys=pad_gba; }
+#if defined(CDPADPOLL) && !defined(CDSIM)
+ if(pad_cdlat){ u32 k=0x3ff&~pad_to_gba(pad_raw|pad_cdlat); if(k!=io_keys) pad_cddeliv++; io_keys=k; pad_cdlat=0; }   /* P6: presses seen during a CD wait */
+#endif
 #endif
 #ifdef KPLAN
  io_keys=pad_gba&kplan_keys(io_cyc/280896);   /* MENU ASSIST: the stock game's title -> rampage menu path (frames from power-on) OR-ed with the real pad (active low: AND); the in-level plan is TESTTOUR (test only) */
@@ -536,6 +580,32 @@ static int sim_cold_overlap(u32 lo,u32 hi){ return hi>(u32)__ppu_start && lo<0x8
 static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls, cold_conflicts; static u32 sf3_retry, last_cold_pres, sf3_clk0;   /* stage 12: renderer switched off by an overlay load (pause menu code) comes back once the level clock runs again (pause over) and no cold group was loaded for 6 presents */
 static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel FlushCache A(44h): argument area and clobbers as dbgc() */
   __asm__ volatile("addiu $29,$29,-16\n li $8,0xA0\n jalr $8\n nop\n addiu $29,$29,16":"+r"(t1)::"$1","$2","$3","$4","$5","$6","$7","$8","$10","$11","$12","$13","$14","$15","$24","$25","$31","hi","lo","memory"); }
+#ifdef COLD_SECS
+#define COLD_SECS_N COLD_SECS
+#else
+#define COLD_SECS_N (CD_COLD_PAGES*2)
+#endif
+#ifdef COLD1PASS
+#ifndef COLD1_QUIET
+#define COLD1_QUIET 4u         /* guest frames without a data read before present() starts the one pass */
+#endif
+/* speed item M5: COLD.BIN in one pass.  The whole file is read into the homes of all groups (two requests of at most CD_RUN sectors, through
+   cd_read's retries), every group is marked loaded only after the read, and the I-cache is flushed once.  Only in the menus before the
+   first level start: the renderer is off and its world window, which the last groups overlap, is not loaded yet; main() copied the boot
+   image out of the cold homes long before.  At the level start sf3_init() drops the groups over the world window as before, and later
+   loads go through the per-group path below.  present() starts it at the first quiet picture after the first data read (the language
+   screen, waiting for a press; P6 latches presses made meanwhile); the first cold call starts it if that comes earlier. */
+static u32 cold_m5, cold_m5_gf, cold1_lvl;
+static int cold1_ok(void){ if(*(volatile u32*)(EW+0x1e00)) cold1_lvl=1; return !cold_m5 && !cold1_lvl && !sf3_ok; }
+static void cold_all(void){
+  u32 ng=(COLD_SECS_N+7)/8; if(ng>COLDGROUPS) ng=COLDGROUPS;
+  cold_m5=1; cold_m5_gf=g_gframes;
+  dbg("COLD one pass, groups "); dec(ng); dbg("gf "); dec(g_gframes); dbg("\n");
+  cd_read(CD_COLD_LBA,COLD_SECS_N,(u8*)COLD_HOST);
+  for(u32 k=0;k<ng;k++) cold_loaded[k]=1;
+  last_cold_pres=g_pres; flush_icache();
+}
+#endif
 /* RT_MISS: a direct call/jump/function pointer reached a guest function that is not in the resident blob.  Overlay loader:
    find it in the cold table, read the 16 KiB groups of COLD.BIN that cover the function (and its out-of-line stubs) into their fixed
    home addresses, flush the I-cache, and return the host entry for RT_MISS to tail-jump to. */
@@ -556,6 +626,9 @@ found:;
     if(nvene<24){ u32 dst=COLD_HOST+g0*16384, off=hs-dst, sec=off>>11, left=CD_COLD_PAGES*2-g0*8-sec; cd_read(CD_COLD_LBA+g0*8+sec,left<2?left:2,(u8*)vtmp);
       const u32*src=(const u32*)((u8*)vtmp+(off&2047)); u32 nw=(he-hs)>>2, ok=1; for(u32 q=0;q<nw;q++){ u32 op=src[q]>>26; if(op==1||(op>=4&&op<=7)) ok=0; }
       if(ok){ for(u32 q=0;q<4;q++) vene[nvene][q]=q<nw?src[q]:0; vene_g[nvene]=g; nvene++; flush_icache(); dbg("VENEER resident copy "); hex(g); dbg("\n"); return (u32)vene[nvene-1]+(host-hs); } } }
+#ifdef COLD1PASS
+  if((!cold_loaded[g0]||!cold_loaded[g1]) && cold1_ok()) cold_all();      /* a cold call before the one pass: do the pass now */
+#endif
   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){ u32 lo=COLD_HOST+k*16384, hi=lo+16384;      /* only a group that would really be loaded can hit the renderer's data (stage 7: groups already in memory used to trigger this too) */
     if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) {
 #ifdef COLD_RECOVER     /* stage 12/13 alternative: load the group, renderer off, restored when the level clock runs again (present()) */
@@ -799,6 +872,9 @@ static void present(void){
     sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
 #endif
   g_pres++;
+#ifdef COLD1PASS
+  if(disp_on && (rom_miss_count|cold_loads) && g_gframes-cd_rd_gf>=COLD1_QUIET && !pp_fade_w && cold1_ok()) cold_all();
+#endif
 #ifndef PRES_DBG_EVERY
 #define PRES_DBG_EVERY 50
 #endif
