@@ -16,9 +16,14 @@ class SimulatorGapTests(unittest.TestCase):
         self.assertIsNotNone(match)
         first_reserved = int(match[1], 16)
         self.assertEqual(first_reserved, 0x8017a000)
-        for name in ('final.sh', 'boot_chain.sh'):
-            script = (ROOT / 'stage7/integration/t' / name).read_text()
-            gaps = re.findall(r'COLD_GAP=(0x[0-9a-fA-F]+),(0x[0-9a-fA-F]+)', script)
+        # Every script that translates for the extended-memory simulator must use
+        # this gap; rebuild_f1.sh makes the translation the function ranking reads.
+        scripts = {path.name: path.read_text()
+                   for path in sorted((ROOT / 'stage7/integration/t').glob('*.sh'))}
+        with_gap = {name for name, script in scripts.items() if 'COLD_GAP=' in script}
+        self.assertLessEqual({'rebuild_f1.sh', 'final.sh', 'boot_chain.sh'}, with_gap)
+        for name in sorted(with_gap):
+            gaps = re.findall(r'COLD_GAP=(0x[0-9a-fA-F]+),(0x[0-9a-fA-F]+)', scripts[name])
             self.assertTrue(gaps, name)
             for low, high in gaps:
                 self.assertEqual((int(low, 16), int(high, 16)),

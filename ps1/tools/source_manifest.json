@@ -7,7 +7,7 @@
     {
       "source": "PREPARED.md",
       "target": "README.md",
-      "sha256": "208c75852aff9ca4ec9b88c86bb21a3b260fc0e7b433f557d023425f37383119"
+      "sha256": "ee0aedea060a1a78869cd2be07b4fe6a22b7d761172fdf8f70ede61391738771"
     },
     {
       "source": "stage7/integration/armdec.py",
@@ -147,7 +147,7 @@
     {
       "source": "stage16/merge/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "9d4f8f52ba75973eccc8c67e17807faf74ad4f6049ebff412642906ee611da29"
+      "sha256": "811ca72551e1d6a7728633f4b5948f96d7c27b856c1082e7b0d1a0b036eb3e11"
     },
     {
       "source": "stage7/integration/ps1rt/crt0.s",
@@ -387,7 +387,7 @@
     {
       "source": "stage7/integration/t/mk_stage4.sh",
       "target": "t/mk_stage4.sh",
-      "sha256": "038aec82fcb0ac94dc601dcd2ca7d39facf75cc282c3fd9da8e1d1bd6c06d2c0"
+      "sha256": "a8f526f5c963c2d67e9eae3fc503dc1ca9bc1c0583d081e0b560d26bcb674d69"
     },
     {
       "source": "stage7/integration/t/mkrank.py",
@@ -412,7 +412,7 @@
     {
       "source": "stage7/integration/t/rebuild_f1.sh",
       "target": "t/rebuild_f1.sh",
-      "sha256": "4cb896b24d12d95c4736c316a7c31ae3a33598d0843eb9dd45dc1b5221bfcde3"
+      "sha256": "e3886f7be8c43c91ca27af40404361327a6b0309db6086b7214e9dbed7ec3f7d"
     },
     {
       "source": "stage7/integration/t/romwork.py",
@@ -442,7 +442,7 @@
     {
       "source": "stage7/integration/t/step2to5.sh",
       "target": "t/step2to5.sh",
-      "sha256": "fd541114ce6d6e8153ba8f582fbf3f29287073ba53e3713991d2284b8ff11bd8"
+      "sha256": "eebd132aa12333df87ca023c2ed0a7adb5c006bbea39fcb409bb7c2e61519600"
     },
     {
       "source": "stage7/integration/t/step5.sh",
@@ -712,7 +712,7 @@
     {
       "source": "stage7/integration/tools7/mkdisc2.py",
       "target": "tools7/mkdisc2.py",
-      "sha256": "ed4355dc922ed609daaa0cf5f451edd93e5933320d63b8d452bfbfcca97c6a5f"
+      "sha256": "35c2496e17df1ca6baa90bc3827146b95acca23e6dca6d3aafc5fa92515650db"
     },
     {
       "source": "stage7/integration/tools7/mkiso_maps.py",

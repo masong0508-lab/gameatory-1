@@ -3,14 +3,14 @@
 set -e; cd "$(dirname "$0")/.."
 ROM="${ROM:?set ROM}"
 # 1. full-cold build F (sim only: every function translated, cold pool with a gap over the guest windows), pad plan compiled in
-COLD_GAP=0x8017c000,0x80200000 python3 t2m.py "$ROM" out/iw.bin out/pr_f1 --map P --pruned --cache out/s2/prog_pr.pkl --tag P --resident out/s2/resident.pkl --cold out/cold_all.pkl > out/pr_f1.log
+COLD_GAP=0x8017a000,0x80200000 python3 t2m.py "$ROM" out/iw.bin out/pr_f1 --map P --pruned --cache out/s2/prog_pr.pkl --tag P --resident out/s2/resident.pkl --cold out/cold_all.pkl > out/pr_f1.log
 cp out/pr/rompages_P.pkl out/pr_f1/
 PRD=pr_f1 NAME=f1 BLD=bld_f1 LD=ps1_f.ld CFL="-DCDSIM -DNOSF3 -DKPLAN -I../out/kp -DTESTFAST -DPRESENT_EVERY=2 -DCOLDGROUPS=512 -DPCACHE_ADDR=0x80600000" sh ps1rt/build.sh
 # 2. run the sim from power-on to the level and a few hundred frames on; record the guest functions executed after the snapshot point
 python3 t/snapdump.py f1 60 1500 out/SNAPST_f1.BIN out/touched_f1.pkl
 python3 t/mkrank.py out/touched_f1.pkl out/rank_S.pkl
 # 3. F2 = same translation, scenario groups first
-COLD_RANK=out/rank_S.pkl COLD_GAP=0x8017c000,0x80200000 python3 t2m.py "$ROM" out/iw.bin out/pr_f2 --map P --pruned --cache out/s2/prog_pr.pkl --tag P --resident out/s2/resident.pkl --cold out/cold_all.pkl > out/pr_f2.log
+COLD_RANK=out/rank_S.pkl COLD_GAP=0x8017a000,0x80200000 python3 t2m.py "$ROM" out/iw.bin out/pr_f2 --map P --pruned --cache out/s2/prog_pr.pkl --tag P --resident out/s2/resident.pkl --cold out/cold_all.pkl > out/pr_f2.log
 cp out/pr/rompages_P.pkl out/pr_f2/
 PRD=pr_f2 NAME=f2 BLD=bld_f2 LD=ps1_f.ld CFL="-DCDSIM -DNOSF3 -DKPLAN -I../out/kp -DTESTFAST -DPRESENT_EVERY=2 -DCOLDGROUPS=512 -DPCACHE_ADDR=0x80600000" sh ps1rt/build.sh
 python3 t/snapdump.py f2 60 1500 out/SNAPST.BIN out/touched_f2.pkl

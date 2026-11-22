@@ -3,17 +3,24 @@
 Code only. No game or music data is stored in this directory; the audio bin is build output on the user's machine, never commit it.
   usage: mkdisc2.py --iso game.iso --out DIR/NAME [--region U|E|J] [--tracks list.txt | --default-tracks | --track f.mp3 ...]
                     [--music-dir D] [--seconds N] [--split]
-  Layout (what verify_disc.py checks):
-    LBA 0..11   licence area: Mode 2 Form 2 sectors (subheader 00 00 20 00, EDC), region string "Licensed by Sony Computer
-                Entertainment Inc./America/Europe" in the licence block. The Sony logo image is NOT included (we do not ship it),
-                emulators (DuckStation, PCSXR, ReARMed) do not check the licence block; a real console needs a modchip anyway.
-    LBA 12..15  Mode 2 Form 1 sectors, empty
+  Layout (what verify_disc.py checks), after the "System Area" table of the PSX specifications (psx-spx, CDROM Format):
+    LBA 0..3    Mode 2 Form 1, zero filled
+    LBA 4       Mode 2 Form 1, the licence string: 000h "          Licensed  by          " (32 bytes), 020h the region line
+                (U "Sony Computer Entertainment Amer  ica ", E "Sony Computer Entertainment Euro pe   ", J "...Inc." + 0Ah),
+                rest zero (U/E) or the 62x"0",0Ah,"0" pattern (J). DuckStation reads exactly this sector to tell the disc region.
+    LBA 5..11   Mode 2 Form 1, zero filled. A pressed disc has Sony's logo model here; it is not ours to ship. A US BIOS
+                accepts any logo data; a European BIOS from v4.0E and every Japanese BIOS compares it with its own copy and
+                refuses the disc, so with those BIOS files the emulator's fast boot (which skips the BIOS shell) is needed.
+    LBA 12..15  Mode 2 Form 2, zero filled
     LBA 16..    the ISO as Mode 2 Form 1 (sync, MSF header, subheader 00 00 08 00, EDC, P/Q ECC), data track 01
     audio       tracks 02.. : 2 s pregap (INDEX 00 -> INDEX 01) of silence, then 44.1 kHz 16-bit stereo PCM (ffmpeg), sector aligned
   The ISO's own system area (LBA 0..15, empty from genisoimage) is replaced; the ISO9660 volume descriptors stay at LBA 16.
   Payback song 3 is refused by name. Total length is checked against 74 min (80 min with --allow-80)."""
 import argparse, os, re, struct, subprocess, sys
-REGION = {'J': b'Inc.', 'U': b'Amer  ica ', 'E': b'Euro  pe '}
+LINE1 = b'          Licensed  by          '                        # sector 4, offset 000h, 32 bytes
+LINE2 = {'U': b'Sony Computer Entertainment Amer  ica ',           # sector 4, offset 020h (38 bytes), then zeros
+         'E': b'Sony Computer Entertainment Euro pe   ',           # (38 bytes), then zeros
+         'J': b'Sony Computer Entertainment Inc.\n'}               # (33 bytes), then the 62x'0', 0Ah, '0' pattern
 DEFAULT_MODS = '/mnt/project-files/stunt-fox/music/mods/remixes'
 DEFAULT_PB = '/mnt/project-files/stunt-fox/music/remixes-ps1'
 def default_tracks():
@@ -55,11 +62,12 @@ def form2(lba, data):
     s = head(lba); s[16:24] = bytes([0, 0, 0x20, 0]) * 2; s[24:24+len(data)] = data
     s[0x92c:0x930] = struct.pack('<I', edc(s[16:0x92c]))
     return bytes(s)
-def license_block(region):
-    # 12 x 2324 bytes: the region/licence text, rest zero (no logo image)
-    txt = b'          Licensed  by          Sony Computer Entertainment ' + REGION[region] + b'   '
-    blk = bytearray(12 * 2324); blk[0:len(txt)] = txt
-    return [bytes(blk[i*2324:(i+1)*2324]) for i in range(12)]
+def license_sector(region):
+    # the 2048 data bytes of LBA 4 (see the layout above); nothing else in the system area carries text
+    assert len(LINE1) == 32 and len(LINE2['U']) == 38 and len(LINE2['E']) == 38 and len(LINE2['J']) == 33
+    s = bytearray(2048); t = LINE1 + LINE2[region]; s[:len(t)] = t
+    if region == 'J': s[len(t):] = ((b'0' * 62 + b'\n' + b'0') * 32)[:2048 - len(t)]
+    return bytes(s)
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--iso', required=True); ap.add_argument('--out', required=True)
@@ -80,9 +88,11 @@ def main():
     if nsec < 17: sys.exit('iso too small')
     d = os.path.dirname(os.path.abspath(a.out)); os.makedirs(d, exist_ok=True); stem = os.path.basename(a.out)
     data = bytearray()
-    lic = license_block(a.region)
-    for i in range(12): data += form2(i, lic[i])
-    for i in range(12, 16): data += form1(i, b'\0' * 2048)
+    if any(iso[:16 * 2048]): sys.exit('the ISO has data in its system area (LBA 0..15); refusing to overwrite it')
+    for i in range(0, 4): data += form1(i, b'\0' * 2048)
+    data += form1(4, license_sector(a.region))
+    for i in range(5, 12): data += form1(i, b'\0' * 2048)
+    for i in range(12, 16): data += form2(i, b'')
     for i in range(16, nsec): data += form1(i, iso[i*2048:(i+1)*2048])
     tracks = []   # (track no, pcm incl. pregap)
     for k, n in enumerate(names):

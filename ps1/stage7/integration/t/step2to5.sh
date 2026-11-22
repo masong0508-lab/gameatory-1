@@ -2,7 +2,7 @@
 set -e; cd /tmp/claude-0/-home-user/567ff2df-658a-593d-ba5b-58eb793419f5/scratchpad/v12/ps1/stage4; ROM="$ROM"
 python3 t/mkrank.py out/touched_f1.pkl out/rank_S.pkl
 # 3. F2 = same translation, scenario groups first
-COLD_RANK=out/rank_S.pkl COLD_GAP=0x8017c000,0x80200000 python3 t2m.py "$ROM" out/iw.bin out/pr_f2 --map P --pruned --tag P --resident out/s2/resident.pkl --cold out/cold_all.pkl > out/pr_f2.log 2>&1
+COLD_RANK=out/rank_S.pkl COLD_GAP=0x8017a000,0x80200000 python3 t2m.py "$ROM" out/iw.bin out/pr_f2 --map P --pruned --tag P --resident out/s2/resident.pkl --cold out/cold_all.pkl > out/pr_f2.log 2>&1
 cp out/pr/rompages_P.pkl out/pr_f2/
 PRD=pr_f2 NAME=f2 BLD=bld_f2 LD=ps1_f.ld CFL="-DCDSIM -DNOSF3 -DKPLAN -I../out/kp -DTESTFAST -DPRESENT_EVERY=2 -DCOLDGROUPS=512 -DPCACHE_ADDR=0x80600000" sh ps1rt/build.sh
 python3 t/snapdump.py f2 60 1500 out/SNAPST.BIN out/touched_f2.pkl

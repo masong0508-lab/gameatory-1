@@ -36,6 +36,11 @@ for file in "$ROM" ../mkps1.py rt.c crt0.s font.h hw_pad.h hw_card.h hw_cdda.h h
     "../out/$PRD/meta_P.pkl" "../out/$PRD/coldtab_P.bin" "../out/$PRD/rompages_P.pkl" "$PROGPKL"; do
     if [ ! -f "$file" ]; then echo "Missing input: $file" >&2; missing=1; fi
 done
+# mkps1.py imports prune.py, which reads this assembled ARM stub while packaging.
+if [ ! -f ../t/swi5.bin ]; then
+    echo 'Missing input: ../t/swi5.bin (assemble it from t/swi5.s; see README.md)' >&2
+    missing=1
+fi
 if [ -z "$NO_INTERP" ]; then
     for file in ../interp/interp.c ../interp/interp.h ../interp/interp_asm.s interp_glue.h; do
         if [ ! -f "$file" ]; then echo "Missing input: $file" >&2; missing=1; fi

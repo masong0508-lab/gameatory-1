@@ -59,6 +59,7 @@ class BuildDriverTests(unittest.TestCase):
             'rd/gte_rp.h', 'rd/ps1.h', 'out/boot.bin', 'out/SF3M.BIN',
             'out/pr/payback_P.map', 'out/pr/payback_P.bin', 'out/pr/meta_P.pkl',
             'out/pr/coldtab_P.bin', 'out/pr/rompages_P.pkl', 'out/s2/prog_pr.pkl',
+            't/swi5.bin',
         ]
         for name in required:
             path = self.tree / name
@@ -114,6 +115,14 @@ class BuildDriverTests(unittest.TestCase):
         result = self.run_build('--check')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Missing input: ../sf/sfmem.h', result.stderr)
+        self.assertEqual(self.events(), [])
+        self.assert_old_outputs()
+
+    def test_preflight_names_the_missing_arm_swi_stub(self):
+        (self.tree / 't/swi5.bin').unlink()
+        result = self.run_build('--check')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing input: ../t/swi5.bin', result.stderr)
         self.assertEqual(self.events(), [])
         self.assert_old_outputs()
 

@@ -19,6 +19,9 @@ an 8 MiB Payback Europe ROM, and private generated files:
 - `out/pr/{payback_P.map,payback_P.bin,meta_P.pkl,coldtab_P.bin,rompages_P.pkl}`;
 - `out/s2/prog_pr.pkl`, or an explicit `PROGPKL` path;
 - `out/pr/cold_P.bin` when the selected translation uses cold overlays;
+- `t/swi5.bin`, the 56-byte ARM stub that packaging reads; it is not stored in
+  the repository. Assemble it once, with a Clang that has the ARM target:
+  `clang --target=armv4t-none-eabi -c t/swi5.s -o out/swi5.o && llvm-objcopy -O binary --only-section=.text out/swi5.o t/swi5.bin`;
 - snapshot files only for snapshot build modes.
 
 `PRD`, `BOOT`, `NAME`, `BLD`, `CFL`, `SFOPT`, and other documented build environment

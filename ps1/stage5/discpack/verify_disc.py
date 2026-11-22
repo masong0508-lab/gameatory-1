@@ -69,8 +69,16 @@ for lba in range(dsec):
 print('data sectors', dsec, 'form1', forms[1], 'form2', forms[2], 'bad', bad)
 # ISO9660 PVD at LBA 16 and licence area
 data.seek(0); allsec = [data.read(2352) for _ in range(min(dsec, 40))]
-lic = b''.join(s[24:24+2324] for s in allsec[:12]); m = re.search(rb'Licensed\s+by\s+Sony Computer Entertainment ([A-Za-z. ]+?)\s{2,}', lic)
-print('licence text:', m.group(0).decode() if m else 'MISSING')
+# licence string: must sit at the start of LBA 4 exactly as the PSX specifications give it (this is the sector an emulator
+# reads to tell the disc region); LBA 0..3 must be empty Form 1 sectors and LBA 12..15 Form 2
+LIC = {'U': b'          Licensed  by          Sony Computer Entertainment Amer  ica ',
+       'E': b'          Licensed  by          Sony Computer Entertainment Euro pe   ',
+       'J': b'          Licensed  by          Sony Computer Entertainment Inc.\n'}
+s4 = allsec[4][24:24+2048]; m = [r for r, t in LIC.items() if s4.startswith(t)]
+if m and m[0] != 'J' and any(s4[len(LIC[m[0]]):]): m = []
+print('licence sector (LBA 4):', ('region ' + m[0]) if m else 'MISSING OR NOT EXACT', repr(s4[:70]))
+if any(any(x[24:24+2048]) for x in allsec[:4]): print('LBA 0..3 not empty'); bad += 1
+if [(x[18] >> 5) & 1 for x in allsec[:16]] != [0] * 12 + [1] * 4: print('system area forms are not 12 x Form 1 + 4 x Form 2'); bad += 1
 pvd = allsec[16][24:24+2048]; print('PVD at 16:', pvd[0] == 1 and pvd[1:6] == b'CD001', 'volume', pvd[40:72].decode().strip())
 if not m or not (pvd[0] == 1 and pvd[1:6] == b'CD001'): bad += 1
 # audio
