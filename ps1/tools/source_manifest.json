@@ -167,7 +167,7 @@
     {
       "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "6be550275a2b7ae12e634f66c85e10df3740c030f7ab597c49bc9aff7986d0a6"
+      "sha256": "428002302d467ff38334b54589a59fbdda52526f91eb02bcaab1865da478c224"
     },
     {
       "source": "stage19/ps1rt/hw_pad.h",
@@ -217,7 +217,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "d49bd07f79efffbf22646736517e2f3357519846b67ff54aa636457a098214c1"
+      "sha256": "855a88545e0c0515d301a4672e4f14e591e40457da5433b81d586146c851dfba"
     },
     {
       "source": "stage7/integration/rd/doll.c",
