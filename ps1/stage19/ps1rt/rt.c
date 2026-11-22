@@ -9,6 +9,10 @@ typedef unsigned int u32; typedef int s32; typedef unsigned short u16; typedef s
 #define RC1_VAL (*(volatile u32*)0x1F801110)
 #define RC1_MODE (*(volatile u32*)0x1F801114)
 #define HELP ((volatile u32*)0x80028000)
+/* rc7: code that runs once or only on a fault (boot set-up, boot-time patchers, error screens) goes into .rtcold, which ps1.ld places in the RAM
+   between the helper table and the ROM page-table area (0x80028040..0x8002a000) that nothing else uses; it is part of the EXE image (the BIOS loads and
+   flushes it with the rest), so it needs no loading of its own */
+#define RTCOLD __attribute__((noinline,section(".rtcold.text")))
 #define EW ((u8*)0x801b0000)
 #define IW ((u8*)0x801f0000)
 #define PAL ((u8*)0x80180000)
@@ -121,9 +125,11 @@ static void cd_error_screen(u32 lba); static void cd_error_gone(void);
 #endif
 #if !defined(CDSIM) || defined(SIMSIO)
 #include "hw_pad.h"     /* PS1 pad (SIO0) -> GBA KEYINPUT */
+int sv_load(u8*ee,u32 n) RTCOLD;          /* rc7: once, at the first save-chip access */
 #include "hw_card.h"    /* memory card + EEPROM save layer */
 #endif
 #ifndef CDSIM
+void cdda_init(void) RTCOLD;              /* rc7: once, at boot */
 #include "hw_cdda.h"    /* CD-DA playback */
 #else
 #include "hw_stub.h"
@@ -137,7 +143,8 @@ static void cd_resume(void){}
 #else
 /* (re)start the drive in a known state: Init (motor on, all commands aborted; INT3 then INT2), Demute, Setmode A0h (double speed, sectors of
    924h bytes: the address header comes with the data; the data mode is hw_cdda.h cdda_dmode) */
-static void cd_init(void){
+static RTCOLD void cd_init(void){      /* rc7 .rtcold: at the first read and on every fourth failed pass */
+
   u8 r[8]; IMASK=0; if(cd_ready) cd_reinits++; cd_ready=1;
   cd_ack(); CD0=0; CD3=0x00; CD0=1; CD2=0x1f;                     /* acknowledge everything, data FIFO reset, all interrupt sources enabled (HINTMSK 1Fh) */
   cd_cmd(0x01,0,0,r);                                             /* Getstat */
@@ -220,18 +227,35 @@ static void cd_resume(void){ cdda_idle(); }
 #endif
 #ifdef PCACHE1
 /* stage 19: one 4 KiB page (2 sectors) per fetch into the next of NSLOT single-page slots (FIFO replacement).  With the measured resident set
-   (t/resident62.txt) the rest of the working set is small, and a single page per seek reads 4 times less than a 16 KiB cluster. */
-static const u8 *cd_fetch(u32 pg){
-  u32 s=slot_next; slot_next=(slot_next+1)%NSLOT;
-  if(slot_owner[s]) rom_pg[slot_owner[s]-1]=0;
-  slot_owner[s]=0;
-  cd_read(CD_ROM_LBA+pg*2,2,PCACHE+s*4096);
-  slot_owner[s]=pg+1; rom_pg[pg]=PCACHE+s*4096;
+   (t/resident62.txt) the rest of the working set is small, and a single page per seek reads 4 times less than a 16 KiB cluster.
+   stage 20: from the first level on (rom_pool, set by present() once the 3D renderer is up) the resident pages and the slots are one pool of
+   pool_rp+NSLOT frames with CLOCK replacement: rom_ref[page] is set by every read of a page in RAM and cleared when the hand passes its frame; the victim is
+   the first frame under the hand whose page was not read since the last pass.  In a vehicle the level reads 17 pages beyond the resident set in a cycle:
+   with 8 FIFO slots each of them came from the CD again about every second guest frame (5.5 fetches per second, 0.6 guest frames/s on SwanStation).
+   Boot and the menus before the first level keep the stage 19 behaviour (FIFO over the slots, resident pages kept).  Nothing holds a page pointer across a
+   fetch: rom_read resolves every byte, rom_copy and the DMA path one page at a time, ip_rd every access. */
+#define RP_MAX 64
+static u16 fr_pg[RP_MAX+NSLOT];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
+static u8 rom_ref[2048];
+static u32 rom_pool, pool_rp, pool_hand;
+#define ROM_REF(pg) (rom_ref[pg]=1)
+static u8 *pool_frame(u32 f){ return f<pool_rp?(u8*)rp_data+f*4096:PCACHE+(f-pool_rp)*4096; }
+static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
+  u32 f;
+  if(!rom_pool){ f=pool_rp+slot_next; slot_next=(slot_next+1)%NSLOT; }
+  else { u32 n=pool_rp+NSLOT; for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_ref[o-1]) break; rom_ref[o-1]=0; } }
+  if(fr_pg[f]) rom_pg[fr_pg[f]-1]=0;
+  fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0;
+  u8 *d=pool_frame(f);
+  cd_read(CD_ROM_LBA+pg*2,2,d);
+  fr_pg[f]=pg+1; rom_pg[pg]=d; rom_ref[pg]=1;
+  if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1;     /* slot_owner (page+1 per slot) stays the rig's view of the 8 slots; fr_pg holds every frame of the pool */
   rom_miss_count++; rom_miss_last=pg<<12;
-  return rom_pg[pg];
+  return d;
 }
 #else
-static const u8 *cd_fetch(u32 pg){
+#define ROM_REF(pg) ((void)0)
+static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   u32 base=pg&~3u;                                               /* fetch the aligned 16 KiB cluster (4 pages, 8 sectors) per seek */
   u32 s=slot_next; slot_next=(slot_next+4)%NSLOT;
   for(u32 k=0;k<4;k++){ if(slot_owner[s+k]) rom_pg[slot_owner[s+k]-1]=0; slot_owner[s+k]=0; }
@@ -241,10 +265,14 @@ static const u8 *cd_fetch(u32 pg){
   return rom_pg[pg];
 }
 #endif
-static inline const u8 *rom_page(u32 pg){ pg&=2047; const u8*p=rom_pg[pg]; return p?p:cd_fetch(pg); }
+static inline const u8 *rom_page(u32 pg){ pg&=2047; const u8*p=rom_pg[pg]; if(p){ ROM_REF(pg); return p; } return cd_fetch(pg); }
 static u32 rom_byte(u32 off){ return rom_page(off>>12)[off&4095]; }
+/* one page lookup (and one reference mark) per access that stays inside its page, and cd_fetch out of line: the hit path of rom_page is a load, a store
+   and a test.  With the mark in rom_page, a lookup per byte through an out-of-line rom_page with a full register save made every ROM access of translated
+   code slower than rc5's, before the first level too (cold boot to the title menu 81 frames later on SwanStation). */
 static u32 rom_read(u32 ea,u32 size){
-  u32 off=ea&0x01ffffff; u32 v=0;
+  u32 off=ea&0x01ffffff, o=off&4095; u32 v=0;
+  if(o+size<=4096){ const u8*p=rom_page(off>>12)+o; v=p[0]; if(size>=2) v|=(u32)p[1]<<8; if(size>=4) v|=(u32)p[2]<<16|(u32)p[3]<<24; return v; }
   for(u32 k=0;k<size;k++) v|=rom_byte(off+k)<<(8*k);
   return v;
 }
@@ -326,19 +354,25 @@ static u32 kplan_keys(u32 f){
     if(t>=T[0][0]&&(tg_a0||t<T[0][1]+300)){ u32 r=title_gate(t,T[0][0]); if(r!=0x3ff||t<T[0][1]) return r; }
     { u32 te=t-tg_shift; for(u32 i=1;i<n;i++) if(te>=T[i][0]&&te<T[i][1]) return 0x3ff&~T[i][2]; } return 0x3ff; } }
 #endif
-static u32 io_cyc, io_acc, tm_t0[4], tm_rl[4], tm_ovb[4], tm_en[4];
-static void adv_lines(u32 n){ io_cyc+=n*1232; while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ g_gframes++; ppu_flush(); if((g_gframes&(sf3_ok?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0) present(); } } }
+/* rc7: io_cyc is the low word of a 64-bit GBA cycle count; io_hi takes its carry wherever io_cyc grows (IO_ADV: adv_lines, which adv_poll and the
+   interpreter's raw timer use, and h_vbl), and the timers count from the 64-bit difference to their start (tm_t0h:tm_t0).  TM3:TM2 (TM2 at /1024,
+   TM3 cascaded) is then the GBA's 32-bit pair and wraps after 72.8 hours instead of 256 s, when the old 32-bit difference wrapped and the time base the
+   game reads went back to 0 (its 1-s waits never ended).  TM0/TM1 at /1 still wrap their counts after 256 s (32-bit counts; Payback reads only TM2/TM3). */
+static u32 io_cyc, io_hi, io_acc, tm_t0[4], tm_t0h[4], tm_rl[4], tm_ovb[4], tm_en[4];
+#define IO_ADV(c) do{ u32 c_=(c); io_cyc+=c_; if(io_cyc<c_) io_hi++; }while(0)
+static void adv_lines(u32 n){ IO_ADV(n*1232); while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ g_gframes++; ppu_flush(); if((g_gframes&(sf3_ok?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0) present(); } } }
 static void adv_poll(void){ io_acc+=96; if(io_acc>=1232){ io_acc-=1232; adv_lines(1); } }
 static u32 tm_cnt(u32 k,u32*ov){
   u32 ctrl=io[0x102+4*k]|(io[0x103+4*k]<<8); u32 counts;
   if(!(ctrl&0x80)){ *ov=0; return tm_rl[k]&0xffff; }
   if(k>0&&(ctrl&4)){ u32 o; tm_cnt(k-1,&o); counts=o-tm_ovb[k]; }
-  else counts=(io_cyc-tm_t0[k])>>(((ctrl&3)==0)?0:((ctrl&3)==1?6:((ctrl&3)==2?8:10)));
+  else { u32 lo=io_cyc-tm_t0[k], hi=io_hi-tm_t0h[k]-(io_cyc<tm_t0[k]?1u:0u), ps=ctrl&3;     /* 64-bit difference hi:lo, shifted by the prescaler */
+    counts=ps==0?lo:ps==1?(lo>>6)|(hi<<26):ps==2?(lo>>8)|(hi<<24):(lo>>10)|(hi<<22); }
   u32 per=0x10000-(tm_rl[k]&0xffff); *ov=counts/per; return (tm_rl[k]+counts%per)&0xffff;
 }
 static void tm_write_check(void){
   for(u32 k=0;k<4;k++){ u32 ctrl=io[0x102+4*k]|(io[0x103+4*k]<<8); u32 en=(ctrl>>7)&1;
-    if(en&&!tm_en[k]){ tm_rl[k]=io[0x100+4*k]|(io[0x101+4*k]<<8); tm_t0[k]=io_cyc; if(k>0){ u32 o; tm_cnt(k-1,&o); tm_ovb[k]=o; } }
+    if(en&&!tm_en[k]){ tm_rl[k]=io[0x100+4*k]|(io[0x101+4*k]<<8); tm_t0[k]=io_cyc; tm_t0h[k]=io_hi; if(k>0){ u32 o; tm_cnt(k-1,&o); tm_ovb[k]=o; } }
     tm_en[k]=en; }
 }
 static u32 g_frames, g_dispcnt_writes, g_nvbl;
@@ -494,8 +528,12 @@ void io_write(u32 off,u32 size,u32 val){
   if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick(); }
 }
 /* ---------------------------------------------------------------- C helpers called from RT_CC */
+/* stage 20: a host-form VRAM pointer that runs past the 96 KiB VRAM shadow (0x80199000..: the 3D renderer's code and data) is folded back the way GBA VRAM
+   mirrors (128 KiB period, 0x06018000..0x0601FFFF = 0x06010000..0x06017FFF), as a guest-form address would be by g2h(); nothing outside the guest windows is touched */
+static u32 vram_over_n;      /* the first fold is reported on the TTY ('overflow' is one of the rig's fault words): the guard hides the damage, not the bug */
+static inline u32 vram_over(u32 ea){ if(ea-((u32)VRAM+0x18000u)<0x801b0000u-((u32)VRAM+0x18000u)){ if(!vram_over_n++){ dbg("VRAM shadow overflow folded back "); hex(ea); dbg("\n"); } u32 o=(ea-(u32)VRAM)&0x1ffffu; if(o>=0x18000u) o-=0x8000u; ea=(u32)VRAM+o; } return ea; }
 u32 h_memrd(u32 ea,u32 kind){
-  static const u8 SZ[5]={1,1,2,2,4}; u32 size=SZ[kind]; u32 v;
+  static const u8 SZ[5]={1,1,2,2,4}; u32 size=SZ[kind]; u32 v; ea=vram_over(ea);
   if((ea>>24)==8||(ea>>24)==10||(ea>>24)==12) v=rom_read(ea,size);
   else if((ea>>24)==13) v=1;
   else if(ea-0x8017f000u<0x400) v=io_read(ea-0x8017f000u,size);
@@ -507,6 +545,7 @@ u32 h_memrd(u32 ea,u32 kind){
   return v;
 }
 u32 h_memwr(u32 ea,u32 size,u32 val){
+  ea=vram_over(ea);
   if(ea-0x8017f000u<0x400) io_write(ea-0x8017f000u,size,val);
   else if(ea>=0x80180000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
   else if((ea>>24)==13) {}
@@ -515,7 +554,8 @@ u32 h_memwr(u32 ea,u32 size,u32 val){
   else { dbg("BADWR "); hex(ea); }
   return 0;
 }
-static void gpu_panic(const char*m,u32 a){ dbg(m); hex(a); dbg("\n"); for(;;){} }
+static void fatal_screen(const char*m,u32 a) __attribute__((noreturn));
+static void gpu_panic(const char*m,u32 a){ fatal_screen(m,a); }
 extern const u32 COLD_HOST; extern const u8 coldtab[];
 #ifndef SF_WORLD_ADDR
 #define SF_WORLD_ADDR 0x800C9000u
@@ -524,7 +564,7 @@ extern const u32 COLD_HOST; extern const u8 coldtab[];
 #define SF_WORLD_LO SF_WORLD_ADDR
 #endif
 _Static_assert(SF_WORLD_LO == SF_WORLD_ADDR, "runtime and renderer world bounds must match");
-static int sf3_ok; static u32 sf3_cfl, sf3_cfl_clk;   /* sf3_cfl: a cold load hit the renderer data (renderer off) while the level clock was sf3_cfl_clk; present() restores the renderer when the level runs again */
+static int sf3_ok; static u32 sf3_cfl, sf3_cfl_clk; static u32 sf3_tried, sf3_left, sf3_left_clk;   /* rc7: deferred start done; the renderer went off because the guest left a level (at that level clock) */   /* sf3_cfl: a cold load hit the renderer data (renderer off) while the level clock was sf3_cfl_clk; present() restores the renderer when the level runs again */
 #ifndef COLDGROUPS
 #define COLDGROUPS 64
 #endif
@@ -582,7 +622,10 @@ u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; gpu_panic("RT_MISS 
 #else
 #include "interp_glue.h"
 /* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts) */
-u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; interp_target=addr&~1u; return (u32)interp_enter; }
+u32 h_miss(u32 addr){
+  ov_sync();
+  if(((addr&~1u)-OV_BASE)<OV1_SIZE){ if(!ov_res()) return film_miss(addr); u32 h=hot_lookup(addr&~1u); if(h) return h; }   /* intro fix: overlay area (interp_glue.h) */
+  u32 h=cold_find(addr); if(h) return h; interp_target=addr&~1u; return (u32)interp_enter; }
 #endif
 
 /* ---------------------------------------------------------------- GPU
@@ -615,13 +658,13 @@ static int buf;           /* present() draws into the buffer at y = buf?240:0 an
 static void rect(int x,int y,int w,int h,u32 rgb){ if(w<=0||h<=0) return; gp0_2(0x60000000|rgb,XY(x,y+cur_oy),XY(w,h)); }
 #include "font.h"
 static int chidx(char c){ if(c>='0'&&c<='9') return c-'0'; if(c>='a'&&c<='z') c-=32; if(c>='A'&&c<='Z') return 10+c-'A'; return -1; }
-static void text(int x,int y,const char*s,int sc,u32 rgb){
+static RTCOLD void text(int x,int y,const char*s,int sc,u32 rgb){     /* rc7 .rtcold: error screens only (and the PPU_DEBUG page) */
   for(;*s;s++,x+=4*sc){ int i=chidx(*s); if(i<0) continue; u16 g=F35[i];
     for(int r=0;r<5;r++) for(int c=0;c<3;c++) if(g&(1<<(14-(r*3+c)))) rect(x+c*sc,y+r*sc,sc,sc,rgb); }
 }
 static void num(int x,int y,u32 v,int sc,u32 rgb){ char b[12]; int n=0; if(!v) b[n++]='0'; while(v){b[n++]='0'+v%10; v/=10;} char t[12]; for(int i=0;i<n;i++) t[i]=b[n-1-i]; t[n]=0; text(x,y,t,sc,rgb); }
 /* display set up but OFF until the first finished picture is flipped in (flip_to); both 320x240 buffers black meanwhile */
-static void gpu_init(void){
+static RTCOLD void gpu_init(void){
   GP1=0x00000000;                                                 /* reset: display off, DMA off, drawing settings cleared */
   GP1=0x03000001;                                                 /* display off */
   GP1=0x06000000|(0x260|((0x260+320*8)<<12)); GP1=0x07000000|(0x10|((0x10+240)<<10)); GP1=0x08000001;   /* 320x240 NTSC, 15 bit */
@@ -633,11 +676,24 @@ static void gpu_init(void){
 static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; }
 /* show the buffer at (0,o) once everything drawn into it is finished, at the next vertical blank; the display comes on with the first one */
 static void flip_to(int o){ gpu_idle(); vsync(); GP1=0x05000000|((u32)o<<10); if(!disp_on){ disp_on=1; GP1=0x03000000; } }
+/* rc7: a fault the runtime cannot go on from (a boot-time check of the intro fix, an interpreter limit): the message on the TTY and on the screen (both
+   buffers, display on), then stop; never a silent hang on a black or frozen picture */
+static RTCOLD void fatal_screen(const char*m,u32 a){
+  dbg(m); hex(a); dbg("\n");
+  char h[9]; for(int i=0;i<8;i++){ u32 d=(a>>(28-4*i))&15; h[i]=(char)(d<10?'0'+d:'A'+d-10); } h[8]=0;
+  while(D2_CHCR&0x01000000){} GP1=0x01000000;                     /* let a running DMA end, then drop any half-sent GPU command */
+  for(int b=0;b<2;b++){ cur_oy=b*240;
+    gp0_2(0x02600000,XY(0,cur_oy),XY(320,240)); gpu_idle();
+    gp0c(0xE1000000|(1<<10)); gp0e(0xE3000000|((u32)cur_oy<<10)); gp0e(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e(0xE5000000);
+    text(64,72,"PORT ERROR",4,0xffffff); text(4,124,m,2,0xc0c0ff); text(128,152,h,2,0xffffff); }
+  gpu_idle(); GP1=0x05000000; GP1=0x03000000; disp_on=1;
+  for(;;){}
+}
 #ifndef CDSIM
 /* a read that keeps failing: say so on the screen and go on retrying; the data is never taken as good.  The message goes into both buffers and
    the display shows the buffer present() is NOT about to draw into (y = buf?0:240), so the next picture is drawn out of view and flipped in as
    usual once the disc reads again.  Every failure episode shows it (cd_err_on is cleared when a read completes); cd_failed counts the episodes. */
-static void cd_error_screen(u32 lba){
+static RTCOLD void cd_error_screen(u32 lba){
   if(cd_err_on) return; cd_err_on=1; cd_failed++;
   dbg("CD READ ERROR lba "); dec(lba); dbg("stat "); hex(cd_stat); dbg("retrying\n");
   while(D2_CHCR&0x01000000){} GP1=0x01000000;                     /* let a running DMA end, then drop any half-sent GPU command */
@@ -766,7 +822,7 @@ void h_vbl(void){
 #ifdef KPLAN
   { static u32 poked; if(TESTTOURCAR&&!poked&&CAR_T&&lvl_f0&&io_cyc/280896-lvl_f0>=CAR_T){ poked=1; *(volatile u16*)(EW+0x1db8)=6; dbg("TEST-ONLY: controlled entity index set to 6 (car)\n"); } }
 #endif
-  { u32 n=(160+228-io_vc)%228; if(!n) n=228; io_cyc+=n*1232; } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; g_gframes++; ppu_flush();
+  { u32 n=(160+228-io_vc)%228; if(!n) n=228; IO_ADV(n*1232); } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; g_gframes++; ppu_flush();
   present();
 }
 #ifdef PADDBG
@@ -793,7 +849,10 @@ static void present(void){
   sv_service(); cdda_service();
 #ifdef SF3_DEFER
   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
-  { static int tried; if(!tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && (u32)*(volatile s16*)(EW+0x1e66)<=10u){ tried=1; sf3_first_map=*(volatile s16*)(EW+0x1e66); dbg("guest map "); dec(sf3_first_map); dbg("\n"); dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
+  /* rc7: after the guest left a level (present() below turns the renderer off) the start is armed again: a new level is running once its clock
+     differs from the one left behind and its entity table is there again */
+  { if(!sf3_tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && (u32)*(volatile s16*)(EW+0x1e66)<=10u
+       && (!sf3_left || (*(volatile u32*)(EW+0x1e00)!=sf3_left_clk && *(volatile s16*)(IW+0xc)>=0))){ sf3_tried=1; sf3_left=0; sf3_first_map=*(volatile s16*)(EW+0x1e66); dbg("guest map "); dec(sf3_first_map); dbg("\n"); dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
       sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
   if(sf3_retry && !sf3_ok && g_pres-last_cold_pres>=6 && *(volatile u32*)(EW+0x1e00)!=sf3_clk0){ sf3_retry=0; dbg("sf3 re-init after overlay load\n");
     sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
@@ -841,6 +900,21 @@ static void present(void){
 #endif
 #endif
   if(sf3_ok){ s32 px,py,pz; int hd,pk,ne; static s32 hpx,hpy,hpz; static int hhd,hpk,hne,hvalid;   /* stage 16: last gathered pose, drawn again while the guest's level state is not readable (Pause) */
+#ifdef PCACHE1
+    rom_pool=1;                       /* stage 20: a level runs: resident pages and slots become one CLOCK pool (cd_fetch) */
+#endif
+#ifdef SF3_DEFER
+    /* rc7: the guest left the level (Quit to title, game over): its entity count at IWRAM 0x0300000c is -1 and the level clock stands still, three
+       pictures in a row after a good one.  The renderer goes off: the menus present every PRESENT_MENU guest frames again, and the menu code and the
+       next level's loader (0x0803c4cc.., cold groups 42/43 over the renderer's world window) are loaded and run natively again.  With the renderer on
+       they were refused and interpreted: 3.4 M interpreter steps and about 3000 frames of the menu picture before a second level showed its city.
+       The next level start runs the deferred sf3_init again, as the first one did (the world is read from the disc again). */
+    { static u32 nl, lc; u32 c=*(volatile u32*)(EW+0x1e00);
+      if(hvalid && *(volatile s16*)(IW+0xc)==-1 && c==lc){ if(++nl>=3){ nl=0; hvalid=0; sf3_ok=0; sf3_tried=0; sf3_left=1; sf3_left_clk=c;
+          dbg("SF3 off: the guest left the level, level clock "); dec(c); dbg("\n"); goto no3d; } }
+      else nl=0;
+      lc=c; }
+#endif
 #ifdef TG_LOADS
     /* TEST-ONLY: after TG_LOADS map loads, the guest's grid id is overwritten with TG_TO (as if a new level had loaded another grid): the renderer must follow it and drop the L2/R2 override */
     { static u32 tgd; if(!tgd && sf3_map_loads>=TG_LOADS && st3_render>2){ tgd=1; *(volatile s16*)(EW+0x1e66)=TG_TO; dbg("TEST-ONLY: guest grid id set to "); dec(TG_TO); dbg("\n"); } }
@@ -898,9 +972,14 @@ static void present(void){
           flip_to(o2); buf^=1; } }
 #endif
       goto flip; }
-    else if(hvalid && *(volatile u32*)(EW+0x1e00)){   /* stage 16: the guest's level is paused / its state is being rewritten by overlay code: hold the last 3D view (same pose, entities of the last good gather) under the PPU layers instead of the dark debug page */
+    else if(hvalid && *(volatile u32*)(EW+0x1e00) && (u32)*(volatile s16*)(IW+0xc)<=100u){   /* stage 16: the guest's level is paused / its state is being rewritten by overlay code: hold the last 3D view (same pose, entities of the last good gather) under the PPU layers instead of the dark debug page.
+      stage 20: only while the guest still has its level's entity table (count 0..100 at IWRAM 0x0300000c, as gather3 reads it): Quit to title leaves the level clock at its last value
+      and sets the count to -1, and the held view then showed through every index-0 pixel of the game menu (pp_draw(oy,1) draws no backdrop) */
       static u32 nh; if(nh<3||(nh&63)==0){ dbg("SF3 hold last frame, hold count "); dec(nh); dbg("\n"); } nh++;
       sf3_frame(oy,hpx,hpy,hpz,hhd,hpk,ents3,hne,PPU_SF3HUD); while(*(volatile u32*)0x1F8010A8&0x01000000){} pp_draw(oy,1); goto flip; } }
+#ifdef SF3_DEFER
+ no3d:
+#endif
   if(sf3_cfl&&*(volatile u32*)(EW+0x1e00)){ last_rc=RC1_VAL; return; }   /* stage 13: renderer data is being restored after a cold-code overlay hit it: keep showing the last 3D frame (no switch to the debug page, no luminance flash) */
   pp_draw(oy,0);          /* the 2D layer: black borders, backdrop, page, sprites (ppu12.h sets its own drawing environment) */
 #ifndef PPU_DEBUG
@@ -964,13 +1043,14 @@ static u32 snap_regs[32], snap_target;
 #else
 #define COLD_SECS_N (CD_COLD_PAGES*2)
 #endif
-static void snap_restore(void){
+static RTCOLD void snap_restore(void){
   u8*h=PCACHE; cd_read(CD_SNAPST_LBA,1,h); const u32*w=(const u32*)h;
   for(int i=0;i<32;i++) snap_regs[i]=w[1+i];
   snap_target=w[0x88/4];
   const u32*st=w+40;
   io_vc=st[0]; io_nread=st[1]; io_nd=st[2]; io_cyc=st[3]; io_acc=st[4]; g_gframes=st[5]; g_nvbl=st[6];
   for(int k=0;k<4;k++){ tm_t0[k]=st[7+k]; tm_rl[k]=st[11+k]; tm_ovb[k]=st[15+k]; tm_en[k]=st[19+k]; }
+  io_hi=0; for(int k=0;k<4;k++) tm_t0h[k]=io_cyc<tm_t0[k]?0xffffffffu:0u;   /* the snapshot's 32-bit base: every timer started less than 2^32 cycles ago */
   ee_init=st[23];
 #ifdef KPLAN
   lvl_f0=st[24];
@@ -988,7 +1068,7 @@ static void snap_restore(void){
 #endif
 /* ---------------------------------------------------------------- start */
 extern u32 GUEST_MAIN_HOST;       /* from payback_syms.c */
-int main(void){
+RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   /* stage 19: take the machine over before any device is used.  crt0.s has set SR (GTE on, interrupts and every interrupt mask bit off), so no
      interrupt can reach a kernel handler; here I_MASK = 0, every pending I_STAT bit and every CD-ROM controller interrupt is acknowledged. */
   IMASK=0; ISTAT=0;
@@ -1005,8 +1085,14 @@ int main(void){
   memcpy(EW,p,0x40000); p+=0x40000; memcpy(IW,p,0x8000); p+=0x8000; memcpy(PAL,p,0x400); p+=0x400; memcpy(VRAM,p,0x18000); p+=0x18000; memcpy(OAM,p,0x400); p+=0x400; memcpy(io,p,0x400);
   io_vc=b[32]; io_nread=b[33]; for(int i=0;i<4;i++) io_tm[i]=b[34+i]; io_nd=b[38]; io_keys=PAD[(io_nd/30)%6];
   const u32 *rp=(const u32*)rompack; rp_n=rp[0]; rp_idx=rp+1; rp_data=(const u8*)(rp+1+rp_n);
-  for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&2047]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted) */
+  for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&2047]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted before the first level, see cd_fetch) */
+#ifdef PCACHE1
+  pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++) fr_pg[i]=(rp_idx[i]&2047)+1;
+#endif
   dbg("boot image loaded, rom pages "); dec(rp_n); dbg("\n");
+#ifndef NO_INTERP
+  intro_fix_init();     /* overlay guard + the ZOO-logo join point (interp_glue.h) */
+#endif
   last_rc=RC1_VAL;
   static u32 regs[32]; for(int i=0;i<32;i++) regs[i]=b[i];
   { extern u8 __sfbss_start[],__sfbss_end[]; for(u8*q=__sfbss_start;q<__sfbss_end;q++) *q=0; }

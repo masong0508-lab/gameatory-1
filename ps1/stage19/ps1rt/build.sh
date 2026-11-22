@@ -42,7 +42,7 @@ if [ ! -f ../t/swi5.bin ]; then
     missing=1
 fi
 if [ -z "$NO_INTERP" ]; then
-    for file in ../interp/interp.c ../interp/interp.h ../interp/interp_asm.s interp_glue.h; do
+    for file in ../interp/interp.c ../interp/interp.h ../interp/interp_asm.s interp_glue.h ../tools/check_intro_site.py; do
         if [ ! -f "$file" ]; then echo "Missing input: $file" >&2; missing=1; fi
     done
 fi
@@ -110,6 +110,9 @@ mkexe() {
         ${DOLLDEF:+--defsym=__doll_addr=$DOLLDEF} -o "$WORK/payback.elf"
     # every compiled function must consist of R3000A (MIPS I + COP0 + GTE) instructions only: the build fails otherwise
     run "mips1-lint-$PASS" python3 ../tools/mips1_lint.py "$WORK/payback.elf"
+    # rc7: the intro fix patches the ZOO-logo stub site and the overlay hash slots at boot (interp_glue.h): the same words are checked here, so a
+    # translation of another shape fails the build instead of booting into the old loop
+    if [ -z "$NO_INTERP" ]; then run "intro-site-$PASS" python3 ../tools/check_intro_site.py "$WORK/payback.elf"; fi
     run "binary-$PASS" "$PS1_OBJCOPY" -O binary "$WORK/payback.elf" "$WORK/payback.bin"
     run "exe-$PASS" python3 - "$WORK/payback.bin" "$WORK/$NAME.exe" <<'PY'
 import struct, sys
