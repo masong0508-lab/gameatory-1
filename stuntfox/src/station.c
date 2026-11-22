@@ -5,6 +5,7 @@
    60-byte StState and a few statics. Nothing here prints on Payback's ticker: news is a line over the picture. */
 #include "stage2.h"
 #include "station.h"
+#include "station_prompts.h"
 #include "campaign.h"
 #include "mission.h"
 #include "spacegame.h"
@@ -299,7 +300,7 @@ static void take_mis(int m, const char *ok)
     ms_start(m);
     news(ok);
 }
-static void take_contract(int m) { take_mis(m, "CONTRACT TAKEN. LAUNCH WHEN READY"); }
+static void take_contract(int m) { take_mis(m, "CONTRACT TAKEN. LAUNCH WHEN READY."); }
 
 /* ---- the city board (Ops, the contracts screen's second page): one contract a city, and a bonus once one is done there. Rook opens it
    after chapter 2 (campaign flag 3); Pip's (4) and Nova's (5) talks add 50 each to every bonus. Claimed bonuses are Prog.story[3..4] ---- */
@@ -1015,8 +1016,9 @@ static void screen(void)
                     p = num(b, m ? ms_def(m - 1)->pay : 0), d_cat(p, " CR");
                 d_text(158, y, b, cl ? HI : bonus_got(i) ? HELP : GOOD);
             }
-            help(n && claimable(stw.cur) ? "A: CLAIM   < >: THIS CITY   B: BACK" :
-                 n && stw.cur != c ? "A: TRAVEL   < >: THIS CITY   B: BACK" : "A: TAKE   < >: THIS CITY   B: BACK");
+            /* Do not promise an A action when the campaign is stopped or
+               Rook has not yet opened the city board. */
+            help(st_city_board_prompt(cp_active(), n, n && claimable(stw.cur), stw.cur != c));
             break;
         }
         if (!n)
@@ -1083,13 +1085,15 @@ static void screen(void)
             }
         }
         line(24, 78, stw.cur == 3, current ? (stw.confirm ? "A AGAIN: CANCEL WALK" : "CANCEL WALK") : "BACK");
-        const char *detail = !cp_active() ? "START THE CAMPAIGN TO TAKE A WALK." :
-                             !sw_pack ? "JET PACK REQUIRED: SHOP, 900 CR." :
-                             stw.cur < 3 ? brief[stw.cur] : current ? "CANCEL KEEPS YOUR EARNED REWARDS." : "NO ACTIVE WALK TO CANCEL.";
+        const char *detail = stw.cur >= 3 ?
+                                 (current ? "CANCEL KEEPS YOUR EARNED REWARDS." : "NO ACTIVE WALK TO CANCEL.") :
+                             !cp_active() ? "START THE CAMPAIGN TO TAKE A WALK." :
+                             !sw_pack ? "JET PACK REQUIRED: SHOP, 900 CR." : brief[stw.cur];
         d_text(14, 98, detail, INK);
         d_text(14, 110, stw.cur < 3 ? "FLY THERE. HOLD SELECT TO BAIL OUT." : "* = CLEARED. REPLAYS STILL PAY.", HELP);
-        help(stw.cur < 3 ? "A: TAKE + LAUNCH  <: MAP  B: BACK" :      /* (what A does on the line under the cursor) */
-             current ? "A: CANCEL WALK  <: MAP  B: BACK" : "A: CLOSE  <: MAP  B: BACK");
+        /* The TAKE action requires an active campaign and fitted jet pack.
+           Closing/cancelling on the last row remains available either way. */
+        help(st_eva_board_prompt(cp_active(), sw_pack, stw.cur, current));
         break;
     }
     case T_SHOP:
