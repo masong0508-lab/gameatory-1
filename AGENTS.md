@@ -78,8 +78,9 @@ finds.
    waits lock up after about 256 s of game time; ragdoll timing. Also known:
    levels are slow (rc6 is CD-bound at about 1.6-1.9 guest frames/s in most
    places); that is the speed work, not a defect. Known on rc7 too: levels show
-   about 2 pictures a second even at 400% (the frame limiter spins on the
-   virtual clock; speed wave 1 replaces it); the radio pauses while the disc
+   about 2 pictures a second even at 400% (rc7 presents every 16th guest frame,
+   `PRESENT_EVERY` 16; speed wave 1 presents once per game frame on a real-time
+   clock); the radio pauses while the disc
    reads; the intro films end as if skipped.
 3. Review: Claude opens a draft pull request for each PS1 line (`wip/ps1-rc7`,
    `wip/ps1-speed`) once it has commits. Review there with comments; do not

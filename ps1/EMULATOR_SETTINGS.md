@@ -31,8 +31,9 @@ made at 600% or more do not load at 100%.
 | rc6 recommended | 2.00 / 6.42 / 10.46 | 22.60 / 25.87 | 36.77 / 35.50 | 14.97 | 59.91 |
 
 Street and park are 30 s standing and 30 s walking from the same saved state for every setting. Menus are locked to the
-video frame. In levels the game shows a new picture only about every 16 guest frames (about 2 pictures a second at the
-recommended setting), because its frame limiter spins on the port's virtual clock; the speed work replaces that clock.
+video frame. In levels the port presents a picture only every 16th guest frame (`PRESENT_EVERY` 16 in
+`ps1/stage19/ps1rt/rt.c`, counted on the virtual clock), so about 2 pictures a second at the recommended setting.
+Speed wave 1 (PLAN stage 1c) presents once per game frame instead and runs the guest clock in real time.
 rc7's ROM page pool removed most CD waits: 2 page fetches in 30 s standing in the street, against 278 on rc6. So on rc7
 the CD settings shorten booting and loading, and play speed comes from the overclock.
 
