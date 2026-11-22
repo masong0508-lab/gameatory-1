@@ -170,6 +170,20 @@ __attribute__((noinline)) static void cd_padpoll(u32 lines){ u32 t=RC1_VAL&0xfff
   pad_cdlat|=0x3ffu&~pad_poll(); pad_latch|=pad_raw; CDSTAT_INC(pad_cdpolls); }
 #endif
 #ifndef CDSIM
+#ifdef RTC_GFRAMES
+/* PS1 speed Stage 1, item 1e (PLAN.md; critique K6): with the real-time clock g_gframes counts real GBA frames, 59.7 a second.  The radio's
+   quiet interval, its back-off limit and its play check were set in virtual frames, which ran at 1.5-7 a second in rc6: in real frames they
+   become 60 / 480 / 240 (1 s, 8 s, 4 s), the same real time as before.  A build may still set its own values. */
+#ifndef CDDA_QUIET
+#define CDDA_QUIET 60u
+#endif
+#ifndef CDDA_QMAX
+#define CDDA_QMAX 480u
+#endif
+#ifndef CDDA_WD
+#define CDDA_WD 240u
+#endif
+#endif
 #include "hw_cdda.h"    /* CD-DA playback */
 #else
 #include "hw_stub.h"
@@ -264,6 +278,9 @@ static void cd_read(u32 lba,u32 nsec,u8*dst){
     if((fails&3)==0) cd_init();                                   /* every fourth failed pass in a row: reset the drive */
     if(fails>=CD_TRIES) cd_error_screen(lba);
   }
+#ifdef RTC_GFRAMES
+  clk_gba();             /* g_gframes counts real frames now (it is brought up to date at clock reads): the quiet interval starts at the end of this read */
+#endif
   cd_sectors+=nsec; cd_rd_gf=g_gframes;
   if(cd_err_on) cd_error_gone();                                  /* the disc reads again: the next picture replaces the message */
 }

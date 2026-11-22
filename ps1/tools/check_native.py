@@ -28,6 +28,7 @@ const unsigned RT_BX_HOST=0, RT_STUB_HOST=0;
 const unsigned CD_ROM_LBA=0, CD_COLD_LBA=0, CD_COLD_PAGES=0;
 const unsigned CD_SNAPST_LBA=0, CD_SF3W_LBA=0, CD_SF3W_SECS=0;
 const unsigned CD_SF3A_LBA=0, CD_SNAP_LBA=0, CD_SNAP_N=0;
+const unsigned LIM_RA_ENTRY=0, LIM_RA_ELAPSED=0, LIM_RA_WAIT=0, LIM_RA_TLAST=0;
 const unsigned char bootimg[4] __attribute__((section(".bootimg")))={0};
 const unsigned coldtab[1] __attribute__((section(".coldtab")))={0};
 const unsigned rompack[1] __attribute__((section(".rompack")))={0};
@@ -63,10 +64,12 @@ def main() -> int:
                 run(f"prefix {name}", names["objcopy"], f"--prefix-alloc-sections={prefix}", target)
             return target
 
-        # release profile (tools12/build.sh): single-page CD fetches, no menu assist, no PADDBG log, dispatch phase 1 (D3 D1 D4 D2),
-        # the speed stage 3 items (BOOTF: COLD1PASS, PCPAIR, CDPADPOLL in rt.c, EXEPACK in crt0.s); the TEST profile adds KPLAN and PADDBG
+        # release profile (tools12/build.sh): single-page CD fetches, no menu assist, no PADDBG log, the real-time guest clock (CLOCKF:
+        # speed stage 1), dispatch phase 1 (DISP: D3 D1 D4 D2), the speed stage 3 items (BOOTF: COLD1PASS, PCPAIR, CDPADPOLL in rt.c,
+        # EXEPACK in crt0.s); the TEST profile adds KPLAN and PADDBG
+        clock = ["-DRTC64", "-DRTC_TIMERS", "-DRTC_PRESENT", "-DRTC_PMAX=100", "-DRTC_GFRAMES", "-DRTC_QUANT", "-DRTC_DT"]
         dispatch = ["-DDISP_D3", "-DDISP_D1", "-DDISP_D4", "-DDISP_D2"]
-        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", *dispatch, "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-Iinterp"]
+        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", *clock, *dispatch, "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-Iinterp"]
         test_runtime = [*runtime, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]
@@ -105,7 +108,10 @@ def main() -> int:
         test_modules = [compile_source("ps1rt/rt.c", "test_runtime", test_runtime), *modules[1:]]
         link_and_report("Test (KPLAN)", "native-check/test-layout.elf", test_modules)
         # dispatch: the D1 debug cross-check (test only) and single items link, and their patch words decode
-        for label, flags in (("Test (D1CHK)", [*runtime, "-DDISP_D1CHK", "-DDISP_PROF"]),
+        # the speed stamps (test only) and the virtual clock of the ps1fix release (CLOCKF=) link too
+        for label, flags in (("Test (SPEEDPROF)", [*runtime, "-DSPEEDPROF"]),
+                             ("Virtual clock", [f for f in runtime if f not in clock]),
+                             ("Test (D1CHK)", [*runtime, "-DDISP_D1CHK", "-DDISP_PROF"]),
                              ("Dispatch D3 only", [f for f in runtime if f not in dispatch[1:]]),
                              ("Dispatch D2 only", [f for f in runtime if f not in dispatch[:3]]),
                              ("Dispatch D1 D4", [f for f in runtime if f not in (dispatch[0], dispatch[3])])):
