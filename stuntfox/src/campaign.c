@@ -59,7 +59,7 @@ extern int st_enter(void) __attribute__((weak));   /* a build without the statio
 
 static int on(void) { return cp_prog.flags & CPF_ON; }
 /* the image in RAM is a campaign to go on with: sealed at some time (magic, version) and its chapters in range. Its crc
-   is not asked: the station writes to a stopped campaign's image (a talk heard, a flag, a city bonus claimed) and
+   is not asked: the station writes to a stopped campaign's image (a talk heard, a flag or an unlock it gives) and
    nothing seals it again before it goes on, so a stale crc there is no damage (what comes off the chip is checked whole
    in load()) */
 static int held(void)

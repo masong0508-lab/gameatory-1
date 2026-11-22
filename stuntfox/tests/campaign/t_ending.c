@@ -129,15 +129,17 @@ static void cold_load(void)
 }
 
 /* What station.c writes into the image whether or not the campaign is running:
-   talk_key()'s heard bit (entry 51) and city_pick()'s claimed bonus (city 0). */
+   talk_key()'s heard bit (entry 51) and the flag a talk raises (do_act, Pip's 4).
+   (city_pick() claims a bonus only for a running campaign: paid into a stopped
+   one, a cold CONTINUE would put the stopped image's credits back over it.) */
 static void station_writes(void)
 {
     cp_prog.spare[1 + (51 >> 3)] |= 1 << (51 & 7);
-    cp_prog.story[3] |= 1;
+    cp_set(4, 1);
 }
 static int station_written(void)
 {
-    return (cp_prog.spare[1 + (51 >> 3)] >> (51 & 7) & 1) && (cp_prog.story[3] & 1);
+    return (cp_prog.spare[1 + (51 >> 3)] >> (51 & 7) & 1) && cp_flag(4);
 }
 static int progress_kept(void)
 {
@@ -262,8 +264,8 @@ int main(void)
     card(); CHECK(C.sv == 2 && seen("SAVED") && !seen("SAVING...") && !strcmp(msg, "SAVED"));
     CHECK(cp_dock_keys(KEY_B, KEY_B, 1) && !C.q);
 
-    /* The station writes to a stopped campaign's image (a talk heard, a claimed
-       city bonus) and nothing seals it again. CONTINUE must go on with that
+    /* The station writes to a stopped campaign's image (a talk heard, the flag
+       it raises) and nothing seals it again. CONTINUE must go on with that
        image, not start a new campaign over it. */
     fixture(0); cp_prog.acts[0] = 1; cp_prog.best[0] = 123; cp_prog.contracts[0] = 2;
     cp_dbg(16, 4);

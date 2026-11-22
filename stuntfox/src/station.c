@@ -310,6 +310,9 @@ static int open_chaps(void)
 }
 static int bonus_got(int c) { return c < 16 && (cp_prog.story[3 + (c >> 3)] >> (c & 7) & 1); }
 static int bonus_of(int c) { return 100 + 20 * c + 50 * cp_flag(4) + 50 * cp_flag(5); }
+/* a bonus is paid into a running campaign only: a stopped one's CONTINUE (after a cold boot) puts back the credits its image was
+   stopped with, and the bonus would be gone and still marked claimed */
+static int claimable(int c) { return cp_active() && cp_prog.contracts[c] && !bonus_got(c); }
 static int rot_contract(int c)                           /* the contract this city offers now: they rotate as one is done */
 {
     int n = contract_n(c);
@@ -317,7 +320,7 @@ static int rot_contract(int c)                           /* the contract this ci
 }
 static void city_pick(int c)
 {
-    if (cp_prog.contracts[c] && !bonus_got(c)) {
+    if (claimable(c)) {
         cp_prog.story[3 + (c >> 3)] |= 1 << (c & 7);
         sg_give(bonus_of(c));
         news("BONUS PAID");
@@ -998,7 +1001,7 @@ static void screen(void)
             if (!cp_flag(3))
                 d_text(14, 40, "ROOK OPENS IT AFTER LOS FRANCOS", INK);
             for (int i = stw.top; i < n && i < stw.top + ROWS; i++) {
-                int y = 34 + (i - stw.top) * 10, m = rot_contract(i), cl = cp_prog.contracts[i] && !bonus_got(i);
+                int y = 34 + (i - stw.top) * 10, m = rot_contract(i), cl = claimable(i);
                 p = num(b, i + 1);
                 p = d_cat(p, " ");
                 d_cat(p, ms_text(ms_chap(i)->title));
@@ -1012,7 +1015,7 @@ static void screen(void)
                     p = num(b, m ? ms_def(m - 1)->pay : 0), d_cat(p, " CR");
                 d_text(158, y, b, cl ? HI : bonus_got(i) ? HELP : GOOD);
             }
-            help(n && cp_prog.contracts[stw.cur] && !bonus_got(stw.cur) ? "A: CLAIM   < >: THIS CITY   B: BACK" :
+            help(n && claimable(stw.cur) ? "A: CLAIM   < >: THIS CITY   B: BACK" :
                  n && stw.cur != c ? "A: TRAVEL   < >: THIS CITY   B: BACK" : "A: TAKE   < >: THIS CITY   B: BACK");
             break;
         }
