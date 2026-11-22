@@ -26,7 +26,7 @@ Claude updates it at each milestone.
 | Branch | What |
 | --- | --- |
 | `claude/snes-mashup-umjsjp` | Main line, verified work only. Base every new branch on it. |
-| `wip/gba-v12.29` | GBA v12.29: review fixes after PR #1, being finished |
+| `wip/gba-v12.29` | GBA v12.29, merged into the main line (6d03321); kept for reference |
 | `wip/ps1-rc7` | PS1 original port: intro, vehicle and quit fixes, timer wrap fix |
 | `wip/ps1-speed-clock`, `wip/ps1-speed-dispatch`, `wip/ps1-speed-boot`, later `wip/ps1-speed` | PS1 speed work, wave 1 (see `ps1/STATUS.md`) |
 | `wip/*-unsaved` | Automatic snapshots of edits not yet committed, refreshed every few minutes; may not build |
@@ -35,17 +35,16 @@ Claude updates it at each milestone.
 
 **Claude owns Milestone A**: the original 8 MiB Payback PS1 port through a
 playable release on DuckStation for Android (rc7 play fixes, speed waves 1
-and 2, discs, accurate-core checks, delivery). Claude also finishes GBA
-v12.29, then releases the GBA paths below.
+and 2, discs, accurate-core checks, delivery).
 
 Files Claude is changing now (please do not edit them):
 
 - PS1: `ps1/stage19/`, `ps1/stage5/discpack/`, `ps1/stage7/`, `ps1/stage16/`,
   `ps1/tools/` (existing files), `ps1/tests/`, `ps1/STATUS.md`,
   `ps1/PREPARED.md`.
-- GBA, until v12.29 is merged: `stuntfox/src/`, `stuntfox/tests/`,
-  `stuntfox/tools/memguard.py`, `stuntfox/memmap.txt`, `tools/check.py`,
-  `docs/completion-milestone.md`.
+- Nothing on the GBA side: v12.29 is merged (6d03321), so `stuntfox/`,
+  `payback-mod/`, `tools/check.py` and `docs/completion-milestone.md` are free
+  for GPT-6 (task 5). The PS1 gates inside `tools/check.py` stay as they are.
 
 **GPT-6 tasks** (new paths only; one task per small pull request):
 
@@ -67,8 +66,9 @@ Files Claude is changing now (please do not edit them):
    Star-FlyBack on PS1): memory map, translation coverage, what the station,
    Arwing and space views need from the renderer, CD layout. No code until
    Milestone A ships.
-5. After v12.29 is merged, the GBA paths above move to GPT-6 for the open GBA
-   tasks below; Claude stays on the PS1 port.
+5. The GBA game (`stuntfox/`, `payback-mod/`): the open GBA tasks below.
+   Claude stays on the PS1 port and still builds and checks GBA pull requests
+   with the ROM before merging.
 
 ## Open tasks nobody is on
 
@@ -77,6 +77,14 @@ Files Claude is changing now (please do not edit them):
 - GBA: a tree-detail line in Game options.
 - GBA: 24 fps everywhere with textures on.
 - GBA: better ragdolls; glitchy uphill gear shifting near water.
+- GBA, small items left by the v12.29 review: with the campaign stopped, the
+  city board and SPACE WALKS help lines still offer A (it only answers START
+  THE CAMPAIGN FIRST); the hangar's 'L: CAMPAIGN' hint has low contrast and
+  stays under Payback's pause menu; pausing on an ending card shows the pause
+  text over the card for about 8 frames; the station save page says SAVING
+  for one frame after SAVED; a 'BLE' fragment of the SABLE label shows beside
+  the campaign menu box; 'CONTRACT TAKEN. LAUNCH WHEN READY' lacks a full
+  stop.
 - PS1 original port, after the speed work: title logo glow, the menus' 3D
   models, the intro films (rc7 ends them as if skipped), the bridges and
   ramps after the Amiga data.
