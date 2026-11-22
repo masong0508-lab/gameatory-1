@@ -147,12 +147,12 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "2797bf1324a79b7be50590a08e509eafef257c74aae86d3830e029d0616036f8"
+      "sha256": "1288b3893ee0ab7d013eb1dbfbada5dd98a386c499f2eb36971842276e0a6571"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
       "target": "ps1rt/crt0.s",
-      "sha256": "e79650f78bf7f565f3d10b6d5f74d101aa2b588ccdf278ade07a408aa200ca90"
+      "sha256": "a435ce6e83dde0b327121079392806ed6bb2eff88e9598e15e82200de6bef4af"
     },
     {
       "source": "stage7/integration/ps1rt/font.h",
@@ -763,6 +763,11 @@
       "source": "tools/mips1_lint.py",
       "target": "tools/mips1_lint.py",
       "sha256": "e58c48380c1b8d1dd397ee494d0f0b74b0930790ad332abc15ed003a1566d2e8"
+    },
+    {
+      "source": "stage19/ps1rt/exepack.py",
+      "target": "ps1rt/exepack.py",
+      "sha256": "0f8d242c84f1df083ec2927bfe7255b8060b4ec8f7b8943608935fa1aaf72103"
     }
   ],
   "patches": [
