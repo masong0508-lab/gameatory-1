@@ -306,6 +306,23 @@ int main(void)
     CHECK(store_native(&stopped));
     device_mode = SV_64K; cp_title_load();
     CHECK(!memcmp(&ship_progress, &none, sizeof none));
+
+    /* ENTER CODE rebuilds the image from the code, and a code has no field for
+       the space walks' first-clear receipts. The campaign in RAM keeps them: a
+       code must not bring the first-clear pay back or take the board's stars. */
+    char code[PW_LEN + 1];
+    fixture(0); cp_prog.acts[0] = 1; prog_seal(&cp_prog);
+    pw_encode(&cp_prog, code);
+    CHECK(cp_prog.spare[CP_SPARE_EVA] == 5 && cp_pw_apply(code));
+    CHECK(cp_active() && cp_prog.acts[0] == 1 && cp_prog.spare[CP_SPARE_EVA] == 5 && prog_ok(&cp_prog));
+    cp_dbg(16, 4); station_writes();    /* (a stopped campaign the station has written to) */
+    CHECK(!cp_active() && cp_pw_apply(code));
+    CHECK(cp_active() && cp_prog.spare[CP_SPARE_EVA] == 5 && !station_written() && prog_ok(&cp_prog));
+    char wrong[PW_LEN + 1];
+    memcpy(wrong, code, sizeof wrong); wrong[0] = wrong[0] == 'A' ? 'B' : 'A';
+    CHECK(!cp_pw_apply(wrong) && cp_active() && cp_prog.spare[CP_SPARE_EVA] == 5);
+    memset(&cp_prog, 0, sizeof cp_prog);    /* (no campaign in RAM: nothing to keep) */
+    CHECK(cp_pw_apply(code) && cp_active() && !cp_prog.spare[CP_SPARE_EVA] && prog_ok(&cp_prog));
     printf("%d campaign ending checks passed\n", checks);
     return 0;
 }

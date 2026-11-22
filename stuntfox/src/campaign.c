@@ -636,6 +636,9 @@ int cp_pw_apply(const char *s)
     sg_get_progress(&cur);             /* (a code has no stick, aim, missiles, jobs or paint: those stay the player's) */
     for (int i = 12; i < 16; i++)      /* (missiles, paint, jobs, flags: SgProgress's last four) */
         t.sg[i] = ((u8 *)&cur)[i];
+    if (held())                        /* (nor the space walks' first-clear receipts: those of the campaign in RAM stay, or a
+                                          code would bring the first-clear pay back and take the board's stars) */
+        t.spare[CP_SPARE_EVA] = cp_prog.spare[CP_SPARE_EVA];
     cp_prog = t;
     C.resume_sg = 0;
     cp_prog.flags |= CPF_ON | CPF_PW;
