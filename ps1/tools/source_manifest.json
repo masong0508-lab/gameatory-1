@@ -55,24 +55,24 @@
       "sha256": "47f133af6b4fe6022e1401d333fa89e84c59ab35c0a16d463b22b238df1a406b"
     },
     {
-      "source": "stage8/interp_fallback/interp/interp.c",
+      "source": "stage19/interp/interp.c",
       "target": "interp/interp.c",
-      "sha256": "2120bb1ea727c2158befd2b120082ae01d6688fd5cd35fb9ace032364b77a6cd"
+      "sha256": "8f872d7c647e6aafdf2614a4edeb777930a35cb0429cf6fb1ce29883da3526e2"
     },
     {
-      "source": "stage8/interp_fallback/interp/interp.h",
+      "source": "stage19/interp/interp.h",
       "target": "interp/interp.h",
-      "sha256": "ce894715d355bd93b0bb4abfd0005e1041e96f2c9508f3484c50e7f57bd8ee96"
+      "sha256": "0bac572d0541cf7a5f74bf57b2683a1b59c9f6598f4f72001e1551d8cf060634"
     },
     {
-      "source": "stage8/interp_fallback/interp/interp_asm.s",
+      "source": "stage19/interp/interp_asm.s",
       "target": "interp/interp_asm.s",
-      "sha256": "5f150fcd78aee9fe714b194f1d837df8a490a3dc4e6424cd6b8a072207da6812"
+      "sha256": "aece394dd7e2e50163f8fedb62b77e4c9f1e7b240859183db851e719392c058c"
     },
     {
-      "source": "stage8/interp_fallback/interp/test_host.c",
+      "source": "stage19/interp/test_host.c",
       "target": "interp/test_host.c",
-      "sha256": "b1e8dab3eec37d421d6d15bc0f8f41c4e8e676f46224b7561367afb9d4ff0c31"
+      "sha256": "810bd07bcae682a2f818eae79188f21e0c98fc338d34da1762ed0d66a20a197c"
     },
     {
       "source": "stage7/integration/lockstep2.py",
@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "2797bf1324a79b7be50590a08e509eafef257c74aae86d3830e029d0616036f8"
+      "sha256": "bb7796a08108417a560468c4441e1fba5a562011bc18e203f4f849f6f1d5177b"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
@@ -185,9 +185,9 @@
       "sha256": "25e31840c8c4d502cc84ef49afa5df50a3c60bbe91dd1440466d0c617e4675a2"
     },
     {
-      "source": "stage16/merge/ps1rt/interp_glue.h",
+      "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "b070b9ac1e8445437373b82065fe7d96cd36dd261b6ef081bae1d5a84db391f8"
+      "sha256": "b0a2b9b0f1e6cf15018823af2b6264baee35a8c927de9606cb206e0fd2d2d6a7"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",
@@ -200,9 +200,9 @@
       "sha256": "a1b973c68b3f0602dd916dc05583233cd9255475f13b083e616357cd6f037a13"
     },
     {
-      "source": "stage16/merge/ps1rt/ps1.ld",
+      "source": "stage19/ps1rt/ps1.ld",
       "target": "ps1rt/ps1.ld",
-      "sha256": "6a476ad97f7cf3815045f13569a3da2bfdd4747559ecb75632d645fdb7161dbd"
+      "sha256": "b02098f08d3c153ab7d2310cd22592a0e861f4466392eb999f98752186fe04cb"
     },
     {
       "source": "stage16/merge/ps1rt/ps1_f.ld",
@@ -217,7 +217,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "d49bd07f79efffbf22646736517e2f3357519846b67ff54aa636457a098214c1"
+      "sha256": "53a6bb640c19acaf397be7009f0f0b4b15f44ae8625cbc23a140b03dce36dc12"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -763,6 +763,11 @@
       "source": "tools/mips1_lint.py",
       "target": "tools/mips1_lint.py",
       "sha256": "e58c48380c1b8d1dd397ee494d0f0b74b0930790ad332abc15ed003a1566d2e8"
+    },
+    {
+      "source": "tools/check_intro_site.py",
+      "target": "tools/check_intro_site.py",
+      "sha256": "1fc989b8bd60f0b6a243952662e10c367426e4a2f4f7b344777e1ef14e16caab"
     }
   ],
   "patches": [
