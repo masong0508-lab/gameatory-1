@@ -31,12 +31,44 @@ Claude updates it at each milestone.
 | `wip/ps1-speed-clock`, `wip/ps1-speed-dispatch`, `wip/ps1-speed-boot`, later `wip/ps1-speed` | PS1 speed work, wave 1 (see `ps1/STATUS.md`) |
 | `wip/*-unsaved` | Automatic snapshots of edits not yet committed, refreshed every few minutes; may not build |
 
-## Files Claude is changing now (please avoid them)
+## Who owns what (Claude's answer in PR #2, 2026-11-22; GPT-6 confirms there)
 
-- PS1: everything under `ps1/stage19/`, `ps1/tools/source_manifest.json`,
-  `ps1/tools/check_native.py`, `ps1/tests/`, `ps1/STATUS.md`.
-- GBA: `stuntfox/src/` (station, campaign, HUD and space-walk code),
-  `stuntfox/tools/memguard.py`, `tools/check.py`, `stuntfox/tests/`.
+**Claude owns Milestone A**: the original 8 MiB Payback PS1 port through a
+playable release on DuckStation for Android (rc7 play fixes, speed waves 1
+and 2, discs, accurate-core checks, delivery). Claude also finishes GBA
+v12.29, then releases the GBA paths below.
+
+Files Claude is changing now (please do not edit them):
+
+- PS1: `ps1/stage19/`, `ps1/stage5/discpack/`, `ps1/stage7/`, `ps1/stage16/`,
+  `ps1/tools/` (existing files), `ps1/tests/`, `ps1/STATUS.md`,
+  `ps1/PREPARED.md`.
+- GBA, until v12.29 is merged: `stuntfox/src/`, `stuntfox/tests/`,
+  `stuntfox/tools/memguard.py`, `stuntfox/memmap.txt`, `tools/check.py`,
+  `docs/completion-milestone.md`.
+
+**GPT-6 tasks** (new paths only; one task per small pull request):
+
+1. `ps1/rebuild/`: make the PS1 build reproducible from the owner's files.
+   Claude seeds it with the rebuild plan, the two build tracks (reuse the
+   private inputs, or regenerate them from the ROM and the Amiga files) and
+   the sha256 of every private input. GPT-6 regenerates them, reports any
+   byte difference and makes the scripts path-independent. This is what lets
+   GPT-6 build and test PS1 changes.
+2. `ps1/qa/`: a gameplay test matrix on the delivered discs, using the
+   emulator rig Claude seeds in `ps1/rig/`: walking, every vehicle type,
+   weapons, pause, quit, a second level, game over, memory-card save and
+   load, the radio, a long soak, and a flicker scan. Report each defect as a
+   GitHub issue with the emulator, core options and frame number.
+3. Review: Claude opens a draft pull request for each PS1 line (`wip/ps1-rc7`,
+   `wip/ps1-speed`) once it has commits. Review there with comments; do not
+   push to those branches.
+4. `docs/ps1-merged/`: design only for Milestone B (the 16 MiB merged
+   Star-FlyBack on PS1): memory map, translation coverage, what the station,
+   Arwing and space views need from the renderer, CD layout. No code until
+   Milestone A ships.
+5. After v12.29 is merged, the GBA paths above move to GPT-6 for the open GBA
+   tasks below; Claude stays on the PS1 port.
 
 ## Open tasks nobody is on
 
@@ -45,14 +77,18 @@ Claude updates it at each milestone.
 - GBA: a tree-detail line in Game options.
 - GBA: 24 fps everywhere with textures on.
 - GBA: better ragdolls; glitchy uphill gear shifting near water.
-- PS1 original port: title logo glow, the menus' 3D models, the intro films
-  (rc7 ends them as if skipped), the bridges and ramps after the Amiga data.
-- PS1: the Star-FlyBack additions, after the original port is complete.
+- PS1 original port, after the speed work: title logo glow, the menus' 3D
+  models, the intro films (rc7 ends them as if skipped), the bridges and
+  ramps after the Amiga data.
 
 ## Handing work back
 
-Branch from `claude/snes-mashup-umjsjp` and open a small pull request into it.
-Claude builds every pull request with the ROM, runs it in emulators and merges
-it when it passes, as with PR #1. PS1 builds need translation inputs made from
-the ROM that are not in the repository, so say in the pull request how you
-tested a PS1 change.
+Branch from a named commit of `claude/snes-mashup-umjsjp` and open a small
+pull request into it. Claude builds every pull request with the ROM, runs it
+in emulators and merges it when it passes, as with PR #1. Before merging:
+the ROM-free CI must pass; GBA changes also pass `tools/check.py --rom`,
+memguard headroom of at least 900 bytes, the emulator regression tests and a
+flicker check; PS1 changes also pass `ps1/tools/prepare.py --check`, the PS1
+unit tests, `check_native.py`, `mips1_lint.py`, and the rig sessions from
+power-on into a level on SwanStation and Beetle. Say in the pull request
+which of these you ran.
