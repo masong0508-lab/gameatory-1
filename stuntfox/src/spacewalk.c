@@ -305,6 +305,10 @@ static void obj_boarded(void)
         obj_finish();
 }
 
+/* he is aboard the Arwing again by another way than the walk's own boarding (merge.c board(): on the street, after a fall out
+   of space with both beacons done). The relay's last step only asks that he is back aboard, so it is done and paid here too */
+void sw_job_boarded(void) { obj_boarded(); }
+
 void sw_reset(void)
 {
     memset(&swk, 0, sizeof swk);

@@ -1918,6 +1918,7 @@ static void board(u8 *me)
     air_run = 0;
     sg_state = SG_FLY;
     cam_cut = 1;                                   /* (swung round from where you stood, it can go through a wing) */
+    sw_job_boarded();                              /* (a relay with both beacons done only waited for him to be aboard again) */
 }
 
 /* Called, the Arwing flies in from behind the camera, over your head, and sets down a few steps

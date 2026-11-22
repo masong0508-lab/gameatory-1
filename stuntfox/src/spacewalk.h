@@ -28,6 +28,7 @@ int sw_job_take(int job);          /* accept from the station; checks campaign, 
 void sw_job_cancel(void);          /* abandon the current assignment without a reward */
 int sw_job_done(int job);          /* first-clear receipt, saved in the campaign's existing spare byte */
 int sw_job_pay(int job);           /* first-clear or replay pay; no state change */
+void sw_job_boarded(void);         /* aboard the Arwing again outside a walk: a relay waiting at its last step is done and paid */
 
 /* ---- merge.c ---- */
 int sw_begin(Ship *s, int slot, V3 feet, s32 yaw, int side);   /* he has jumped out of s (his body is rags[slot]) from above SPACE_LO, out of its side (-1 or 1): 1 if the walk began */

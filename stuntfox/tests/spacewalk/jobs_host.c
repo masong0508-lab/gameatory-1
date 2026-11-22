@@ -107,6 +107,20 @@ static void relay(void)
     CHECK(wallet == 500 && sw_job_done(3) && !sw_obj(0, 0), "safe reboarding pays relay once");
     obj_boarded();
     CHECK(wallet == 500 && sw_job_pay(3) == 100, "no duplicate board reward");
+    /* The walk can also end in a fall to the city; the Arwing is then boarded on the street (merge.c board()). */
+    CHECK(sw_job_take(3) == SWJ_READY, "relay accepted again");
+    sw_job_boarded();
+    CHECK(wallet == 500 && sw_obj(0, 0) == 3 && obj_s == 0, "boarding on the street early does not complete relay");
+    obj_reached();
+    sw_job_boarded();
+    CHECK(wallet == 500 && obj_s == 1, "one beacon and a street boarding is insufficient");
+    obj_reached();
+    swk.on = 0;                        /* (he fell out of space: the walk is over, the relay is not) */
+    CHECK(wallet == 500 && sw_obj(0, 0) == 3 && obj_s == 2, "a fall keeps the finished relay waiting for the Arwing");
+    sw_job_boarded();
+    CHECK(wallet == 600 && !sw_obj(0, 0) && sw_job_done(3), "boarding on the street after the fall pays the relay");
+    sw_job_boarded();
+    CHECK(wallet == 600, "no duplicate street-boarding reward");
 }
 
 static void interruption(void)
