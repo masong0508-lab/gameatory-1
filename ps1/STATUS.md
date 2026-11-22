@@ -6,7 +6,7 @@ accurate-emulation fixes**. The combined native modules compile and link with
 checked RAM allocations. A private 8 MiB baseline builds with the strict
 physical linker; with the stage19 sources its disc, as built, plays from
 power-on into the first level on the accurate cores SwanStation and Beetle
-([stage19](#stage19-accurate-emulation-fixes-rc5)). No DuckStation, Sony BIOS
+([stage19](#stage19-accurate-emulation-fixes-rc5-rc6)). No DuckStation, Sony BIOS
 or hardware run exists yet.
 
 The source manifest starts from repository commit
@@ -84,7 +84,7 @@ its display page starts at `(832,256)`. The existing OBJ pages remain at
 `(960,256)` and `(960,384)`. Model uploads, texture-page selection and UV offsets
 use the same definitions as the allocation checks.
 
-## Stage19: accurate-emulation fixes (rc5)
+## Stage19: accurate-emulation fixes (rc5, rc6)
 
 `stage19/` holds full copies of the prepared-tree files the fixes change
 (`ps1rt/{build.sh,crt0.s,hw_cdda.h,hw_pad.h,ppu12.h,rt.c}`, `rd/ps1.h`,
@@ -108,45 +108,90 @@ accurate-core rig reported (DuckStation-class cores, openboot firmware):
 | F10 | The menu assist (KPLAN) was in the release | Release builds without it; `tools12/build_test_assist.sh` makes the TEST variant (`*_TEST_assist`). |
 | F11 | CD-bound speed | `PCACHE1` with 62 measured resident pages (`t/resident62.txt`); no page-trace (`PGTRACE`) instrumentation in any build; no Pause between reads that follow each other. |
 
-Results with the release disc as built (`tools12/build.sh`, US licence area, CD
-audio, no test patches), openboot unless noted, all times emulated:
+The review of rc5 found five more faults; rc6 fixes them (same files):
+
+| | Fault | Fix |
+| --- | --- | --- |
+| R1 | CD audio (the radio) resumed from the data track: the position was taken with GetlocP while the Play seek still ran, when GetlocP reports the last data sector read | `hw_cdda.h` takes a position only while Getstat shows Play without Seek and GetlocP reports the playing track, index 1 or more and an address inside the track's TOC range (GetTD); until then a resume is Play(track) from the track's start. |
+| R2 | With the radio on, every ROM page miss paid a Pause, a Setloc and a Play: 0.17 instead of 1.33 guest frames/s | Data reads never resume the music. It comes back at a present once the disc has had no data read for 8 guest frames (doubled up to 64 when it is held again soon after); data is read at double speed with the radio on too; a resume the drive did not take is retried; music found stopped twice in a row (Getstat every 30 guest frames) is resumed. |
+| R3 | The CD read error screen came up once per power-on, showed buffer 0 and left the draw offset at 240 | It comes up for every failure episode and the next picture replaces it once a read completes; it shows the buffer `present()` is not about to draw into and restores the draw offset. `-DCD_FAILTEST=N` (TEST builds only) makes two reads fail. |
+| R4 | Sprite tiles' top edges were one line high in 28 % of the rows (`floor(7y/5)`) | Rounded, `round(7y/5)`: 14 % of the rows one line off, either way. A probe disc measured on SwanStation and Beetle that the GPU samples the page quad with a half-texel bias (GBA line L from PS1 line 8 + floor((7L+1)/5)); with that, `ceil(7y/5)` would put 28 % one line low. |
+| R5 | The release carried the `PADDBG` pad/entity log | Only the TEST variant has it; `check_native.py` compiles both profiles and `tests/test_build_pipeline.py` checks the flags each profile passes. |
+
+Results with the rc6 release disc as built (`tools12/build.sh`, US licence area,
+CD audio, no test patches), openboot unless noted, all times emulated:
 
 | Check | SwanStation | Beetle |
 | --- | --- | --- |
-| Power-on to the first level by pad presses | 13 PASS, level clock at 43 s (RC v2: 174 s) | 13 PASS, 46 s (RC v2: 160 s) |
-| In the level: idle, walk, turn, weapons, fire, pause | 19 PASS | 18 PASS, 1 FAIL: the rig's classifier counts 78 % lit pixels on Beetle's bordered 350x240 frame while the level-start message is up (needs 80 %; 94 % on SwanStation); the screenshots show the city |
+| Power-on to the first level by pad presses | 13 PASS, level clock at 43 s (RC v2: 174 s) | 13 PASS, 45 s (RC v2: 160 s) |
+| In the level: idle, walk, turn, weapons, fire, pause | 20 PASS with the pause press held until the game read it (unchanged session: 18 PASS, 2 FAIL, see below) | The same, with the core showing lines 8-231 (320x224) like SwanStation; its default bordered 350x240 frame stays under the classifier's 80 % lit pixels |
 | openboot `strict`, `irq`, `f06` | 12 PASS each; with `irq` no CD timeout and all 15 tracks in the CD audio table | 12 PASS each |
 | Open-source BIOS of the core | No halt; 12 PASS, level at 51 s | not run |
-| DualShock starting digital / forced analog | ID 41 / 73, no configuration transfer, 12 PASS each | not run |
+| DualShock starting digital / forced analog | ID 41 / 73, no configuration transfer, Down seen in 77 of 90 samples | not run |
 | CD read speed-up 8, 10, instant seek, both | 12 PASS each; game retries 0, 53, 0, 53 (header mismatches, all recovered), no failure | not run |
-| Picture changes without a flip | Menus 0 of 162; level 7 changes for 6 presents; black only between screens (the game's own fades) | Menus 0 of 815 |
+| CD read error (TEST build, two reads made to fail at the level start) | The message comes up for both episodes (32 retries, 8 drive resets, then the reads succeed); the game's next picture replaces it, 4 s and 6 s after the disc reads again | Both episodes show it; the first is replaced within 4 s, the second still showed when the run ended 6 s after the disc read again (no new picture yet) |
+| Radio (CD audio) from the level state | A walk runs at 1.33 guest frames/s with the radio on and off (rc5 with the radio on: 0.17). In five pause menus the music sounds in 89-94 % of the frames, 13 frames after each resume, from positions inside track 2 that move forward | Five pause menus: 89-93 %, 22 frames after each resume, positions as on SwanStation |
+| Picture changes without a flip | Menus (TEST disc) as rc5: 816 changes for 888 presents, the 6 'extra' changes right after flips; level 7 changes for 6 presents; black only between screens (the game's own fades) | Level 6 changes for 5 presents |
 | Memory card save | Created, checksums correct | Created, checksums correct |
 
-On PCSX-ReARMed (`run_all.sh`, release disc) the pad route, replay, maps,
-save/load, state, speed and CPU-interpreter sessions pass. The FAILs are the
-known gaps that RC v2 shows too (the intro film is not drawn and the title menu
-does not follow it; the in-level vehicle is out of reach), the soak's 600 s of
-game time (157 s in its 33 minutes; RC v2: 12 s), the rig's classifier on a grey
-plaza, and the assist session, which needs the TEST variant (8 PASS there).
+The pause step needs the Cross press on "Return to game" to be held until the
+game has read the pad. The rig's tap means to do that (it holds until the
+runtime has polled the pad twice) but lets go early as soon as "PAUSED" is
+missing from its read-back of the drawn text, and in the pause menu that
+read-back is empty for 2 of every 7 frames with no input at all. The pause menu
+of rc5 and rc6 gives the same trace frame for frame (8.6 pad reads and guest
+frames a second; 258 of 900 frames without "PAUSED" in the read-back), so
+whether the game read the press first depends only on where the press falls.
+With the same rig the unchanged session passes that step on rc5 on SwanStation
+(Cross held 6 frames, read once) and fails it on rc5 on Beetle and on rc6 on
+both cores (4 frames, not read; the game stays paused: 18 PASS, 2 FAIL).
+Holding the press until one read gives 20 PASS on both cores. A pause and
+return from the level state passes on rc5 and rc6 with either kind of press,
+with the same timings.
+
+On PCSX-ReARMed (`run_all.sh`, rc6 release disc) the pad route, replay, maps,
+save/load, state, speed and both CPU-interpreter sessions pass, as with rc5. The
+FAILs are the known gaps that RC v2 shows too (the intro film is not drawn and
+the title menu does not follow it; the in-level vehicle is out of reach), the
+soak's 600 s of game time (148 s in its 33 minutes; rc5 157 s, RC v2 12 s; its
+random presses follow the pad reads, so each build walks elsewhere), the rig's
+classifier on a large grey wall, the assist session, which needs the TEST
+variant (8 PASS there), and the in-level pause step as above: the game stays
+paused, so the death and vehicle steps after it fail too (18 PASS, 6 FAIL).
+With the press held until one read, the in-level session gives 29 PASS and
+the one known vehicle FAIL (rc5: 28 PASS, the same FAIL).
 
 The TEST variant, with the session the findings used for rc4 (before: rc4
-test-patched; menu rate: RC v2):
+test-patched; menu rate: RC v2; then rc5 -> rc6):
 
 | Speed | SwanStation | Beetle |
 | --- | --- | --- |
-| Level clock starts | 994 s -> 93 s | 873 s -> 97 s |
-| Guest frames/s in the menus | 1.11 -> 12.7 | 1.27 -> 12.3 |
-| Guest frames/s in the level | 0.54 -> 6.60 | 0.61 -> 6.36 |
-| Pictures/s in the level | 0.036 -> 0.44 | 0.040 -> 0.42 |
-| CD fetches/s in the level | 3.56 -> 1.26 | 3.89 -> 0.96 |
+| Level clock starts | 994 s -> 93.1 s -> 93.1 s | 873 s -> 97.3 s -> 97.6 s |
+| Guest frames/s in the menus | 1.11 -> 12.7 -> 12.7 | 1.27 -> 12.3 -> 12.3 |
+| Guest frames/s in the level | 0.54 -> 6.60 -> 6.60 | 0.61 -> 6.36 -> 6.02 |
+| Pictures/s in the level | 0.036 -> 0.44 -> 0.44 | 0.040 -> 0.42 -> 0.40 |
+| CD fetches/s in the level | 3.56 -> 1.26 -> 1.26 | 3.89 -> 0.96 -> 1.23 |
+
+SwanStation runs rc5 and rc6 identically here. On Beetle the first 119 page
+fetches are the same pages in the same order; rc6 reaches the late steps of the
+session (weapon change, shooting) a few guest frames later relative to the
+emulated frames, and those steps fetch 12 pages more inside the measured window.
 
 Limits: the resident pages were measured on the assist's route. The pad route
-starts the rampage elsewhere and fetches about 8 single pages per second there
-(each a seek of about 140 ms): about 1.9 guest frames and 0.1 pictures per
-second (one present per 16 guest frames, unchanged). Read speed-up mostly slows
+starts the rampage elsewhere and fetches about 9 single pages per second there
+(each a seek of about 140 ms), standing or walking: about 1.3-1.9 guest frames
+and 0.1 pictures per second (one present per 16 guest frames, unchanged). The
+radio cannot play while the drive reads data, so at that spot its music stays
+held (silent) during play and sounds in the pause menu; it plays during play
+only where the page cache holds what the game needs. Read speed-up mostly slows
 openboot's own loader (45 retries at 8x); the level starts at 51 s (8x) and
-92 s (10x). There is still no DuckStation, Sony BIOS, hardware-renderer or
-console run.
+92 s (10x). The first picture of the level (about 1.1 s) shows the menu's
+bridge in the level's colours, in rc5 as in rc6 (the PPU's unfinished BLDY
+fades). After a CD read error the message stays up until the game's next
+picture, which during a level load comes several seconds after the disc reads
+again. Short presses (a few frames) can be missed where the game reads the pad
+only a few times a second (about 8.6 in the pause menu). There is still no
+DuckStation, Sony BIOS, hardware-renderer or console run.
 
 ## What the existing stages actually contain
 
@@ -168,15 +213,15 @@ the earlier [PS1 plan](PS1_PLAN.md) must be read alongside these later sources.
 
 ## Validation and its limits
 
-The current ROM-free unit suite passes **35 tests**. The native module check
+The current ROM-free unit suite passes **38 tests**. The native module check
 (stage19 sources, Clang/LLD 18.1.3) uses the real production linker script and
 the interpreter-enabled title-boot configuration of the release profile, then
-links the KPLAN test profile as well; every linked function must pass
+links the test profile (KPLAN and PADDBG) as well; every linked function must pass
 `tools/mips1_lint.py`:
 
 | Native allocation | Used | Reserved before the next owner |
 | --- | ---: | ---: |
-| C runtime and interpreter, with minimal generated-table fixtures (release / KPLAN test) | 90,900 / 92,564 bytes | 98,304 bytes |
+| C runtime and interpreter, with minimal generated-table fixtures (release / KPLAN test) | 91,332 / 94,612 bytes | 98,304 bytes |
 | Ragdoll code and data | 79,492 bytes | 94,208 bytes |
 | Combined renderer code and data | 90,684 bytes | 94,208 bytes |
 | PPU scratch | 4,096 bytes | 4,096 bytes |

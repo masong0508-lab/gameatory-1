@@ -33,6 +33,8 @@ static void dec(u32 v){ char b[12]; int n=0; if(!v) b[n++]='0'; while(v){b[n++]=
 /* ---------------------------------------------------------------- ROM page store (resident pages shipped in the EXE) */
 static u32 rp_n; static const u32 *rp_idx; static const u8 *rp_data; static u32 rom_miss_count, rom_miss_last, cd_sectors, cd_time_rc;
 static const u8 *rom_pg[2048];
+static u32 g_pres, g_gframes;   /* presented pictures, guest (GBA) frames */
+static u32 cd_rd_gf;            /* the guest frame in which the last data read ended (hw_cdda.h resumes the music after a quiet interval) */
 /* ---------------------------------------------------------------- CD-ROM (polling driver, no IRQ): whole sectors, every one identified by its own header
    ROM data pages (4 KiB = 2 sectors) are fetched on demand from ROM.BIN on the disc into a FIFO-replaced page cache. */
 #define CD0 (*(volatile u8*)0x1F801800)
@@ -114,7 +116,8 @@ static u32 cd_done(u8*r){
   return 0; }
 static u32 cd_pause(void){ u8 r[8]; u32 f=cd_cmd(0x09,0,0,r); if(f==3) f=cd_done(r); cd_reading=0; return f; }   /* Pause: INT3, then INT2 */
 static u32 cd_setmode(u8 m){ if(cd_mode==m) return 3; u8 r[8]; u32 f=cd_cmd(0x0e,&m,1,r); cd_mode=(f==3)?m:0xffu; return f; }
-static void cd_error_screen(u32 lba);
+static u32 cd_err_on;    /* the CD READ ERROR message is on the screen (from the first failing pass of a read until a read completes) */
+static void cd_error_screen(u32 lba); static void cd_error_gone(void);
 #endif
 #if !defined(CDSIM) || defined(SIMSIO)
 #include "hw_pad.h"     /* PS1 pad (SIO0) -> GBA KEYINPUT */
@@ -130,16 +133,17 @@ static void cd_error_screen(u32 lba);
 #define SIMDISC ((const u8*)0x90000000)   /* sim only: disc image mapped at physical 0x10000000 */
 static void cd_read(u32 lba,u32 nsec,u8*dst){ memcpy(dst,SIMDISC+lba*2048,nsec*2048); cd_sectors+=nsec; }
 static void cd_idle(void){}
+static void cd_resume(void){}
 #else
 /* (re)start the drive in a known state: Init (motor on, all commands aborted; INT3 then INT2), Demute, Setmode A0h (double speed, sectors of
-   924h bytes: the address header comes with the data) */
+   924h bytes: the address header comes with the data; the data mode is hw_cdda.h cdda_dmode) */
 static void cd_init(void){
   u8 r[8]; IMASK=0; if(cd_ready) cd_reinits++; cd_ready=1;
   cd_ack(); CD0=0; CD3=0x00; CD0=1; CD2=0x1f;                     /* acknowledge everything, data FIFO reset, all interrupt sources enabled (HINTMSK 1Fh) */
   cd_cmd(0x01,0,0,r);                                             /* Getstat */
   if(cd_cmd(0x0a,0,0,r)==3) cd_done(r);                           /* Init */
   cd_cmd(0x0c,0,0,r);                                             /* Demute */
-  cd_mode=0xffu; cd_setmode(0xa0); cd_reading=0;
+  cd_mode=0xffu; cd_setmode(cdda_dmode()); cd_reading=0;
 }
 #define CD_RUN 256u                 /* sectors per request in one map; longer requests are split */
 #ifndef CD_TRIES
@@ -179,17 +183,25 @@ static int cd_pass(u32 lba,u32 n,u8*dst,u32*left){
   return 0;
 }
 /* read nsec consecutive 2048-byte sectors starting at disc LBA into dst.  The drive is left reading: cd_idle() (once per presented picture)
-   pauses it, so a read that follows at once costs no Pause and no seek back. */
+   pauses it, so a read that follows at once costs no Pause and no seek back.  CD audio stays held until cd_resume() finds the disc quiet. */
 static void cd_read(u32 lba,u32 nsec,u8*dst){
   while(nsec>CD_RUN){ cd_read(lba,CD_RUN,dst); lba+=CD_RUN; nsec-=CD_RUN; dst+=CD_RUN*2048; }
-  cdda_hold();                                                    /* a data seek ends CD-DA playback: pause and remember the position */
+  cdda_hold();                                                    /* a data seek ends CD-DA playback: remember the position, pause */
   if(!cd_ready) cd_init();
   for(u32 i=0;i<CD_RUN/32;i++) cd_map[i]=0;
   if(cd_dbg<12){ cd_dbg++; dbg("cd_read lba "); dec(lba); dec(nsec); dbg("\n"); }
   u32 left=nsec, fails=0;
+#ifdef CD_FAILTEST
+  /* TEST builds only, never a release: the CD_FAILTEST-th and the (CD_FAILTEST+40)-th data read fail CD_TRIES+4 passes in a row, each failed
+     pass a tenth of a second long, so the CD READ ERROR screen comes up twice and is replaced by the next picture each time */
+  static u32 ft_reads; u32 ft_left=0; ft_reads++; if(ft_reads==CD_FAILTEST||ft_reads==CD_FAILTEST+40) ft_left=CD_TRIES+4;
+#endif
   while(left){
     u32 l0=left; int e=-1;
-    if(cd_setmode(0xa0)==3) e=cd_pass(lba,nsec,dst,&left);
+#ifdef CD_FAILTEST
+    if(ft_left){ ft_left--; hl_start(); while(hl_past()<1600u){} } else
+#endif
+    if(cd_setmode(cdda_dmode())==3) e=cd_pass(lba,nsec,dst,&left);
     if(!e) break;
     if(left<l0) fails=0;
     fails++; cd_retries++;
@@ -198,11 +210,13 @@ static void cd_read(u32 lba,u32 nsec,u8*dst){
     if((fails&3)==0) cd_init();                                   /* every fourth failed pass in a row: reset the drive */
     if(fails>=CD_TRIES) cd_error_screen(lba);
   }
-  cd_sectors+=nsec;
-  if(cdda_held) cd_pause();                                       /* music resumes at once: stop the read first */
-  cdda_release();                                                 /* ...and resume the music where it was */
+  cd_sectors+=nsec; cd_rd_gf=g_gframes;
+  if(cd_err_on) cd_error_gone();                                  /* the disc reads again: the next picture replaces the message */
 }
+/* at the start of present(): pause a data read left running since the last picture */
 static void cd_idle(void){ if(cd_reading) cd_pause(); }
+/* at the end of present(): CD audio held for data reads comes back once the disc has been quiet for a while (hw_cdda.h) */
+static void cd_resume(void){ cdda_idle(); }
 #endif
 #ifdef PCACHE1
 /* stage 19: one 4 KiB page (2 sectors) per fetch into the next of NSLOT single-page slots (FIFO replacement).  With the measured resident set
@@ -255,7 +269,7 @@ static u8 io[0x400]; static u32 io_vc, io_nread, io_tm[4], io_nd, io_keys=0x3ff,
 #ifdef SIMKEYS
 volatile u32 sim_keys=0x3ff;
 #endif
-static u32 pad_gba=0x3ff; static u32 g_pres, g_gframes; static void present(void); static void ppu_flush(void); static void pp_dispcnt(u32 v); static int sf3_ok;
+static u32 pad_gba=0x3ff; static void present(void); static void ppu_flush(void); static void pp_dispcnt(u32 v); static int sf3_ok;
 /* stage 13 pad path: the pad is polled once per GBA frame in which the guest reads KEYINPUT (lazily, at most once per frame), and again at present() when the guest did not.  pad_latch = OR of the
    raw pad words seen since the last present, so a tap shorter than one present (16 GBA frames) still reaches the radio / map switch / bail-out edge detectors (pad_new_extra, radio_poll). */
 static u32 pad_gf=0xffffffffu, pad_latch, pad_lastp, pad_new_extra, pad_gpolls;
@@ -597,6 +611,7 @@ static void gpu_dma(const void*src,u32 nw){
   if(r){ D2_MADR=a+big*4; D2_BCR=(1u<<16)|r; D2_CHCR=0x01000201; while(D2_CHCR&0x01000000){} } }
 #define XY(x,y) (((u32)(y)<<16)|((x)&0xffff))
 static int cur_oy, disp_on;
+static int buf;           /* present() draws into the buffer at y = buf?240:0 and toggles buf after flipping it in */
 static void rect(int x,int y,int w,int h,u32 rgb){ if(w<=0||h<=0) return; gp0_2(0x60000000|rgb,XY(x,y+cur_oy),XY(w,h)); }
 #include "font.h"
 static int chidx(char c){ if(c>='0'&&c<='9') return c-'0'; if(c>='a'&&c<='z') c-=32; if(c>='A'&&c<='Z') return 10+c-'A'; return -1; }
@@ -619,19 +634,22 @@ static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT
 /* show the buffer at (0,o) once everything drawn into it is finished, at the next vertical blank; the display comes on with the first one */
 static void flip_to(int o){ gpu_idle(); vsync(); GP1=0x05000000|((u32)o<<10); if(!disp_on){ disp_on=1; GP1=0x03000000; } }
 #ifndef CDSIM
-/* a read that keeps failing: say so on the screen (both buffers, display on) and go on retrying.  The data is never taken as good. */
+/* a read that keeps failing: say so on the screen and go on retrying; the data is never taken as good.  The message goes into both buffers and
+   the display shows the buffer present() is NOT about to draw into (y = buf?0:240), so the next picture is drawn out of view and flipped in as
+   usual once the disc reads again.  Every failure episode shows it (cd_err_on is cleared when a read completes); cd_failed counts the episodes. */
 static void cd_error_screen(u32 lba){
-  cd_failed++; if(cd_failed>1) return;
+  if(cd_err_on) return; cd_err_on=1; cd_failed++;
   dbg("CD READ ERROR lba "); dec(lba); dbg("stat "); hex(cd_stat); dbg("retrying\n");
-  GP1=0x01000000; while(D2_CHCR&0x01000000){}                     /* drop any half-sent GPU command */
+  while(D2_CHCR&0x01000000){} GP1=0x01000000;                     /* let a running DMA end, then drop any half-sent GPU command */
   for(int b=0;b<2;b++){ cur_oy=b*240;
     gp0_2(0x02000060,XY(0,cur_oy),XY(320,240)); gpu_idle();
     gp0c(0xE1000000|(1<<10)); gp0e(0xE3000000|((u32)cur_oy<<10)); gp0e(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e(0xE5000000);
     text(64,96,"CD READ ERROR",4,0xffffff); text(88,136,"CHECK THE DISC",2,0xc0c0ff); }
-  gpu_idle(); GP1=0x05000000; GP1=0x03000000; disp_on=1;
+  gpu_idle(); GP1=0x05000000|((u32)(buf?0:240)<<10); GP1=0x03000000; disp_on=1; cur_oy=buf?240:0;
 }
+static void cd_error_gone(void){ cd_err_on=0; dbg("CD reads again\n"); }
 #endif
-static u32 last_dl, last_rc, logic_lines, max_lines, tot_lines, nfr_meas; static int buf;
+static u32 last_dl, last_rc, logic_lines, max_lines, tot_lines, nfr_meas;
 #ifndef PPU_SF3HUD
 #define PPU_SF3HUD 0
 #endif
@@ -932,6 +950,7 @@ static void present(void){
   /* ----- present */
  flip:
   flip_to(oy); buf^=1;
+  cd_resume();           /* CD audio held for data reads comes back when no data read was made for a while (after this picture's own reads) */
   last_rc=RC1_VAL;
 }
 #ifdef SNAPRESUME

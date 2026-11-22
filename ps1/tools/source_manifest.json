@@ -7,7 +7,7 @@
     {
       "source": "PREPARED.md",
       "target": "README.md",
-      "sha256": "7f3cc8d65819d8e0ed83a7f0667058301dcbc5cabd5d49d8ad45945e65f25e7d"
+      "sha256": "739c11a20aadac838226b1c1be5b49d66a9da5029891ea239b077aa0ae776554"
     },
     {
       "source": "stage7/integration/armdec.py",
@@ -167,7 +167,7 @@
     {
       "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "5492d82e6bd25e130723cc28ef267baf333a53dbbc22be11684bb7577273c172"
+      "sha256": "6be550275a2b7ae12e634f66c85e10df3740c030f7ab597c49bc9aff7986d0a6"
     },
     {
       "source": "stage19/ps1rt/hw_pad.h",
@@ -197,7 +197,7 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "69ab96b74aa51bf93c36befa66756d4044df1c741f9e0404aed47bea7e2439db"
+      "sha256": "a1b973c68b3f0602dd916dc05583233cd9255475f13b083e616357cd6f037a13"
     },
     {
       "source": "stage16/merge/ps1rt/ps1.ld",
@@ -217,7 +217,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "1ffa38146646daabd1573dae7325b5837f322a427ea691229c307e24faa85699"
+      "sha256": "d49bd07f79efffbf22646736517e2f3357519846b67ff54aa636457a098214c1"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -512,7 +512,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "f772a945bedfa54bdf4efb797f11bb61e7e3d1c36250031a3d848e5714e707da"
+      "sha256": "6b18defad3108d1bf77ac86eb368b725a6d29e2fb66b352dd0fe44b43853f32f"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -757,7 +757,7 @@
     {
       "source": "stage19/tools12/build_test_assist.sh",
       "target": "tools12/build_test_assist.sh",
-      "sha256": "1f87f4e8bfe5895dc702adbaf3607044abce5a63158102fd7bb908e3575ac934"
+      "sha256": "4ded2dbe9eb0118653de1cf0410e99dbab57e6da5d42538c6b19a1b6b56bbcba"
     },
     {
       "source": "tools/mips1_lint.py",

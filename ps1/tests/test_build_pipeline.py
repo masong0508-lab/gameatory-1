@@ -256,5 +256,52 @@ class BuildDriverTests(unittest.TestCase):
         self.assert_old_outputs()
 
 
+@unittest.skipUnless(shutil.which('bash'), 'requires bash')
+class BuildProfileTests(unittest.TestCase):
+    """tools12/build.sh (release) and tools12/build_test_assist.sh (TEST): the flags each hands to t/disc7.sh, here a stand-in that only
+    records them.  The release has neither the menu assist (KPLAN) nor the pad/entity debug log (PADDBG); the TEST variant has both."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='ps1-profile-test-')
+        self.addCleanup(self.tmp.cleanup)
+        self.tree = Path(self.tmp.name)
+        for name in ('tools12/build.sh', 'tools12/build_test_assist.sh'):
+            (self.tree / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(manifest_source(name), self.tree / name)
+        (self.tree / 't').mkdir()
+        (self.tree / 't/disc7.sh').write_text('printf "%s\\n" "KPLAN=$KPLAN" "NAME=$1" "CFLAGS=$2" "SNAP=$3" > "$RECORD"\n')
+        self.record = self.tree / 'record.txt'
+        self.env = dict(os.environ, ROM=str(self.tree / 'synthetic-input.bin'), RECORD=str(self.record))
+        for key in ('KPLAN', 'PADDBG', 'NPAGES', 'RPG'):
+            self.env.pop(key, None)
+
+    def profile(self, script, **settings):
+        result = subprocess.run(['bash', script, 'name', '-DEXTRA'], cwd=self.tree, env=dict(self.env, **settings), text=True,
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return dict(line.split('=', 1) for line in self.record.read_text().splitlines())
+
+    def test_release_has_no_menu_assist_and_no_debug_log(self):
+        got = self.profile('tools12/build.sh')
+        self.assertEqual(got['KPLAN'], '0')
+        self.assertEqual(got['SNAP'], '0')
+        flags = got['CFLAGS'].split()
+        self.assertNotIn('-DPADDBG', flags)
+        self.assertNotIn('-DKPLAN', flags)
+        for flag in ('-DSF3_DEFER', '-DPCACHE1', '-DEXTRA'):
+            self.assertIn(flag, flags)
+
+    def test_test_variant_adds_menu_assist_and_debug_log(self):
+        for script, settings in (('tools12/build_test_assist.sh', {}), ('tools12/build.sh', {'KPLAN': '1'})):
+            got = self.profile(script, **settings)
+            self.assertEqual(got['KPLAN'], '1', script)
+            self.assertIn('-DPADDBG', got['CFLAGS'].split(), script)
+            self.assertIn('-DEXTRA', got['CFLAGS'].split(), script)
+
+    def test_explicit_debug_flags_override_either_profile(self):
+        self.assertIn('-DPADDBG', self.profile('tools12/build.sh', PADDBG='-DPADDBG')['CFLAGS'].split())
+        self.assertNotIn('-DPADDBG', self.profile('tools12/build_test_assist.sh', PADDBG='')['CFLAGS'].split())
+
+
 if __name__ == '__main__':
     unittest.main()
