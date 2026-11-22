@@ -127,7 +127,10 @@ finds.
 Open now (2026-11-22 22:25 UTC): #7 is merged. #4, #6 and #8 pass Claude's
 ROM and emulator checks but wait on the small fixes in their review comments;
 Claude merges each after a recheck. #5 needs the revision in its review. #9,
-#10 and #11 are being built and tested with the ROM. The rebuild tests now run
+#10 and #11 are tested and also wait on the fixes in their reviews; the one
+that matters for the play test is #11's: the save/load cold-boot child must
+start through `tools/ob_session.py`, or the reload check fails on SwanStation
+and Beetle at any setting. The rebuild tests now run
 in CI through `tools/check.py`; the rig tests join them when #8 lands.
 
 Branch from a named commit of `claude/snes-mashup-umjsjp` and open a small
