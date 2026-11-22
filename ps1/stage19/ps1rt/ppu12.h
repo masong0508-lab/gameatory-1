@@ -144,7 +144,15 @@ static void pp_fade_flip(u32 P){
   pp_nfade++;
 }
 /* ---- ring replay: once per guest frame (adv_lines at vcount 160) and at every present */
+#ifndef SP_IN   /* the speed stamps come from rt.c's clk.h; no-ops where this file is compiled without it (native tests) */
+#define SP_IN() ((void)0)
+#define SP_OUT() ((void)0)
+#define SP_T0(v) do{}while(0)
+#define SP_ADD(i,v) ((void)0)
+#define SP_INC(i) ((void)0)
+#endif
 static void ppu_flush(void){
+  SP_T0(sp_t0); SP_IN();  /* SPEEDPROF (rt.c clk.h): replay time */
   u32 n=DL[0]; if(n-pp_from>256){ pp_lost+=n-pp_from-256; pp_from=n-256; }
   for(;pp_from<n;pp_from++){
     volatile u32*e=&DL[8+(pp_from&255)*8]; u32 id=e[0];
@@ -157,6 +165,7 @@ static void ppu_flush(void){
   }
   /* fade ramp: gfx_effect fades the screen to black over 32 steps, the next gfx_fade_flip brings it back (one step = one guest frame here) */
   if(pp_bright<32){ pp_bright+=4; if(pp_bright>32) pp_bright=32; }
+  SP_ADD(SP_FLUSH,sp_t0); SP_INC(SP_NFLUSH); SP_OUT();
 }
 /* ---- display */
 static u32 pp_col(u32 v,u32 br){ if(br>=32) return v; u32 r=(v&31)*br/32, g=((v>>5)&31)*br/32, b=((v>>10)&31)*br/32; return r|(g<<5)|(b<<10); }
