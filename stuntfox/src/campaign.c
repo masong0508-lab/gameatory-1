@@ -4,7 +4,8 @@
    started nothing here does anything: every map plays as before.
    Payback's level ends when its kind-0 goal (the score target) is reached: while acts are left that goal's target
    is raised out of reach each frame, and when the last act is done it is put back at what the score is, so the
-   level completes by Payback's own road (a story level's trophy, "Press select", the slideshow). */
+   level completes by Payback's own road (a story level's trophy, "Press select", the slideshow). Not the final
+   chapter's: its last act brings our three ending cards and the station, and its level stays open for the postgame. */
 #include "stage2.h"
 #include "mission.h"
 #include "campaign.h"
