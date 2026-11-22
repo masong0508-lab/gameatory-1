@@ -889,7 +889,7 @@ static void mark(V3 p, int c)
 
 void sw_hud(void)
 {
-    if (s2f.paused || PB_LEVEL_END == 3)
+    if (s2f.paused || s2f.docked || PB_LEVEL_END == 3)   /* (docked: the hangar's menus and the settings page have the screen) */
         return;
     char b[40], *p;
     int y = 66;                                   /* (below Payback's own two-line banner) */
