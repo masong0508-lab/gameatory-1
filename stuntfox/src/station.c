@@ -31,6 +31,7 @@
 #define DOOR_CD 40                 /* ticks after a room change before a door may be taken */
 #define MSG_TICKS 180
 #define PAN 12                     /* ticks a page stays as it is (no more than two or three flashes a second at the fastest button) */
+#define TURN 60                    /* ... and the Nav board's HOLO MAP or SPACE WALKS, after LEFT RIGHT turned one into the other (a second) */
 #define ROWS 7                     /* lines a list shows */
 
 StState stw;
@@ -221,7 +222,7 @@ int st_enter(void)
 {
     if (!st_ok())
         return 0;
-    if (!stw.cd)
+    if (!stw.cd || cp_ending())                          /* (the last ending card's A: ENTER FOX STATION always does) */
         go_room(R_HUB, R_HANGAR);
     return 1;
 }
@@ -590,7 +591,9 @@ static void term_key(u16 hit, u16 keys)
             stw.confirm = stw.cur + 1;                   /* (one A must not spend every credit: it asks first) */
         } else {
             stw.confirm = 0;
-            news(p <= 0 ? "ALREADY THE BEST" : sg_credits() < p ? "NOT ENOUGH CREDITS" : sg_buy(stw.cur) ? "FITTED!" : "NOT NOW");
+            /* (nothing to buy: the answer says what the page says on the line, FITTED, FULL or BEST) */
+            news(p <= 0 ? (stw.cur == SGB_PACK ? "THE JET PACK IS ALREADY FITTED" : stw.cur == SGB_MISSILES ? "THE RACK IS FULL" : "ALREADY THE BEST") :
+                 sg_credits() < p ? "NOT ENOUGH CREDITS" : sg_buy(stw.cur) ? "FITTED!" : "NOT NOW");
         }
         break;
     }
@@ -717,20 +720,22 @@ static int tick2(u16 hit, u16 keys)
     return 1;
 }
 
-/* a full-screen page that comes and goes at the speed of a mashed button would flash: a page is held for PAN ticks, and the keys that
-   would open, close or choose in it wait (the D-pad inside it does not) */
+/* a full-screen page that comes and goes at the speed of a mashed button would flash: a page is held for PAN ticks when it opens,
+   closes or gives way to another, and the keys that would open, close, choose or turn a page wait (UP DOWN inside it do not). The
+   Nav board's two pages are held for TURN: SPACE WALKS is dark from edge to edge and the HOLO MAP shows the room round its box, so
+   LEFT RIGHT mashed there would swap two fifths of the screen between light and dark (with TURN, once a second at most) */
 int st_tick(u16 hit, u16 keys)
 {
     if (!st_ok() || stw.room == R_HANGAR || !s2f.docked)
         return 0;
-    int open = stw.term != 0;
+    int was = stw.term;
     if (stw.pan) {
         stw.pan--;
-        hit &= open ? ~(KEY_A | KEY_B | KEY_L) : ~(KEY_A | KEY_L);
+        hit &= was ? ~(KEY_A | KEY_B | KEY_L | KEY_LEFT | KEY_RIGHT) : ~(KEY_A | KEY_L);
     }
     int r = tick2(hit, keys);
-    if ((stw.term != 0) != open)
-        stw.pan = PAN;
+    if (stw.term != was)
+        stw.pan = (was == T_MAP && stw.term == T_EVA) || (was == T_EVA && stw.term == T_MAP) ? TURN : PAN;
     return r;
 }
 
@@ -787,7 +792,7 @@ int st_view(void)
         return 0;
     }
     if (stw.room == R_HANGAR) {
-        sprites(!s2f.paused && cp_ending() >= CP_END_COMPLETE);
+        sprites(!s2f.menu && cp_ending() >= CP_END_COMPLETE);   /* (the card: Payback's sprites only for its pause menu, not its HUD in the fade after it) */
         if (s2f.paused)
             return 0;
         if (stw.cd)
@@ -795,10 +800,12 @@ int st_view(void)
         return hangar_view();
     }
     sprites(!s2f.paused);
-    if (s2f.paused)
+    if (s2f.paused) {
+        stw.same = 0;                                    /* (the room's words are off while paused: all of it again after) */
         return 1;
+    }
     u32 sg = st_sig();
-    if (sg != stw.sig)
+    if (sg != stw.sig || PB_LEVEL_END)                   /* (a level's end: Payback's two lines take turns there, each on a new picture) */
         stw.sig = sg, stw.same = 0;
     if (stw.same >= 2)
         return 2;
@@ -1046,8 +1053,8 @@ static void screen(void)
             num(p, popc(cp_prog.medals[stw.cur]));
             d_text(130, 102, b, HELP);
         }
-        help(stw.term == T_MAP ? "A: TRAVEL  >: SPACE WALKS  B: BACK" :
-             cp_active() ? "A: TRAVEL   B: BACK" : "START THE CAMPAIGN TO TRAVEL");
+        help(!cp_active() ? "START THE CAMPAIGN TO TRAVEL" :
+             stw.term == T_MAP ? "A: TRAVEL  >: SPACE WALKS  B: BACK" : "A: TRAVEL   B: BACK");
         break;
     case T_EVA: {
         static const char *const name[3] = {"BEACON PATROL", "MOON SURVEY", "ORBITAL RELAY"};
@@ -1072,7 +1079,8 @@ static void screen(void)
                              stw.cur < 3 ? brief[stw.cur] : "CANCEL KEEPS YOUR EARNED REWARDS.";
         d_text(14, 98, detail, INK);
         d_text(14, 110, stw.cur < 3 ? "FLY THERE. HOLD SELECT TO BAIL OUT." : "* = CLEARED. REPLAYS STILL PAY.", HELP);
-        help("A: TAKE + LAUNCH  <: MAP  B: BACK");
+        help(stw.cur < 3 ? "A: TAKE + LAUNCH  <: MAP  B: BACK" :      /* (what A does on the line under the cursor) */
+             current ? "A: CANCEL WALK  <: MAP  B: BACK" : "A: BACK  <: MAP  B: BACK");
         break;
     }
     case T_SHOP:

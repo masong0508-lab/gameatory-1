@@ -27,7 +27,7 @@ typedef struct {
     u8 airborne;                   /* car: no wheel down; ship: no gear down */
     u8 sgstate;                    /* SG_* of the space game */
     u8 walk;                       /* W: SWK_* of spacewalk.h, 0 while he is not out in space */
-    u8 pad;
+    u8 menu;                       /* Payback's game did not tick since our last frame: its pause menu is up (paused, not the fade after it) */
     u16 veh;                       /* when driving, Payback's vehicle type (descriptor number) */
     u32 ticks;                     /* our frames since the game started (60 a second) */
     u32 clock;                     /* PB_CLOCK */

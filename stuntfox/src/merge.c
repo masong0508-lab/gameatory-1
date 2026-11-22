@@ -3835,6 +3835,7 @@ static APART void s2_gather(const u8 *me, int paused)
     f->mode = mode;
     f->docked = mode == FLY && sg_state == SG_DOCKED;
     f->paused = paused || fade_d;
+    f->menu = paused;
     f->map = map_now;
     f->sgstate = sg_state;
     f->me = (void *)me;

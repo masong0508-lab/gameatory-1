@@ -33,7 +33,7 @@ class MergeHookBuildTests(unittest.TestCase):
                             'S2Frame s2f;\n'
                             'int s2_ready(void) { return s2f.mode; }\n'
                             'int st_active(void) { return s2f.walk; }\n'
-                            'int cp_ending(void) { return s2f.pad; }\n'
+                            'int cp_ending(void) { return s2f.menu; }\n'
                             'void sf_frame(void) {}\n')
             objects = []
             for source in (ROOT / 'src' / 'nativehud.c', stub):

@@ -559,14 +559,18 @@ void cp_tick(void)
         if (C.hold || C.postgame)
             hold_goal();
         if (C.ending == CP_END_RETURN && !PB_LEVEL_END && PB_RESPAWN <= 0) {
-            if (s2f.mode == FLY && !s2f.walk) {
+            if (s2f.mode != FLY || s2f.walk) {
+                hl_text("RETURN TO ARWING");
+                hl_stat(HLS_NONE, 0, 0);
+            } else if (PB_NUM_LAST < 0) {
+                /* (the act's pay floats up as Payback's score number first: the card waits until it has gone, as Payback draws
+                   it over whatever is on the screen) The card comes up docked from this frame on, so the station owns the
+                   screen from its first picture: none of Payback's HUD on it */
                 s2_dock_start();
+                s2f.docked = 1;
                 hl_clear();
                 C.ending = CP_END_COMPLETE;
                 C.end_at = s2f.ticks;
-            } else {
-                hl_text("RETURN TO ARWING");
-                hl_stat(HLS_NONE, 0, 0);
             }
         }
         if (C.rel)
@@ -689,9 +693,9 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
             if (C.ending < CP_END_STATION)
                 C.ending++, C.end_at = s2f.ticks;
             else {
-                C.ending = 0;
                 if (st_enter)
-                    st_enter();
+                    st_enter();           /* (with the card still up: the station takes it in at once, door hold or not) */
+                C.ending = 0;
             }
         }
         return 1;                 /* the dismissing press cannot also buy, launch or enter a station terminal */
@@ -741,7 +745,7 @@ int cp_dock_keys(u16 hit, u16 keys, int main_ok)
         else
             C.q = Q_OFF;
         C.confirm = 0;
-        return C.q != 0;
+        return C.q != 0 || (hit & KEY_B);       /* (the B that closes the menu does nothing more: no room change; an L goes on to the station's menu) */
     }
     if (!(hit & KEY_A))
         return 1;
@@ -844,26 +848,31 @@ static void ending_draw(void)
     int page = C.ending - CP_END_COMPLETE;
     d_fill(0, 0, 240, 160, PANEL);
     d_rect(6, 8, 228, 144, DIM);
-    d_text(14, 16, "FOX STATION / FLIGHT LOG", HELP);
+    if (s2f.menu)                      /* (Payback's pause menu reads on the plain card) */
+        return;
+    d_text(14, 16, "FOX STATION / FLIGHT LOG", INK);     /* (the small print in the body's ink: grey on the grey panel did not read) */
     d_text(14, 32, title[page], TITLE);
     d_hline(14, 225, 46, HI);
     for (int i = 0; i < 5; i++)
         d_text(14, 56 + i * 12, lines[page][i], i == 4 ? HI : INK);
     d_text(14, 124, page == 2 ? "A: ENTER FOX STATION" : "A: CONTINUE", HI);
     if (page)
-        d_text(14, 137, "B: PREVIOUS", HELP);
+        d_text(14, 137, "B: PREVIOUS", INK);
     char n[8];
     char *p = d_num(n, page + 1);
     d_cat(p, " / 3");
-    d_text(192, 137, n, HELP);
+    d_text(192, 137, n, INK);
 }
 
 void cp_hud(void)
 {
     if (C.ending >= CP_END_COMPLETE) {
-        ending_draw();
+        if (s2f.docked)                /* (only where the screen is the station's: nativehud.c, st_view) */
+            ending_draw();
         return;
     }
+    if (msg && msg[0] == 'S' && msg[1] == 'A' && msg[2] == 'V' && msg[3] == 'I' && C.sv >= 2)
+        msg = C.sv == 2 ? "SAVED" : "SAVE FAILED";   /* ("SAVING..." says how the save went once it has: the header's words) */
     if (!C.q) {
         int news = news_draw(124);
         if (!news && C.main_ok && s2f.docked && !st_active())
@@ -872,6 +881,8 @@ void cp_hud(void)
     }
     char b[48], *p;
     const int x = 8, y0 = 40, w = 152;
+    const int note = msg && s2f.ticks < msg_end;   /* a note takes the panel's last line while it is up (under the panel it lay
+                                                     over the station room's help line) */
     d_fill(x - 4, y0 - 3, w, 96, PANEL);
     d_hline(x - 4, x + w - 5, y0 + 9, DIM);
     d_text(x, y0, C.q == Q_TRAVEL ? "TRAVEL" : C.q == Q_CODE ? "YOUR CODE" : C.q == Q_ENTER ? "ENTER CODE" : "FOX CAMPAIGN", TITLE);
@@ -897,7 +908,8 @@ void cp_hud(void)
             }
         } else
             d_cat(b, "NOT STARTED");
-        d_text(x, y0 + 84, b, HELP);
+        if (!note)
+            d_text(x, y0 + 84, b, HELP);
         d_text(x + 84, y0, sv_mode() == SV_64K ? (C.sv == 1 ? "SAVING" : C.sv == 2 ? "SAVED" : C.sv == 3 ? "SAVE FAILED" : "EEPROM") : "CODE ONLY", HELP);
     } else if (C.q == Q_TRAVEL) {
         int n = cp_prog.chap_unlocked + 1;
@@ -913,7 +925,8 @@ void cp_hud(void)
                 d_text(x - 2, y, ">", HI);
             d_text(x + 6, y, b, i == C.cur ? HI : INK);
         }
-        d_text(x, y0 + 84, C.postgame || PB_RAMPAGE ? "A: GO NOW  B: BACK" : "A: GO WHEN LEVEL ENDS", HELP);
+        if (!note)
+            d_text(x, y0 + 84, C.postgame || PB_RAMPAGE ? "A: GO NOW  B: BACK" : "A: GO WHEN LEVEL ENDS", HELP);
     } else if (C.q == Q_CODE) {
         char t1[10], t2[10];
         code_text(t1, t2);
@@ -921,7 +934,8 @@ void cp_hud(void)
         d_text(x + 6, y0 + 32, t2, TITLE);
         d_text(x, y0 + 50, "WRITE IT DOWN: IT BRINGS", INK);
         d_text(x, y0 + 60, "THE CAMPAIGN BACK", INK);
-        d_text(x, y0 + 84, "B: BACK", HELP);
+        if (!note)
+            d_text(x, y0 + 84, "B: BACK", HELP);
     } else {
         for (int i = 0; i < PW_LEN; i++) {
             int cx = x + 6 + (i % 8) * 14 + (i % 8 >= 4) * 6, cy = y0 + 22 + (i / 8) * 14;
@@ -932,9 +946,10 @@ void cp_hud(void)
         }
         d_text(x, y0 + 54, "UP DOWN: LETTER", INK);
         d_text(x, y0 + 64, "LEFT RIGHT: MOVE", INK);
-        d_text(x, y0 + 84, "A: OK  B: BACK", HELP);
+        if (!note)
+            d_text(x, y0 + 84, "A: OK  B: BACK", HELP);
     }
-    news_draw(137);
+    news_draw(y0 + 81);
 }
 
 /* ---- the debug mailbox: 16 start (arg 1: off, 2: over, 3: look again, 4: stop and save) 17 state 18 acts of a chapter (arg: chapter << 8 | bits) 19 travel 20 save

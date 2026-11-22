@@ -3,6 +3,8 @@
 #include "../vm/pbmock.h"
 extern u8 cpm_rampage, cpm_was_rampage;
 extern s16 cpm_sub, cpm_map, cpm_trophies[6];
+extern s32 cpm_num_last;
+#define PB_NUM_LAST cpm_num_last
 #define PB_RAMPAGE cpm_rampage
 #define PB_WAS_RAMPAGE cpm_was_rampage
 #define PB_SUB cpm_sub

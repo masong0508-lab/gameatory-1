@@ -11,7 +11,8 @@ PbMock pbm;
 S2Frame s2f;
 u8 cpm_rampage, cpm_was_rampage;
 s16 cpm_sub, cpm_map, cpm_trophies[6];
-static int docks, rooms, armed, paid, checks, has_station = 1, text_count;
+s32 cpm_num_last = -1;
+static int docks, rooms, armed, paid, checks, has_station = 1, text_count, entered_on;
 static int device_mode;
 static u8 native_eeprom[8192];
 static SgProgress ship_progress;
@@ -37,7 +38,7 @@ int sg_credits(void) { return ship_progress.credits; }
 void sg_unlock_paint(int n) { ship_progress.paints |= 1 << n; }
 void s2_progress_keep(void) {}
 void s2_dock_start(void) { docks++; s2f.mode = FLY; s2f.docked = 1; }
-int st_enter(void) { if (has_station) rooms++; return has_station; }
+int st_enter(void) { entered_on = cp_ending(); if (has_station) rooms++; return has_station; }
 int st_active(void) { return rooms != 0; }
 void st_chal_done(int c, int o) {}
 void pl_drop_begin(int map, int x, int y) {}
@@ -159,9 +160,14 @@ int main(void)
     s2f.paused = 0; pbm.respawn = 1; age(); CHECK(!docks);
     pbm.respawn = 0; s2f.mode = FOOT; age(); CHECK(!docks);
     s2f.mode = FLY; s2f.walk = 2; age(); CHECK(!docks);
-    s2f.walk = 0; age(); CHECK(docks == 1 && cp_ending() == CP_END_COMPLETE);
+    s2f.walk = 0; cpm_num_last = 0; age(); CHECK(!docks);   /* the act's score number still floats up */
+    cpm_num_last = -1; age(); CHECK(docks == 1 && cp_ending() == CP_END_COMPLETE);
     CHECK(pbm.level_end == 0 && pbm.goals[PBG_A] == HOLD_A);
-    card(); CHECK(seen("CAMPAIGN COMPLETE"));
+    s2f.docked = 0; card(); CHECK(!seen("CAMPAIGN COMPLETE"));
+    s2f.docked = 1; card(); CHECK(seen("CAMPAIGN COMPLETE"));
+    s2f.paused = s2f.menu = 1; card(); CHECK(!text_count);   /* Payback's pause menu: the plain card */
+    s2f.menu = 0; card(); CHECK(seen("CAMPAIGN COMPLETE"));  /* (the fade after it: the card is back) */
+    s2f.paused = 0;
     u32 signature = cp_sig();
     cp_dock_keys(KEY_A, KEY_A, 1); CHECK(cp_ending() == CP_END_COMPLETE);
     age(); cp_dock_keys(0, KEY_A, 1); CHECK(cp_ending() == CP_END_COMPLETE);
@@ -174,6 +180,7 @@ int main(void)
     age(); cp_dock_keys(KEY_A, KEY_A, 1); CHECK(cp_ending() == CP_END_STATION);
     card(); CHECK(seen("WELCOME HOME, FOX") && seen("TRY SPACE WALKS ON THE NAV BOARD."));
     age(); CHECK(cp_dock_keys(KEY_A, KEY_A, 1) == 1 && rooms == 1 && !cp_ending());
+    CHECK(entered_on == CP_END_STATION);  /* (asked with the card still up: the station's door hold does not apply to it) */
     for (int i = 0; i < 20; i++) age();
     CHECK(docks == 1 && !pbm.level_end && cp_postgame());
     cp_ev(EV_MIS_DONE, 3, 20); age();
@@ -245,6 +252,15 @@ int main(void)
     CHECK(store_native(&stopped)); cold_load();
     CHECK(cp_active() && !C.resume_sg && cp_prog.acts[0] == 1);
     CHECK(!memcmp(&ship_progress, stopped.sg, sizeof ship_progress));
+
+    /* The station's SAVE...: the note says how the save went once it has (the header's word), and the B that closes the
+       menu is the menu's own (the station would otherwise change room on it). */
+    for (int i = 0; i < 400 && sw.busy; i++) cp_tick();
+    cp_open_at(2); card();
+    CHECK(sw.busy && C.sv == 1 && seen("SAVING...") && seen("SAVING"));
+    for (int i = 0; i < 400 && sw.busy; i++) cp_tick();
+    card(); CHECK(C.sv == 2 && seen("SAVED") && !seen("SAVING...") && !strcmp(msg, "SAVED"));
+    CHECK(cp_dock_keys(KEY_B, KEY_B, 1) && !C.q);
 
     /* The station writes to a stopped campaign's image (a talk heard, a claimed
        city bonus) and nothing seals it again. CONTINUE must go on with that
