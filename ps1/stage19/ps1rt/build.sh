@@ -48,6 +48,9 @@ if [ -z "$NO_INTERP" ]; then
 fi
 if [ "$SNAP" = 1 ] && [ ! -f ../out/SNAP.BIN ]; then echo 'Missing input: ../out/SNAP.BIN' >&2; missing=1; fi
 if [ -n "$SNAPFILE" ] && [ ! -f "../out/$SNAPFILE" ]; then echo "Missing input: ../out/$SNAPFILE" >&2; missing=1; fi
+# speed item M11 (-DEXEPACK in CFL): a packed PSX.EXE, rebuilt by crt0 before main (exepack.py)
+EXEPACK=0; case " $CFL " in *" -DEXEPACK "*) EXEPACK=1 ;; esac
+if [ "$EXEPACK" = 1 ] && [ ! -f exepack.py ]; then echo 'Missing input: exepack.py' >&2; missing=1; fi
 [ "$missing" = 0 ] || fail 'assemble the source tree and generate its private translation/map inputs first; see ps1/STATUS.md'
 python3 - "$ROM" <<'PY'
 from pathlib import Path
@@ -97,7 +100,8 @@ mkexe() {
         IPO="$WORK/interp.o $WORK/interp_asm.o"; CFL_IP=-I../interp
     else IPO=; CFL_IP=-DNO_INTERP; fi
     run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
-    run "startup-$PASS" "$PS1_CC" $F -c crt0.s -o "$WORK/crt0.o"
+    if [ "$EXEPACK" = 1 ]; then ASF=-Wa,-defsym,EXEPACK=1; else ASF=; fi
+    run "startup-$PASS" "$PS1_CC" $F $ASF -c crt0.s -o "$WORK/crt0.o"
     run "symbols-$PASS" "$PS1_CC" $F -c "$WORK/syms.c" -o "$WORK/syms.o"
     run "blobs-$PASS" "$PS1_CC" $F -c "$WORK/blobs.s" -o "$WORK/blobs.o"
     run "renderer-$PASS" "$PS1_CC" $SFF -c "$SF3SRC" -o "$WORK/sf3.o"
@@ -111,6 +115,11 @@ mkexe() {
     # every compiled function must consist of R3000A (MIPS I + COP0 + GTE) instructions only: the build fails otherwise
     run "mips1-lint-$PASS" python3 ../tools/mips1_lint.py "$WORK/payback.elf"
     run "binary-$PASS" "$PS1_OBJCOPY" -O binary "$WORK/payback.elf" "$WORK/payback.bin"
+    if [ "$EXEPACK" = 1 ]; then
+        # the packer checks its own result (an unpack model from garbage RAM must give the image back) and fails the build otherwise
+        run "exe-$PASS" python3 exepack.py "$WORK/payback.bin" "$WORK/payback.elf" "$WORK/$NAME.exe"
+        return
+    fi
     run "exe-$PASS" python3 - "$WORK/payback.bin" "$WORK/$NAME.exe" <<'PY'
 import struct, sys
 from pathlib import Path
