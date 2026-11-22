@@ -778,6 +778,11 @@
       "source": "stage19/ps1rt/exepack.py",
       "target": "ps1rt/exepack.py",
       "sha256": "0f8d242c84f1df083ec2927bfe7255b8060b4ec8f7b8943608935fa1aaf72103"
+    },
+    {
+      "source": "SPEED_WAVE1.md",
+      "target": "SPEED_WAVE1.md",
+      "sha256": "84f5d80a91996ee7d4b34b7580517105890b00b16aa5c130981482630efa5434"
     }
   ],
   "patches": [
