@@ -57,6 +57,14 @@ extern int st_enter(void) __attribute__((weak));   /* a build without the statio
 
 
 static int on(void) { return cp_prog.flags & CPF_ON; }
+/* the image in RAM is a campaign to go on with: sealed at some time (magic, version) and its chapters in range. Its crc
+   is not asked: the station writes to a stopped campaign's image (a talk heard, a flag, a city bonus claimed) and
+   nothing seals it again before it goes on, so a stale crc there is no damage (what comes off the chip is checked whole
+   in load()) */
+static int held(void)
+{
+    return cp_prog.magic == PROG_MAGIC && cp_prog.ver == PROG_VER && cp_prog.chap_cur < CP_CHAPS && cp_prog.chap_unlocked < CP_CHAPS;
+}
 int cp_active(void) { return on(); }
 int cp_ending(void) { return C.ending; }
 int cp_postgame(void) { return C.postgame; }
@@ -573,13 +581,14 @@ static void camp_start(int reset)
     }
     unsave();
     prove();
-    int resume = !reset && C.resume_sg && prog_ok(&cp_prog);
-    if (reset || !prog_ok(&cp_prog)) {
+    int keep = !reset && held();   /* (the menu's line 0 reads CONTINUE CAMPAIGN by the same test) */
+    int resume = keep && C.resume_sg;
+    if (!keep) {
         for (u8 *p = (u8 *)&cp_prog; p < (u8 *)&cp_prog + sizeof cp_prog; p++)
             *p = 0;
         cp_prog.flags = CPF_ON;
     } else
-        cp_prog.flags |= CPF_ON;       /* (a stopped campaign goes on where it was) */
+        cp_prog.flags |= CPF_ON;       /* (a stopped campaign goes on where it was, with what the station wrote into it since) */
     if (resume)
         apply();                      /* explicit CONTINUE after a cold boot restores the stopped campaign's equipment */
     else
@@ -598,7 +607,7 @@ static void camp_stop(void)
     cp_prog.flags &= ~CPF_ON;
     unsave();
     enter(s2f.map);
-    sync();                        /* (sealed: START CAMPAIGN takes up a whole image, and only a sealed one) */
+    sync();                        /* (the image as it is now, sealed, also where there is no chip to save it to) */
     if (sv_mode() == SV_64K)
         save_start();
     note("CAMPAIGN STOPPED");
@@ -853,7 +862,7 @@ void cp_hud(void)
         static const char *const it[] = {"START CAMPAIGN", "TRAVEL", "SAVE NOW", "SHOW CODE", "ENTER CODE", "STOP CAMPAIGN", "BACK"};
         for (int i = 0; i < 7; i++) {
             const char *s = i == 0 && on() ? (C.confirm ? "A AGAIN: START OVER" : "START OVER") :
-                            i == 0 && cp_prog.magic == PROG_MAGIC ? "CONTINUE CAMPAIGN" :
+                            i == 0 && held() ? "CONTINUE CAMPAIGN" :
                             i == 4 && on() && C.confirm ? "A AGAIN: REPLACE" : it[i];
             if (i == C.cur)
                 d_text(x - 2, y0 + 12 + i * 10, ">", HI);

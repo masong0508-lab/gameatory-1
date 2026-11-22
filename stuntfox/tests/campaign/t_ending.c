@@ -127,6 +127,23 @@ static void cold_load(void)
     cp_level_enter(0); cp_tick();
 }
 
+/* What station.c writes into the image whether or not the campaign is running:
+   talk_key()'s heard bit (entry 51) and city_pick()'s claimed bonus (city 0). */
+static void station_writes(void)
+{
+    cp_prog.spare[1 + (51 >> 3)] |= 1 << (51 & 7);
+    cp_prog.story[3] |= 1;
+}
+static int station_written(void)
+{
+    return (cp_prog.spare[1 + (51 >> 3)] >> (51 & 7) & 1) && (cp_prog.story[3] & 1);
+}
+static int progress_kept(void)
+{
+    return cp_prog.acts[0] == 1 && cp_prog.medals[0] == 0x41 && cp_prog.best[0] == 123
+           && cp_prog.contracts[0] == 2 && cp_prog.spare[CP_SPARE_EVA] == 5;
+}
+
 int main(void)
 {
     fixture(1);
@@ -228,6 +245,50 @@ int main(void)
     CHECK(store_native(&stopped)); cold_load();
     CHECK(cp_active() && !C.resume_sg && cp_prog.acts[0] == 1);
     CHECK(!memcmp(&ship_progress, stopped.sg, sizeof ship_progress));
+
+    /* The station writes to a stopped campaign's image (a talk heard, a claimed
+       city bonus) and nothing seals it again. CONTINUE must go on with that
+       image, not start a new campaign over it. */
+    fixture(0); cp_prog.acts[0] = 1; cp_prog.best[0] = 123; cp_prog.contracts[0] = 2;
+    cp_dbg(16, 4);
+    CHECK(!cp_active() && prog_ok(&cp_prog));
+    station_writes();
+    CHECK(!prog_ok(&cp_prog));
+    cp_open(); card(); CHECK(seen("CONTINUE CAMPAIGN") && !seen("START CAMPAIGN"));
+    cp_dock_keys(KEY_A, KEY_A, 1);
+    CHECK(cp_active() && progress_kept() && station_written() && prog_ok(&cp_prog));
+
+    /* The same after a cold boot of the stopped save, where CONTINUE also
+       brings back that campaign's equipment. */
+    stopped.best[0] = 123; stopped.contracts[0] = 2; stopped.flags &= ~CPF_ON; prog_seal(&stopped);
+    CHECK(store_native(&stopped)); cold_load();
+    CHECK(!cp_active() && C.resume_sg && progress_kept());
+    station_writes();
+    cp_open(); card(); CHECK(seen("CONTINUE CAMPAIGN"));
+    cp_dock_keys(KEY_A, KEY_A, 1);
+    CHECK(cp_active() && progress_kept() && station_written() && prog_ok(&cp_prog));
+    CHECK(!C.resume_sg && !memcmp(&ship_progress, stopped.sg, sizeof ship_progress));
+    for (int i = 0; i < 80; i++) { s2f.ticks++; cp_tick(); }
+    Prog chip; SvPick newest = {0};
+    CHECK(sv_load(&sv_eeprom, (u8 *)&chip, sizeof chip, &newest) && !memcmp(&chip, &cp_prog, sizeof chip));
+
+    /* START OVER still clears everything, and it asks first. */
+    cp_open(); card(); CHECK(seen("START OVER"));
+    cp_dock_keys(KEY_A, KEY_A, 1); CHECK(progress_kept());
+    card(); CHECK(seen("A AGAIN: START OVER"));
+    cp_dock_keys(KEY_A, KEY_A, 1);
+    CHECK(cp_active() && !cp_prog.acts[0] && !cp_prog.medals[0] && !cp_prog.best[0] && !cp_prog.contracts[0]);
+    CHECK(!cp_prog.spare[CP_SPARE_EVA] && !station_written() && prog_ok(&cp_prog));
+
+    /* An image that is not a campaign to go on with (a chapter out of range,
+       another version) is offered as a new start, and starts new. */
+    for (int bad = 0; bad < 2; bad++) {
+        fixture(0); cp_prog.acts[0] = 1; cp_dbg(16, 4);
+        if (bad) cp_prog.ver = PROG_VER + 1; else cp_prog.chap_unlocked = CP_CHAPS;
+        cp_open(); card(); CHECK(seen("START CAMPAIGN") && !seen("CONTINUE CAMPAIGN"));
+        cp_dock_keys(KEY_A, KEY_A, 1);
+        CHECK(cp_active() && !cp_prog.acts[0] && !cp_prog.chap_unlocked && prog_ok(&cp_prog));
+    }
     printf("%d campaign ending checks passed\n", checks);
     return 0;
 }
