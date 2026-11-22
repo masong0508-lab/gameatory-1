@@ -91,6 +91,22 @@ RDF="--target=mipsel-none-elf -march=mips1 -mno-abicalls -mfp32 -msoft-float -fn
 
 mkexe() {
     run "package-$PASS" python3 ../mkps1.py "$ROM" "../out/$PRD" P "../out/$BOOT" "../out/$PRD/rompages_P.pkl" "$WORK"
+    # PS1 speed plan (ps1rt/clk.h): the host return addresses of the level loop's get_time calls, for builds that use them
+    case " $CFL " in *" -DRTC_PRESENT "*|*" -DSPEEDPROF "*)
+        run "limsyms-$PASS" python3 - "../out/$PRD/payback_P.map" "$WORK/syms.c" <<'PY' ;;
+import sys
+m = {}
+for line in open(sys.argv[1]):
+    f = line.split()
+    if len(f) == 2:
+        m[int(f[0], 16)] = int(f[1], 16)
+# get_time (0x08077c84) is called from 0x08023d54 (loop entry) and from the limiter at 0x0802471c (elapsed), 0x08024728 (wait), 0x08024758 (t_last)
+ra = [m[0x08023d58], m[0x08024720], m[0x0802472c], m[0x0802475c]]
+with open(sys.argv[2], 'a') as f:
+    f.write('const unsigned LIM_RA_ENTRY=0x%08x, LIM_RA_ELAPSED=0x%08x, LIM_RA_WAIT=0x%08x, LIM_RA_TLAST=0x%08x;\n' % tuple(ra))
+print('limiter return addresses', ' '.join('%08x' % a for a in ra))
+PY
+    esac
     if [ -z "$NO_INTERP" ]; then
         run "interp-$PASS" "$PS1_CC" $F -Os -I../interp -c ../interp/interp.c -o "$WORK/interp.o"
         run "interp-asm-$PASS" "$PS1_CC" $F -c ../interp/interp_asm.s -o "$WORK/interp_asm.o"

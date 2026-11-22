@@ -122,7 +122,11 @@ static inline void pGT4(int z,u32 a,u32 ca,u32 ua,u32 b,u32 cb,u32 ub,u32 c,u32 
 static inline void pCMD(int z,u32 w){ u32*p=pb; p[1]=w; addprim(z,p,1); pb=p+2; }   /* E1 tpage, E2 texture window ... in the list */
 
 /* ---- root counters */
+#ifdef RTC64
+static void timers_init(void){ T_MODE(2)=0x200; }   /* 2: sysclk/8 (free run).  1 is the runtime's 64-bit guest clock (rt.c sets hblank mode once at boot): a mode write would reset it */
+#else
 static void timers_init(void){ T_MODE(1)=0x100; T_MODE(2)=0x200; }   /* 1: hblank clock (free run), 2: sysclk/8 (free run) */
+#endif
 #define HLINES() (T_CNT(1)&0xffff)
 #define TICKS8() (T_CNT(2)&0xffff)
 /* show the buffer at (0,oy) at the first vblank that is at least `fields` fields after the previous flip (2 = 30 fps NTSC) */
