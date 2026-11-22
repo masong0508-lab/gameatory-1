@@ -58,7 +58,9 @@ def text():
            '  CodeBreaker unencrypted      (Pizza Boy: Cheats > add > CodeBreaker)',
            '  GameShark / Action Replay v1-v2, encrypted',
            '',
-           'Turn a cheat off by disabling its code; the game clears the switches when a level loads.',
+           'Disabling a code stops its writes but does not clear an active RAM switch.',
+           'Write 0 to the switch, or cold-boot with the code disabled, to turn it off.',
+           'Level changes do not clear this RAM; emulator states can restore old switches.',
            '']
     for addr, name, desc in CHEATS:
         raw, cb, gs = codes(addr)
@@ -69,7 +71,8 @@ def text():
     out += ['Adding your own', '---------------',
             'Any Payback RAM poke works too. Useful addresses (see docs/payback-notes.md):',
             '  03000C60  table of entity pointers; 02001DB8 (16-bit) = index of the vehicle you drive',
-            '  entity +04 / +08 / +0C   X, Y, Z (32-bit; 2048 per map cell; Z is smaller when higher)',
+            '  entity +04 / +08         X, Y (32-bit; 2048 per map cell)',
+            '  entity +0C               Z (signed 16-bit; smaller when higher; +0E is separate)',
             '  entity +40 / +42 / +44   X, Y, vertical speed (16-bit; vertical is positive downward)',
             '  02001D39  1 in free roam, 0 in the story',
             'Avoid 0203FFC0-0203FFFF: the mod keeps its loop, build mode and cheat state there.',

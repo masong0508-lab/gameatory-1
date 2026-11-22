@@ -4,6 +4,7 @@
 *.gen
 *.st
 *.sav
+*.state
 __pycache__/
 payback-mod/harness/mgba/
 stuntfox/build/

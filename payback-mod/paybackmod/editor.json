@@ -1,1 +1,14 @@
-{"cols": 135991104, "hook": 135987216, "maps": 135991444}
+{
+  "code_sha256": "d4822190e71d690c180c42e77f95784ca5efd1def0aa60047e17bbe40e12b08e",
+  "code_size": 4988,
+  "cols": 135992188,
+  "format_version": 1,
+  "hook": 135987216,
+  "maps": 135992528,
+  "source_sha256": {
+    "asm/build.sh": "30cd91a5b05152a8b3ee0ac4b91db7380a2c7191ac66a4772d87f043cf9ce354",
+    "asm/editor.c": "37156a95b9b8d5b2fabe247d18c644f10594f9a60e77fea8abba76a0929578af",
+    "asm/hook.s": "4b70f859881e5cce62673d9e5dde41b675c7248499b8f3cdd2eaa030d820bb16",
+    "asm/link.ld": "c528d323af3db8523b7ee2d0cbe38cfa8e82902ecb422eac4e32ef69054ad138"
+  }
+}

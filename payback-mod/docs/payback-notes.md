@@ -10,9 +10,9 @@ All addresses are for SHA-1 08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7.
 - Street lane flags (column byte 3): 1 = traffic drives -y, 4 = +y, 2 = +x, 8 = -x, 0x20 = kerb strip.
 
 ## Entities
-- Pointer list 0x03000c60, count s16 at 0x0300000c, structs of 0x168 bytes from 0x020089c0.
-- x +4, y +8, z +0xc (low 16 bits, ground 19904, z = 19904 - 16*(h-0x100)), heading +0x12 (5760 per turn, 0 = +y, 1440 = +x), descriptor +0x1c, state +0x10f (2 player on foot, 3 traffic, 4 parked).
-- Player = 0x02009394; vehicle index s16 at 0x02001db0 (-1 on foot). Parked vehicle placements for Freedom City at ROM 0x309da8 (count, then x, y, type/heading words).
+- Pointer list 0x03000c60, LAST occupied index s16 at 0x0300000c, structs of 0x168 bytes from 0x020089c0. The index is inclusive, 0..31; constructor 0x080021bc and deletion routine 0x080022e8 confirm this. Rejecting `controlled == last` breaks actual helicopter exits.
+- x +4, y +8, z +0xc (signed 16-bit, ground 19904, z = 19904 - 16*(h-0x100)), heading +0x12 (5760 per turn, 0 = +y, 1440 = +x), descriptor +0x1c, state +0x10f (2 player on foot, 3 traffic, 4 parked). The adjacent +0xe field is separate: normal height writes must not overwrite it.
+- The initial player is at 0x02009394, but entity pointers can change. Resolve the live actor through controlled index 0x02001db8 and the pointer list. 0x02001db0 remains -1 in observed normal driving and is not a reliable vehicle test. Parked vehicle placements for Freedom City are at ROM 0x309da8 (count, then x, y, type/heading words).
 
 ## Physics
 - Vertical integrator around 0x08017500: gravity `lsls r3,r1,#3` at 0x175dc, gravity term `lsls r6,r2,#2` at 0x17576 and 0x175ec.
@@ -26,11 +26,14 @@ All addresses are for SHA-1 08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7.
 ## Build mode
 - `asm/hook.s` replaces the `bl 0x08072f68` (keypad reader) at 0x0800e9a8 with a call into `asm/editor.c`, placed at 0x081b0000 (the freed old column table).
 - The controlled entity index is the s16 at 0x02001db8 (0 on foot, else the vehicle's slot in the entity list).
-- 0x0203fff8 holds the previous key state; the game clears that area at level load.
-- Rebuild the blob with `asm/build.sh` (clang + ld.lld); `build.py` uses the committed `editor.bin`/`editor.json`.
+- 0x0203fff8 holds the previous key state. Actual quit/reload testing shows the game DOES NOT clear the mod's 0x0203ffc0..0x0203ffff scratch state and reuses the same grid address. The runtime now checks its mode and unique map-corner pointers to detect reloads.
+- Neo and space each own a distinct pointer at grid cell (0,0). Its 60-byte column content exactly matches the original boundary geometry. This uneditable marker makes reload detection constant-time and does not confuse normal inner-grid construction with a reload.
+- Rebuild the blob with `asm/build.sh` (clang + ld.lld + llvm-objcopy); `build.py` verifies the committed `editor.bin`/`editor.json` against the actual C/assembly/build inputs before using it.
+- SELECT+START retries the stadium run at (42,37.5), heading +x, only for a road vehicle in free-roam Mute City. The original keypad reader stores START in decoded buttons[5] and SELECT in [7]; suppressing all eight bytes prevents the retry chord from opening pause.
 
 ## Modes and vehicles
 - 0x02001d39 is 1 in Rampage (free roam) and 0 in the story.
+- Loaded level index is s16 at 0x02003ef2. Loader 0x0803c580 stores its first argument there near 0x0803c7e2; reload helper 0x0803dd58 reads it. Same-level reloads still require the corner marker because this index does not change.
 - Vehicle descriptors: 0x3c bytes each from 0x08354af4; the helicopter is 0x08354ef0. +0x1a engine power, +0x1c steering rate, +0x16 top speed (measured).
 - Lane ramps were removed: on real hardware their raised sides read as invisible walls.
 

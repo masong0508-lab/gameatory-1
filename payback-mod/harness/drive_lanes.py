@@ -3,7 +3,7 @@
 
     python3 payback-mod/harness/drive_lanes.py payback-stunt.gba [--shots out_dir]
 
-Needs the mGBA libretro core built with mgba-harness.patch (see README).
+Needs an mGBA libretro core (see README); stock cores are supported.
 Boots the ROM, starts Rampage in Freedom City, takes the parked tank, swaps it
 for a car, then drives each lane from its start point holding A.
 """
@@ -23,6 +23,22 @@ PLAYER_POS = (0x2008df8, 0x2009398, 0x2009478, 0x2009484)  # copies of the playe
 TANK = 0x2009934          # parked tank entity in Freedom City (x +4, y +8, z +0xc, heading +0x12)
 CAR_DESC = 0x08354c5c     # descriptor of a regular car; writing it to entity+0x1c swaps the model
 GROUND_Z = 19904
+
+
+def controlled_entity(e):
+    """Resolve the live entity. The game's count is the LAST index, inclusive."""
+    index, last = e.s16(0x02001db8), e.s16(0x0300000c)
+    if not (0 <= index <= last < 32):
+        raise RuntimeError(f'invalid controlled entity: index={index}, last={last}')
+    ptr = e.u32(0x03000c60 + 4 * index)
+    if not (0x02000000 <= ptr <= 0x0203fe98) or ptr & 3:
+        raise RuntimeError(f'invalid entity pointer: {ptr:#x}')
+    return ptr
+
+
+def is_driving(e):
+    ptr = controlled_entity(e)
+    return 0x08354af4 <= e.u32(ptr + 0x1c) < 0x08354ef0
 
 BOOT = ([(300, None), (4, 'A'), (200, None), (4, 'START'), (200, None), (4, 'START'), (160, None),
          (4, 'A'), (120, None), (4, 'A'), (120, None)] + [(4, 'DOWN'), (12, None)] * 6 +
@@ -47,27 +63,38 @@ def boot_into_car(rom):
         e.run(3)
         e.run(8, ['L'])
         e.run(240)
-        if struct.unpack('<h', e.read(0x2001db0, 2))[0] >= 0:
+        # 0x02001db0 is not a reliable vehicle indicator; it remains -1 in
+        # normal driving. Resolve the same controlled entity the game uses.
+        if is_driving(e):
             break
     else:
         raise SystemExit('could not get into the tank')
-    e.write32(TANK + 0x1c, CAR_DESC)
+    e.write32(controlled_entity(e) + 0x1c, CAR_DESC)
     e.run(60, ['LEFT', 'A'])
     return e
 
 
-def drive(e, start, frames):
+def position_car(e, start):
+    """Set up a repeatable lane test; this is a test teleport, not a game input."""
     sx, sy, ang = start
+    car = controlled_entity(e)
     for _ in range(6):
-        e.write32(TANK + 4, int(sx * 2048))
-        e.write32(TANK + 8, int(sy * 2048))
-        e.write8(TANK + 0x12, ang & 0xff)
-        e.write8(TANK + 0x13, ang >> 8)
+        e.write32(car + 4, int(sx * 2048))
+        e.write32(car + 8, int(sy * 2048))
+        e.write16(car + 0x0c, GROUND_Z)
+        e.write16(car + 0x12, ang)
+        for off in (0x40, 0x42, 0x44):
+            e.write16(car + off, 0)
         e.run(10)
+    return car
+
+
+def drive(e, start, frames):
+    car = position_car(e, start)
     log, shots = [], []
     for f in range(frames):
         e.run(1, ['A'])
-        log.append((e.r32(TANK + 4) / 2048, e.r32(TANK + 8) / 2048, (GROUND_Z - (e.r32(TANK + 0xc) & 0xffff)) / 16))
+        log.append((e.r32(car + 4) / 2048, e.r32(car + 8) / 2048, (GROUND_Z - e.s16(car + 0xc)) / 16))
         if f % 60 == 0:
             shots.append(e.frame.copy())
     return log, shots
@@ -104,6 +131,7 @@ def main():
             for i, im in enumerate(shots):
                 sheet.paste(im, (240 * (i % 4), 160 * (i // 4)))
             sheet.save(os.path.join(a.shots, f'lane_{name[0]}.png'))
+        e.close()
     sys.exit(0 if ok else 1)
 
 

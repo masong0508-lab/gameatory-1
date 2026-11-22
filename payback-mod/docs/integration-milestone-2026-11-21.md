@@ -54,3 +54,9 @@ python3 -m unittest discover -s payback-mod/tests -p "test_*.py" -v
 - Runtime tests for SELECT editing near city boundaries, vehicle exit during map swaps, and save/load transitions
 
 **Status:** source-integrated experimental candidate, **not emulator-playthrough-verified or release-ready**.
+# Historical integration checkpoint
+
+This record describes the earlier structural-only build. For the canonical
+emulator-tested build and current limitations, see
+[the playability milestone](playability-milestone.md).
+

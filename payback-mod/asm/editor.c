@@ -1,32 +1,51 @@
-/* In-game build mode: hold SELECT (the ticker lists the keys and the target cell blinks) and press A (kicker ramp), B (platform), R (raise), L (clear),
-   UP (loop plate) or DOWN (dash plate).
-   Edits the decoded level grid in RAM, so changes show at once and last until the level reloads. */
+/* In-game build mode: hold SELECT (the ticker lists the keys and the target cell blinks)
+   and press A (kicker ramp), B (platform), R (raise), L (clear), UP (loop plate),
+   or DOWN (dash plate). SELECT+START retries the stadium run in a free-roam car.
+   Edits affect the live RAM grid and last until a map change or level reload. */
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef short s16;
 typedef unsigned int u32;
+typedef __UINTPTR_TYPE__ uptr;
 
 #define KEYS (*(volatile u16 *)0x04000130)
-#define PREV (*(volatile u16 *)0x0203fff8)      /* cleared by the game at level load */
-#define GRID (*(u32 **)0x03000d60)              /* 128*128 column pointers, index x*128+y */
-#define ENTS ((u8 **)0x03000c60)
-#define CONTROLLED (*(s16 *)0x02001db8)          /* entity the player controls: 0 on foot, else the vehicle */
-#define GRID_PTR (*(u32 *)0x03000d60)
-#define ENTITY_COUNT (*(volatile s16 *)0x0300000c)
+#define PREV (*(volatile u16 *)0x0203fff8)
+#define GRID_PTR (*(volatile u32 *)0x03000d60)
+#define GRID ((u32 *)(uptr)GRID_PTR)            /* 128*128 column pointers, index x*128+y */
+#define ENTS ((const u32 *)0x03000c60)
+#define CONTROLLED (*(volatile s16 *)0x02001db8) /* 0 on foot, else the vehicle's slot */
+/* The game's allocator at 0x080021bc stores the LAST occupied index, inclusive,
+   and caps it at 31. Treating it as a count disables the last vehicle's controls. */
+#define ENTITY_LAST (*(volatile s16 *)0x0300000c)
+#define STATE_COOKIE (*(volatile u16 *)0x0203ffca)
+#define STATE_ENTITY (*(volatile u32 *)0x0203ffcc)
+#define STATE_GRID (*(volatile u32 *)0x0203ffd0)
+#define STATE_MODE (*(volatile u8 *)0x0203ffd6)
+#define CUR_I (*(volatile u32 *)0x0203ffdc)     /* cursor cell + 1, 0 when none */
+#define CUR_C (*(volatile u32 *)0x0203ffd8)     /* the column under the cursor */
+#define BLINK (*(volatile u8 *)0x0203ffd7)
+#define STATE_START 0x0203ffc0u
+#define STATE_TAG 0x5346
+
+static void cursor_off(void);
+static void stop_stunt(void);
+static void ticker(const char *msg);
+
 static int world_ready(void)
 {
     u32 grid = GRID_PTR;
-    return !(grid & 3) && grid >= 0x02000000 && grid <= 0x02030000;
+    /* Keep the whole 64 KiB grid below our reserved state, even for a bad pointer. */
+    return !(grid & 3) && grid >= 0x02000000 && grid <= STATE_START - 128 * 128 * 4;
 }
 static u8 *controlled_entity(void)
 {
-    int idx = CONTROLLED, count = ENTITY_COUNT;
-    if (idx < 0 || count <= 0 || count > 256 || idx >= count)
+    int idx = CONTROLLED, last = ENTITY_LAST;
+    if (idx < 0 || last < 0 || last > 31 || idx > last)
         return (u8 *)0;
-    u32 ptr = (u32)ENTS[idx];
-    if (ptr < 0x02000000 || ptr > 0x0203fe98 || (ptr & 3))
+    u32 ptr = ENTS[idx];
+    if (ptr < 0x02000000 || ptr > STATE_START - 0x168 || (ptr & 3))
         return (u8 *)0;
-    return (u8 *)ptr;
+    return (u8 *)(uptr)ptr;
 }
 
 
@@ -43,7 +62,7 @@ extern const u32 *const maps[3];
 #define SPACE_MAP maps[0]
 #define CITY_MAP maps[1]
 #define NEO_MAP maps[2]
-#define IN_SPACE (*(volatile u8 *)0x0203fffa)   /* these two are cleared by the game at level load */
+#define IN_SPACE (*(volatile u8 *)0x0203fffa)   /* sync_state clears these on a detected level reload */
 #define IN_NEO (*(volatile u8 *)0x0203fffb)
 #define FREE_ROAM (*(u8 *)0x02001d39)           /* 1 in Rampage (free roam), 0 in the story */
 #define ARWING_DESC 0x08354ef0                   /* the helicopter, renamed Arwing */
@@ -51,6 +70,8 @@ extern const u32 *const maps[3];
 
 static void load_map(const u32 *src)
 {
+    cursor_off();                                 /* never carry the old map's blink/column into the new one */
+    stop_stunt();
     u32 *g = GRID;
     for (int i = 0; i < 128 * 128; i++)
         if ((g[i] >> 24) != 0x02)             /* keep the few columns the game builds in RAM */
@@ -68,14 +89,12 @@ static int is_city(void)
 
 /* Free roam in Mute City loads Neo Mute City. Getting into the Arwing swaps the map for space;
    getting out swaps back to whichever city you came from. */
-static void maps_update(void)
+static void maps_update(u8 *e)
 {
     if (!IN_SPACE && !IN_NEO && FREE_ROAM == 1 && is_city()) {
         load_map(NEO_MAP);
         IN_NEO = 1;
     }
-    u8 *e = controlled_entity();
-    if (!e) return;
     int flying = *(u32 *)(e + 0x1c) == ARWING_DESC;
     if (flying && !IN_SPACE && (IN_NEO || is_city())) {
         load_map(SPACE_MAP);
@@ -86,18 +105,27 @@ static void maps_update(void)
     }
 }
 
-enum { KA = 1, KB = 2, KSEL = 4, KUP = 0x40, KDOWN = 0x80, KR = 0x100, KL = 0x200 };
+enum { KA = 1, KB = 2, KSEL = 4, KSTART = 8, KUP = 0x40, KDOWN = 0x80, KR = 0x100, KL = 0x200 };
+
+static int valid_column(u32 col)
+{
+    return !(col & 3) &&
+        ((col >= 0x08000000 && col <= 0x09000000 - 60) ||
+         (col >= 0x02000000 && col <= STATE_START - 60));
+}
 
 static int top(u32 col)
 {
-    const u16 *r = (const u16 *)col;
+    if (!valid_column(col))
+        return 0x100;
+    const u16 *r = (const u16 *)(uptr)col;
     int h0 = r[2], h1 = r[3];
     return h0 > h1 ? h0 : h1;
 }
 
 static void put(int x, int y, u32 col)
 {
-    if (x >= 1 && x < 127 && y >= 1 && y < 127)
+    if (x >= 1 && x < 127 && y >= 1 && y < 127 && (GRID[x * 128 + y] >> 24) != 0x02)
         GRID[x * 128 + y] = col;
 }
 
@@ -108,7 +136,7 @@ static int level(int h)
 }
 
 /* Cheat switches: one byte each, set by Action Replay / CodeBreaker codes (see CHEATS.txt).
-   The game clears this RAM when a level loads, so the codes simply keep writing them. */
+   The game reuses this RAM across level loads; sync_state resets transient timers separately. */
 #define CHEAT_MOON (*(volatile u8 *)0x0203ffc0)     /* floaty jumps */
 #define CHEAT_SPEED (*(volatile u8 *)0x0203ffc1)    /* higher top speed while holding A */
 #define CHEAT_HOVER (*(volatile u8 *)0x0203ffc2)    /* hold R to lift the car */
@@ -144,6 +172,7 @@ static int level(int h)
 #define LOOP_G 220                                 /* gravity, speed x16 per tick */
 #define GAS 12
 #define BRAKE 160
+#define LOOP_MAX_SPEED 1024                        /* bounds phase steps and 32-bit physics products */
 #define REG16(a) (*(volatile u16 *)(a))
 #define REG32(a) (*(volatile u32 *)(a))
 enum { KRIGHT = 0x10, KLEFT = 0x20 };
@@ -156,6 +185,7 @@ __attribute__((optnone,noinline)) static int heading4(u8 *e)
 {
     int a = *(s16 *)(e + 0x12) + 720, d = 0;      /* heading: 5760 per turn, 0 = +y */
     while (a >= 1440) a -= 1440, d++;
+    while (a < 0) a += 1440, d--;
     return d & 3;
 }
 
@@ -188,6 +218,16 @@ static void roll_screen(int p)                     /* rotate the 3D view (mode 4
     REG32(0x0400002c) = (u32)((CAR_SY << 8) - (s * CAR_SX + c * CAR_SY));
 }
 
+static void stop_stunt(void)
+{
+    LOOP_ON = 0;
+    NITRO_T = 0;
+    if (ROLL) {
+        ROLL = 0;
+        roll_screen(0);
+    }
+}
+
 /* leave the track: hand the car to the game with its velocity in all three axes */
 static void fly_off(u8 *e, int fx, int fy, int sx, int sy)
 {
@@ -204,8 +244,10 @@ static void fly_off(u8 *e, int fx, int fy, int sx, int sy)
     LOOP_ON = 0xff;
 }
 
-static void stunts(void)
+static void stunts(u8 *e, u16 keys)
 {
+    if (ROLL < 0 || ROLL >= FULL)
+        ROLL = 0;
     if (ROLL) {                                     /* right the view after a loop */
         if (LOOP_ON != 1) {
             int r = ROLL;
@@ -214,14 +256,12 @@ static void stunts(void)
         }
         roll_screen(ROLL);
     }
-    u8 *e = controlled_entity();
-    if (!e)
-        return;
     u32 desc = *(u32 *)(e + 0x1c);
     if (desc < CAR_DESC_FIRST || desc >= ARWING_DESC)  /* cars only (index 0 can be a car too) */
         return;
     s16 *v = (s16 *)(e + 0x40);
-    int *x = (int *)(e + 4), *y = (int *)(e + 8), *z = (int *)(e + 0xc);
+    int *x = (int *)(e + 4), *y = (int *)(e + 8);
+    s16 *z = (s16 *)(e + 0xc);                     /* +0xe is a separate field: never write a full word */
     int cx = *x >> 11, cy = *y >> 11;
     if (cx < 0 || cx >= 128 || cy < 0 || cy >= 128)
         return;
@@ -229,19 +269,22 @@ static void stunts(void)
     int speed = (v[0] < 0 ? -v[0] : v[0]) + (v[1] < 0 ? -v[1] : v[1]);
     if (LOOP_ON == 0xff && col != LOOP_PAD)
         LOOP_ON = 0;
-    if (LOOP_ON == 0 && col == BOOST_PAD) {        /* F-Zero dash plate: a kick along your heading */
+    if (!(keys & KSEL) && LOOP_ON == 0 && col == BOOST_PAD && *z >= 19904 - 64) {
         int d = heading4(e), s = speed < 340 ? 520 : speed + (speed >> 1);
         if (s > 700) s = 700;
         v[0] = d == 1 ? s : d == 3 ? -s : 0;
         v[1] = d == 0 ? s : d == 2 ? -s : 0;
     }
-    if (LOOP_ON == 0 && col == LOOP_PAD && speed >= 60 && *z >= 19904 - 64) {   /* wheels on the plate */
+    if (!(keys & KSEL) && LOOP_ON == 0 && col == LOOP_PAD && speed >= 60 && *z >= 19904 - 64) {
         int d = heading4(e);
+        if (speed > LOOP_MAX_SPEED) speed = LOOP_MAX_SPEED;
         LOOP_D = d;
-        LOOP_X = *x;
-        LOOP_Y = *y;
         LOOP_L = (d == 1 || d == 3) ? (*y & 2047) - 1024 : (*x & 2047) - 1024;
         if (d == 1 || d == 2) LOOP_L = -LOOP_L;     /* positive is to the driver's right */
+        int sx = d == 0 ? 1 : d == 2 ? -1 : 0;
+        int sy = d == 1 ? -1 : d == 3 ? 1 : 0;
+        LOOP_X = *x - sx * LOOP_L;                 /* anchor to the lane centre; don't add the offset twice */
+        LOOP_Y = *y - sy * LOOP_L;
         LOOP_V = speed << 4;
         LOOP_P = 0;
         LOOP_ON = 1;
@@ -249,29 +292,34 @@ static void stunts(void)
     if (LOOP_ON != 1)
         return;
 
+    if (LOOP_D > 3 || LOOP_P < 0 || LOOP_P >= FULL ||
+        LOOP_L < -2 * LOOP_W || LOOP_L > 2 * LOOP_W) {
+        stop_stunt();
+        return;
+    }
+
     int d = LOOP_D;
     int fx = d == 1 ? 1 : d == 3 ? -1 : 0, fy = d == 0 ? 1 : d == 2 ? -1 : 0;
     int sx = fy, sy = -fx;                          /* driver's right */
-    u16 keys = ~KEYS & 0x3ff;
+    if (keys & KSEL) keys = 0;                     /* build keys never steer, accelerate or brake a live loop */
     int p = LOOP_P, Vs = LOOP_V;
     Vs -= (LOOP_G * sinp(p)) >> 8;                  /* gravity along the track */
     if (keys & KA) Vs += GAS;
-    if (keys & KB) Vs -= BRAKE;
+    if (keys & KB)                                 /* braking stops, rather than accelerating in reverse */
+        Vs = Vs > BRAKE ? Vs - BRAKE : Vs < -BRAKE ? Vs + BRAKE : 0;
     Vs -= Vs >> 9;                                  /* rolling drag */
+    if (Vs > LOOP_MAX_SPEED * 16) Vs = LOOP_MAX_SPEED * 16;
+    if (Vs < -LOOP_MAX_SPEED * 16) Vs = -LOOP_MAX_SPEED * 16;
     LOOP_V = Vs;
     int V = Vs >> 4;
-    if (keys & KRIGHT) LOOP_L += 120 + (V >> 2);
-    if (keys & KLEFT) LOOP_L -= 120 + (V >> 2);
+    int steering = 120 + ((V < 0 ? -V : V) >> 2);
+    if (keys & KRIGHT) LOOP_L += steering;
+    if (keys & KLEFT) LOOP_L -= steering;
     p += (V * 98) >> 8;                             /* distance travelled per tick (about 1.6 V) -> angle */
     LOOP_P = p;
     ROLL = wrap(p);
 
-    /* off the track: past either edge, or not enough speed to stay pressed on (v^2/R < g inward) */
     int c = cosp(p);
-    if (LOOP_L > LOOP_W || LOOP_L < -LOOP_W || (c < 0 && V * V < -137 * c && !CHEAT_LOOP)) {
-        fly_off(e, fx, fy, sx, sy);
-        return;
-    }
     if (p >= FULL || p < 0) {                       /* round and out (or rolled back down the way in) */
         int fwd = p < 0 ? 0 : 2 * LOOP_R;
         *x = LOOP_X + fx * fwd + sx * LOOP_L;
@@ -281,14 +329,24 @@ static void stunts(void)
         v[1] = (s16)(fy * V);
         v[2] = 0;
         LOOP_ON = 0xff;
-        ROLL = p < 0 ? 0 : ROLL;
+        ROLL = 0;
+        roll_screen(0);
+        if (p >= FULL)
+            ticker("Loop clear!");
         return;
     }
-    int fwd = ((LOOP_R * sinp(p)) >> 8) + ((p * 21) >> 4);   /* the loop drifts 2R forward so it exits ahead */
+    /* 21846/16384 approximates 4/3 and reaches exactly 2R at FULL. The former
+       21/16 factor stopped 128 units short and snapped the car forward on exit. */
+    int fwd = ((LOOP_R * sinp(p)) >> 8) + ((p * 21846) >> 14);
     *x = LOOP_X + fx * fwd + sx * LOOP_L;
     *y = LOOP_Y + fy * fwd + sy * LOOP_L;
     *z = 19904 - 16 * ((LOOP_R - ((LOOP_R * c) >> 8)) >> 4);
     *(s16 *)(e + 0x12) = (s16)(d * 1440);
+    /* Leave from the position just calculated, with the tangent's full 3D velocity. */
+    if (LOOP_L > LOOP_W || LOOP_L < -LOOP_W || (c < 0 && V * V < -137 * c && !CHEAT_LOOP)) {
+        fly_off(e, fx, fy, sx, sy);
+        return;
+    }
     v[0] = v[1] = 0;
     v[2] = 0;
 }
@@ -299,7 +357,9 @@ static void stunts(void)
    at 0x02019450 and queues it with 0x08039870(slot, 2); this does the same with our own text */
 #define TICK_IDX (*(volatile s16 *)0x02019424)
 #define TICK_SLOTS ((char *)0x02019450)
+#ifndef TICK_QUEUE
 #define TICK_QUEUE ((void (*)(char *, int))0x08039871)
+#endif
 
 static void ticker(const char *msg)
 {
@@ -314,31 +374,27 @@ static void ticker(const char *msg)
     TICK_QUEUE(dst, 2);
     TICK_IDX = i >= 9 ? 0 : i + 1;
 }
-#define CUR_I (*(volatile int *)0x0203ffdc)        /* cursor cell + 1, 0 when none */
-#define CUR_C (*(volatile u32 *)0x0203ffd8)        /* the column under the cursor */
-#define BLINK (*(volatile u8 *)0x0203ffd7)
-
 static void cursor_off(void)
 {
-    if (CUR_I) {
-        int i = CUR_I - 1;
-        if (GRID[i] == CURSOR || GRID[i] == CURSOR2)
+    if (CUR_I && CUR_I <= 128 * 128 && world_ready() && STATE_GRID == GRID_PTR) {
+        u32 i = CUR_I - 1;
+        if ((GRID[i] == CURSOR || GRID[i] == CURSOR2) && valid_column(CUR_C))
             GRID[i] = CUR_C;
-        CUR_I = 0;
     }
+    CUR_I = 0;
 }
 
 static void cursor_on(int x, int y)
 {
     if (x < 1 || x >= 127 || y < 1 || y >= 127)
         return;
-    int i = x * 128 + y;
+    u32 i = x * 128 + y;
     if (CUR_I != i + 1) {
         cursor_off();
         CUR_I = i + 1;
         CUR_C = GRID[i];
     }
-    if (top(CUR_C) == 0x100 && (CUR_C >> 24) != 0x02)  /* blink only on street-level cells */
+    if (valid_column(CUR_C) && (CUR_C >> 24) != 0x02 && top(CUR_C) == 0x100)
     {
         int t = ++BLINK & 15;                        /* pulse: red, white, red, then the ground */
         GRID[i] = t < 4 ? CURSOR : t < 8 ? CURSOR2 : t < 12 ? CURSOR : CUR_C;
@@ -352,7 +408,7 @@ __attribute__((optnone,noinline)) static char *put_num(char *o, int n)          
     int started = 0;
     for (int i = 0; i < 6; i++) {
         int dgt = 0;
-        while (n >= pw[i]) n -= pw[i], dgt++;
+        while (n >= pw[i] && dgt < 9) n -= pw[i], dgt++;
         if (dgt || started || i == 5) *o++ = '0' + dgt, started = 1;
     }
     return o;
@@ -364,14 +420,11 @@ static char *put_str(char *o, const char *t)
     return o;
 }
 
-static void cheats(u16 keys, u16 hit)
+static void cheats(u8 *e, u16 keys, u16 hit)
 {
-    u8 *e = controlled_entity();
-    if (!e)
-        return;
     u32 desc = *(u32 *)(e + 0x1c);
     s16 *v = (s16 *)(e + 0x40);
-    int *z = (int *)(e + 0xc);
+    s16 *z = (s16 *)(e + 0xc);
     if (CHEAT_DEBUG && ++DEBUG_T >= 60) {         /* about every three seconds */
         char buf[96], *o = buf;
         DEBUG_T = 0;
@@ -415,30 +468,92 @@ static void cheats(u16 keys, u16 hit)
     }
 }
 
+static void sync_state(u8 *e)
+{
+    /* The game reuses the grid address AND leaves this scratch RAM intact on reload.
+       Each generated map therefore owns a unique pointer at the uneditable corner;
+       its column bytes are an exact visual/collision clone. A normal level load
+       restores the original corner pointer. Dynamic RAM corners are left alone. */
+    u32 corner = GRID[0];
+    int replaced = (corner >> 24) != 0x02 &&
+        ((IN_SPACE && corner != SPACE_MAP[0]) ||
+         (!IN_SPACE && IN_NEO && corner != NEO_MAP[0]));
+    if (STATE_COOKIE != STATE_TAG || STATE_GRID != GRID_PTR ||
+        STATE_MODE != FREE_ROAM || replaced) {
+        /* A stale cursor must never restore a column into a different level. */
+        CUR_I = 0;
+        BLINK = 0;
+        IN_SPACE = IN_NEO = 0;
+        ROLL = 0;
+        LOOP_ON = NITRO_T = DEBUG_T = 0;
+        STATE_ENTITY = 0;
+        STATE_GRID = GRID_PTR;
+        STATE_MODE = FREE_ROAM;
+        STATE_COOKIE = STATE_TAG;
+    }
+    u32 ptr = (u32)(uptr)e;
+    if (STATE_ENTITY != ptr) {
+        cursor_off();
+        stop_stunt();
+        STATE_ENTITY = ptr;
+    }
+}
+
+static int stadium_retry(u8 *e)
+{
+    u32 desc = *(u32 *)(e + 0x1c);
+    if (FREE_ROAM != 1 || IN_SPACE || desc < CAR_DESC_FIRST || desc >= ARWING_DESC ||
+        !(IN_NEO || is_city()))
+        return 0;
+    cursor_off();
+    stop_stunt();
+    *(int *)(e + 4) = 42 * 2048;
+    *(int *)(e + 8) = 37 * 2048 + 1024;
+    *(s16 *)(e + 0xc) = 19904;
+    *(s16 *)(e + 0x12) = 1440;
+    s16 *v = (s16 *)(e + 0x40);
+    v[0] = v[1] = v[2] = 0;
+    /* 0x0806f98c rebuilds XY motion from this signed longitudinal speed.
+       Clearing the vector alone lets a moving/reversing car keep coasting. */
+    *(s16 *)(e + 0xba) = 0;
+    ticker("Stadium retry. A accelerate, B brake. Build: hold SELECT.");
+    return 1;
+}
+
 void editor(u8 *buttons)
 {
     u16 keys = ~KEYS & 0x3ff, hit = keys & ~PREV;
     PREV = keys;
     if (!world_ready()) {
         CUR_I = 0;
+        STATE_COOKIE = 0;
+        LOOP_ON = NITRO_T = ROLL = 0;
         return;
     }
-    maps_update();
-    stunts();
-    if (!(keys & KSEL))
-        cheats(keys, hit);
+    u8 *e = controlled_entity();
+    if (!e) {
+        cursor_off();
+        stop_stunt();
+        STATE_ENTITY = 0;
+        return;
+    }
+    sync_state(e);
+    maps_update(e);
+    /* START is decoded into buttons[5], SELECT into[7] by the original reader.
+       Suppress both along with driving inputs before the game handles pause. */
+    if (keys & KSEL)
+        for (int i = 0; i < 8; i++) buttons[i] = 0;
+    if ((keys & KSEL) && (hit & KSTART) && stadium_retry(e))
+        return;
+    stunts(e, keys);
     if (!(keys & KSEL)) {
+        cheats(e, keys, hit);
         cursor_off();
         return;
     }
-    for (int i = 0; i < 8; i++)      /* the game sees no buttons while SELECT is held */
-        buttons[i] = 0;
-    if (!controlled_entity())
-        return;
     if (hit & KSEL)
-        ticker("Build mode. A ramp, B block, R raise, L clear, UP loop, DOWN dash plate.");
+        ticker("Build: A ramp, B block, R raise, L clear, UP loop, DOWN dash. SELECT+START stadium retry.");
 
-    u8 *e = controlled_entity();
     int x = *(int *)(e + 4) >> 11, y = *(int *)(e + 8) >> 11;
     int d = heading4(e);
     int dx = d == 1 ? 1 : d == 3 ? -1 : 0, dy = d == 0 ? 1 : d == 2 ? -1 : 0;

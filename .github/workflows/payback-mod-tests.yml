@@ -24,14 +24,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install host and ARM compilers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang lld llvm
+          command -v cc
       - name: Syntax check
         run: python -m compileall -q payback-mod
-      - name: Map codec, ROM bounds, and BPS patch regression tests
+      - name: Runtime behavior, map codec, ROM bounds and patch regression tests
         run: python -m unittest discover -s payback-mod/tests -p "test_*.py" -v
       - name: Compile ARM7TDMI in-game editor
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld llvm
           sh payback-mod/asm/build.sh
           python - <<'PY'
           import json, os
@@ -46,7 +49,7 @@ jobs:
       - name: Package source-only offline toolkit
         run: |
           tar -czf payback-mod-toolkit.tar.gz \
-            --exclude='*.gba' --exclude='*.sav' --exclude='__pycache__' \
+            --exclude='*.gba' --exclude='*.sav' --exclude='*.state' --exclude='__pycache__' \
             payback-mod
       - uses: actions/upload-artifact@v4
         with:

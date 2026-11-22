@@ -1,6 +1,7 @@
 """Edits to a Payback (Europe) ROM: map columns, level grids and physics tweaks."""
 import collections
 import hashlib
+from pathlib import Path
 import struct
 
 from .mapcodec import GBA, LEVEL_TABLE, COLUMN_BASE, decode, encode
@@ -14,6 +15,63 @@ BASE_LITERALS = (0x3c674, 0x3cf50)   # the only two references to the column tab
 MAX_COLUMNS = 1 << 15                # grid literals are 15 bits
 STRING_BASE = 0x31ce20               # string table entries are offsets from here
 ENGLISH_TABLES = ((0x30b2e4, 0x30c7f8), (0x312560, 0x3149dc))
+RUNTIME_SOURCES = ('asm/build.sh', 'asm/editor.c', 'asm/hook.s', 'asm/link.ld')
+RUNTIME_BASE, RUNTIME_LIMIT = 0x081b0000, 0x081c0000
+RUNTIME_COLUMNS, RUNTIME_MAPS = 85, 3
+REBUILD_RUNTIME = 'rebuild the runtime with sh payback-mod/asm/build.sh'
+
+
+def validate_runtime(code, metadata, source_root=None):
+    """Reject stale/corrupt compiled code and unsafe injection layouts before ROM writes.
+
+    The source check is used by normal builds and by the compiler before publishing
+    its output. Callers injecting a supplied artifact still get byte/hash/layout checks.
+    """
+    if (not isinstance(metadata, dict) or type(metadata.get('format_version')) is not int or
+            metadata['format_version'] != 1):
+        raise ValueError('runtime metadata has no supported provenance; ' + REBUILD_RUNTIME)
+    if not isinstance(code, (bytes, bytearray)) or not code:
+        raise ValueError('runtime code must be a nonempty byte string; ' + REBUILD_RUNTIME)
+    if type(metadata.get('code_size')) is not int or metadata['code_size'] != len(code):
+        raise ValueError('runtime code length does not match metadata; ' + REBUILD_RUNTIME)
+    if metadata.get('code_sha256') != hashlib.sha256(code).hexdigest():
+        raise ValueError('runtime code hash does not match metadata; ' + REBUILD_RUNTIME)
+    sources = metadata.get('source_sha256')
+    if not isinstance(sources, dict) or set(sources) != set(RUNTIME_SOURCES):
+        raise ValueError('runtime source provenance is incomplete; ' + REBUILD_RUNTIME)
+    for name, digest in sources.items():
+        if (not isinstance(digest, str) or len(digest) != 64 or
+                any(c not in '0123456789abcdef' for c in digest)):
+            raise ValueError('runtime source hash is invalid: ' + name)
+    for name in ('hook', 'cols', 'maps'):
+        if type(metadata.get(name)) is not int:
+            raise ValueError('runtime symbol must be an integer: ' + name)
+    hook, cols, maps = (metadata[k] for k in ('hook', 'cols', 'maps'))
+    if not RUNTIME_BASE <= (hook & ~1) <= RUNTIME_BASE + len(code) - 2:
+        raise ValueError('runtime hook is outside the compiled code')
+    if cols != ((RUNTIME_BASE + len(code) + 3) & ~3):
+        raise ValueError('runtime column table must immediately follow aligned code')
+    if maps != cols + 4 * RUNTIME_COLUMNS:
+        raise ValueError('runtime map table must follow all 85 column pointers')
+    if maps + 4 * RUNTIME_MAPS > RUNTIME_LIMIT:
+        raise ValueError('runtime code and tables exceed the reserved injection region')
+    if source_root is not None:
+        for name in RUNTIME_SOURCES:
+            try:
+                actual = hashlib.sha256((Path(source_root) / name).read_bytes()).hexdigest()
+            except OSError as exc:
+                raise ValueError('runtime source unavailable: ' + name) from exc
+            if actual != sources[name]:
+                raise ValueError('compiled runtime is stale for ' + name + '; ' + REBUILD_RUNTIME)
+
+
+def _column_records(columns, count, label):
+    columns = list(columns)
+    if len(columns) != count:
+        raise ValueError(f'{label}: expected {count} columns, got {len(columns)}')
+    if any(not isinstance(c, (bytes, bytearray)) or len(c) != 60 for c in columns):
+        raise ValueError(f'{label}: every map column must be 60 bytes')
+    return [bytes(c) for c in columns]
 
 
 class ColumnIndex:
@@ -86,9 +144,11 @@ class PaybackRom:
             struct.pack_into('<I', self.d, lit, GBA + NEW_BASE)
         self.free = NEW_BASE + 60 * MAX_COLUMNS   # grid streams go after the addressable columns
         self.new_columns = {}
+        self.marker_columns = []
         self.painted = {}
         self._orig_grids = {}
         self._index = None
+        self.runtime_metadata = None
 
     def orig_grid(self, level):
         """The level's grid as Payback shipped it (decoded once; grid() decodes every time)."""
@@ -210,29 +270,75 @@ class PaybackRom:
     # Build mode: a hook replaces the keypad-reader call in the game loop. The code goes in the
     # old column table area, which the relocation above freed and which is in BL range.
     HOOK_CALL = 0x0800e9a8
-    BUILD_BASE = 0x081b0000
+    BUILD_BASE = RUNTIME_BASE
+    KEYPAD_READER = 0x08072f68
 
     def add_build_mode(self, code, syms, flats, ramps, plates):
         """flats: 17 columns (0x100 + 0x20*i); ramps: 4 x 16 columns rising toward +y, +x, -y, -x;
-        plates: the loop and boost plates."""
+        plates: the loop plate, boost plate and two cursor columns."""
+        validate_runtime(code, syms)
+        flats = _column_records(flats, 17, 'build platforms')
+        ramps = list(ramps)
+        if len(ramps) != 4:
+            raise ValueError('build ramps: expected 4 directions')
+        ramps = [_column_records(row, 16, 'build ramp direction') for row in ramps]
+        plates = _column_records(plates, 4, 'build plates and cursors')
+        records = flats + [c for row in ramps for c in row] + plates
+        if self.ncols + len(set(records) - self.new_columns.keys()) > MAX_COLUMNS:
+            raise ValueError('map column index limit (32768 columns) exceeded')
+        h1, h2 = struct.unpack_from('<HH', self.d, self.HOOK_CALL - GBA)
+        if h1 >> 11 != 0x1e or h2 >> 11 != 0x1f:
+            raise ValueError('expected a Thumb BL at the runtime hook site')
+        original_off = ((h1 & 0x7ff) << 12) | ((h2 & 0x7ff) << 1)
+        if original_off & (1 << 22):
+            original_off -= 1 << 23
+        if self.HOOK_CALL + 4 + original_off != self.KEYPAD_READER:
+            raise ValueError('runtime hook does not call the original keypad reader')
+        off = (syms['hook'] & ~1) - (self.HOOK_CALL + 4)
+        if off & 1 or not -(1 << 22) <= off < (1 << 22):
+            raise ValueError('runtime hook is outside Thumb BL range')
         o = self.BUILD_BASE - GBA
         self.d[o:o + len(code)] = code
-        table = [self.col_ptr(self.add_column(c)) for c in list(flats) + [c for d in ramps for c in d] + list(plates)]
+        table = [self.col_ptr(self.add_column(c)) for c in records]
         struct.pack_into('<%dI' % len(table), self.d, syms['cols'] - GBA, *table)
-        h1, h2 = struct.unpack_from('<HH', self.d, self.HOOK_CALL - GBA)
-        assert h1 >> 11 == 0x1e and h2 >> 11 == 0x1f, 'expected a bl at the hook site'
-        off = syms['hook'] - (self.HOOK_CALL + 4)
         struct.pack_into('<HH', self.d, self.HOOK_CALL - GBA,
                          0xf000 | ((off >> 12) & 0x7ff), 0xf800 | ((off >> 1) & 0x7ff))
+        self.runtime_metadata = dict(syms, source_sha256=dict(syms['source_sha256']))
 
     def col_ptr(self, idx):
         return GBA + NEW_BASE + 60 * idx
 
     def add_space(self, syms, space_cells, free_roam_cells):
         """Store full pointer grids (space, level 0, free-roam city); the hook swaps between them."""
+        if not getattr(self, 'runtime_metadata', None) or syms != self.runtime_metadata:
+            raise ValueError('space maps require the same validated runtime that was installed')
+        space_cells = _column_records(space_cells, 16384, 'space grid')
+        free_roam_cells = _column_records(free_roam_cells, 16384, 'free-roam grid')
         city = self.painted.get(0) or self.grid(0)
+        if len(city) != 16384 or any(type(i) is not int or not 0 <= i < self.ncols for i in city):
+            raise ValueError('city grid contains invalid column indices')
+        additions = set(space_cells) | set(free_roam_cells)
+        # Two deliberately unique copies of the unchanged corner identify the live
+        # variant. The original loader reuses the same RAM grid on level reload,
+        # so the grid address and scratch flags alone cannot identify a new level.
+        if self.ncols + len(additions - self.new_columns.keys()) + 2 > MAX_COLUMNS:
+            raise ValueError('map column index limit (32768 columns) exceeded')
+        if ((self.free + 3) & ~3) + 3 * 16384 * 4 > len(self.d):
+            raise ValueError('space grids exceed the 16 MiB ROM capacity')
         space = [self.add_column(c) for c in space_cells]
         neo = [self.add_column(c) for c in free_roam_cells]
+        markers = []
+        for grid, corner in ((space, space_cells[0]), (neo, free_roam_cells[0])):
+            marker = self.ncols
+            offset = NEW_BASE + 60 * marker
+            self.d[offset:offset + 60] = corner
+            self.ncols += 1
+            grid[0] = marker
+            markers.append(marker)
+        # Do not enter these copies in new_columns: regular deduplication must
+        # never hand a marker pointer to any other map cell or the base city.
+        self.marker_columns = getattr(self, 'marker_columns', []) + markers
+        self.map_marker_pointers = dict(space=self.col_ptr(markers[0]), neo=self.col_ptr(markers[1]))
         ptrs = []
         for g in (space, city, neo):
             o = self.alloc(struct.pack('<16384I', *[self.col_ptr(i) for i in g]))

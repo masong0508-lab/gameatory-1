@@ -9,7 +9,9 @@ Formats:
   CodeBreaker unencrypted      (Pizza Boy: Cheats > add > CodeBreaker)
   GameShark / Action Replay v1-v2, encrypted
 
-Turn a cheat off by disabling its code; the game clears the switches when a level loads.
+Disabling a code stops its writes but does not clear a switch already set in RAM.
+To turn it off, write 0 to that switch (or cold-boot the ROM with the code disabled).
+Changing levels does not clear this RAM. Emulator states can also restore old switches.
 
 Moon gravity
 ------------
@@ -64,7 +66,8 @@ Adding your own
 ---------------
 Any Payback RAM poke works too. Useful addresses (see docs/payback-notes.md):
   03000C60  table of entity pointers; 02001DB8 (16-bit) = index of the vehicle you drive
-  entity +04 / +08 / +0C   X, Y, Z (32-bit; 2048 per map cell; Z is smaller when higher)
+  entity +04 / +08         X, Y (32-bit; 2048 per map cell)
+  entity +0C               Z (signed 16-bit; smaller when higher; +0E is separate)
   entity +40 / +42 / +44   X, Y, vertical speed (16-bit; vertical is positive downward)
   02001D39  1 in free roam, 0 in the story
 Avoid 0203FFC0-0203FFFF: the mod keeps its loop, build mode and cheat state there.
