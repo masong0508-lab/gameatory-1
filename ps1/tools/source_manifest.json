@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "889008ea72959bc0b8c8e9f7603b95509a706826b61b433daf63f18b198ccc95"
+      "sha256": "4a5f9126e1b1c57b3b8c9892c7639449705804f7a49aa721954d9e8697b9f335"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -157,7 +157,7 @@
     {
       "source": "stage19/ps1rt/crt0.s",
       "target": "ps1rt/crt0.s",
-      "sha256": "e79650f78bf7f565f3d10b6d5f74d101aa2b588ccdf278ade07a408aa200ca90"
+      "sha256": "a435ce6e83dde0b327121079392806ed6bb2eff88e9598e15e82200de6bef4af"
     },
     {
       "source": "stage7/integration/ps1rt/font.h",
@@ -172,7 +172,7 @@
     {
       "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "6be550275a2b7ae12e634f66c85e10df3740c030f7ab597c49bc9aff7986d0a6"
+      "sha256": "428002302d467ff38334b54589a59fbdda52526f91eb02bcaab1865da478c224"
     },
     {
       "source": "stage19/ps1rt/hw_pad.h",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "2d9ab08fcaf114c54d1f1297359e0f3e8863b79d6bc3f8ff94a73637f63bf80d"
+      "sha256": "fd619f0185e0414c5c55fa77d38b019570d618b4361646e9e8f38455d480a903"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -517,7 +517,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "aec67aa5f7cdc39dff4b5837e79a568865a020ea48ac9fc900da2513eed05fad"
+      "sha256": "520fc76dd308cd721662183502992437f2ca5d01b226f83264c5bf480ead41a8"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -773,6 +773,11 @@
       "source": "tools/disp_patch_check.py",
       "target": "tools/disp_patch_check.py",
       "sha256": "fd4f6db7b86cdb245e45f5f16e8507777814406abe664aebe07556029e6a5606"
+    },
+    {
+      "source": "stage19/ps1rt/exepack.py",
+      "target": "ps1rt/exepack.py",
+      "sha256": "0f8d242c84f1df083ec2927bfe7255b8060b4ec8f7b8943608935fa1aaf72103"
     }
   ],
   "patches": [
