@@ -527,6 +527,7 @@ u32 cp_keys(void)
 /* ---- the level is entered ---- */
 void cp_level_enter(int map)
 {
+    int owed = C.ending;               /* the finale's cards, not yet read to the end (enter() clears them) */
     if (!C.loaded)
         load();
     if (C.snap)
@@ -544,6 +545,9 @@ void cp_level_enter(int map)
         pl_drop_begin(ch->map, ch->hx2, ch->hy2);
         C.drop = 1;
     }
+    if (owed && !C.drop && on() && cp_flag(CP_FLAG_FINALE))
+        C.ending = CP_END_RETURN;      /* (a game over or a quit to the title came first, and act_done() does not run twice:
+                                          they come as they would have, once he is in the Arwing again) */
 }
 
 void cp_tick(void)

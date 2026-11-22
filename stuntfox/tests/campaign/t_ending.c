@@ -323,6 +323,24 @@ int main(void)
     CHECK(!cp_pw_apply(wrong) && cp_active() && cp_prog.spare[CP_SPARE_EVA] == 5);
     memset(&cp_prog, 0, sizeof cp_prog);    /* (no campaign in RAM: nothing to keep) */
     CHECK(cp_pw_apply(code) && cp_active() && !cp_prog.spare[CP_SPARE_EVA] && prog_ok(&cp_prog));
+
+    /* A level entered before the finale's cards were read to the end: a game
+       over on the final map, or a quit to the title while a card is up and a
+       new game in another city. The final act is not done twice, so the level
+       entry keeps the cards owed and they come once he is in the Arwing. */
+    fixture(1); cp_ev(EV_MIS_DONE, 3, 20);
+    CHECK(cp_ending() == CP_END_RETURN && cp_flag(CP_FLAG_FINALE));
+    s2f.mode = FOOT; cp_level_enter(10); cp_tick();
+    CHECK(cp_ending() == CP_END_RETURN && cp_postgame() && !docks);
+    s2f.mode = FLY; age(); CHECK(docks == 1 && cp_ending() == CP_END_COMPLETE);
+    s2f.docked = 0; s2f.mode = FOOT; cpm_rampage = 0; s2f.map = 0;
+    cp_level_enter(0); cp_tick();
+    CHECK(cp_ending() == CP_END_RETURN && C.chap == 0 && docks == 1);
+    s2f.mode = FLY; age(); CHECK(docks == 2 && cp_ending() == CP_END_COMPLETE);
+    for (int i = 0; i < 3; i++) { age(); cp_dock_keys(KEY_A, KEY_A, 1); }
+    CHECK(!cp_ending() && rooms == 1 && cp_postgame());
+    cp_level_enter(0); cp_tick();               /* (read to the end: nothing is owed any more) */
+    CHECK(!cp_ending() && docks == 2);
     printf("%d campaign ending checks passed\n", checks);
     return 0;
 }
