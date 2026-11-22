@@ -94,6 +94,7 @@ int s2_hud_owned(void);            /* E: 1 while a HUD line or card is up (K's s
 void cp_tick(void);
 void cp_ev(int ev, int a, int b);
 void cp_level_enter(int map);
+void cp_title_load(void);          /* the title's settings page, nothing kept yet: a running campaign's saved image applied */
 int cp_menu(int arg);              /* -1: the usual */
 u32 cp_keys(void);                 /* buttons to hold down for Payback this tick, bit i = PB_BTN[i]; bits from B_N up are ignored */
 int cp_dbg(int cmd, int arg);

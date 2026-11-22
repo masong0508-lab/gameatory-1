@@ -29,6 +29,7 @@ WEAK int s2_hud_owned(void) { return 0; }
 WEAK void cp_tick(void) {}
 WEAK void cp_ev(int ev, int a, int b) { (void)ev; (void)a; (void)b; }
 WEAK void cp_level_enter(int map) { (void)map; }
+WEAK void cp_title_load(void) {}
 WEAK int cp_menu(int arg) { (void)arg; return -1; }
 WEAK u32 cp_keys(void) { return 0; }
 WEAK int cp_dbg(int cmd, int arg) { (void)cmd; (void)arg; return -1; }

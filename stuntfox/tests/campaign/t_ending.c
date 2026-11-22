@@ -289,6 +289,23 @@ int main(void)
         cp_dock_keys(KEY_A, KEY_A, 1);
         CHECK(cp_active() && !cp_prog.acts[0] && !cp_prog.chap_unlocked && prog_ok(&cp_prog));
     }
+
+    /* The title's settings page on a cold boot: a running campaign's saved
+       image is applied, so the page shows what the game will start with. A
+       stopped campaign's image and a chip without our save are left alone. */
+    SgProgress none = {0};
+    stopped.flags |= CPF_ON; prog_seal(&stopped);
+    CHECK(store_native(&stopped) && memcmp(&none, stopped.sg, sizeof none));
+    memset(&cp_prog, 0, sizeof cp_prog); ship_progress = none;
+    device_mode = SV_64K; cp_title_load();
+    CHECK(!memcmp(&ship_progress, stopped.sg, sizeof ship_progress));
+    ship_progress = none;
+    device_mode = SV_4K; cp_title_load();
+    CHECK(!memcmp(&ship_progress, &none, sizeof none));
+    stopped.flags &= ~CPF_ON; prog_seal(&stopped);
+    CHECK(store_native(&stopped));
+    device_mode = SV_64K; cp_title_load();
+    CHECK(!memcmp(&ship_progress, &none, sizeof none));
     printf("%d campaign ending checks passed\n", checks);
     return 0;
 }

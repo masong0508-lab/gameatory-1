@@ -194,6 +194,15 @@ static void load(void)
     spick.valid = 0;               /* (no good save: the image in the keep, if any, is a code that was typed in) */
 }
 
+/* The title's settings page on a cold boot (merge.c sf_title_opts), before anything of ours is set up: the image start()
+   will load, so that the page shows and changes the settings the game starts with. Only reads; start() clears cp_prog
+   and loads again. A stopped campaign's image is left alone here as it is there. */
+void cp_title_load(void)
+{
+    if (sv_mode() == SV_64K && sv_load(&sv_eeprom, (u8 *)&cp_prog, sizeof cp_prog, &spick) && prog_ok(&cp_prog) && on())
+        sg_set_progress(cp_prog.sg);
+}
+
 /* the chip is only asked to prove it is 64 Kbit when the player first wants a save: it writes (save.c), and a game with no
    campaign must leave the player's file as it found it. Once a boot; 1 if blocks 64 and up are ours now */
 static int prove(void)
