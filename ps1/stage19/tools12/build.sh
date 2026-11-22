@@ -10,5 +10,10 @@ export ROM
 cd "$(dirname "$0")/.."
 KP=${KPLAN:-0}
 if [ "$KP" = 1 ]; then DBG=${PADDBG--DPADDBG}; else DBG=${PADDBG-}; fi
+# PS1 speed stage 3, boot and CD quick wins, one flag each: -DEXEPACK packed PSX.EXE (ps1rt/exepack.py, crt0 unpacks it), -DCOLD1PASS
+# COLD.BIN in one pass at the language screen, -DPCPAIR 8 KiB page pairs while no level clock runs, -DCDPADPOLL pad polls during CD
+# waits and long loads.  BOOTF= (set empty) builds without them; any subset works.  -DCDSTAT, -DCDDA_DATARADIO, -DCDPADPOLL_AB and
+# -DPCPAIR_LEVEL are TEST-only measurement switches.
+BOOTF=${BOOTF-"-DEXEPACK -DCOLD1PASS -DPCPAIR -DCDPADPOLL"}
 NPAGES=${NPAGES:-62} PRD=pr_lb WORLDPRD=pr_l RPG=${RPG:-t/resident62.txt} VOL=PAYBACK KPLAN=$KP \
-    bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG ${2:-}" 0
+    bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG $BOOTF ${2:-}" 0

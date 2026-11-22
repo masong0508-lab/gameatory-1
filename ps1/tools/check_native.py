@@ -63,8 +63,9 @@ def main() -> int:
                 run(f"prefix {name}", names["objcopy"], f"--prefix-alloc-sections={prefix}", target)
             return target
 
-        # release profile (tools12/build.sh): single-page CD fetches, no menu assist, no PADDBG log; the TEST profile adds KPLAN and PADDBG
-        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", "-Iinterp"]
+        # release profile (tools12/build.sh): single-page CD fetches, no menu assist, no PADDBG log, the speed stage 3 items (BOOTF:
+        # COLD1PASS, PCPAIR, CDPADPOLL in rt.c, EXEPACK in crt0.s); the TEST profile adds KPLAN and PADDBG
+        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-Iinterp"]
         test_runtime = [*runtime, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]
@@ -72,7 +73,7 @@ def main() -> int:
                    "-DRP_LEVEL=2 -DRP_NS_BASE=3 -DRP_NS_DIV=10 -DRP_NSMAX=6 -DRP_HINGE_LAST=1 "
                    "-DRP_FAST=1 -Ird").split()
         modules = [compile_source("ps1rt/rt.c", "runtime", runtime),
-                   compile_source("ps1rt/crt0.s", "startup", []),
+                   compile_source("ps1rt/crt0.s", "startup", ["-Wa,-defsym,EXEPACK=1"]),
                    compile_source("interp/interp.c", "interpreter", ["-Os", "-Iinterp"]),
                    compile_source("interp/interp_asm.s", "interpreter_asm", []),
                    compile_source("sf/sf3.c", "renderer", renderer, ".sf"),

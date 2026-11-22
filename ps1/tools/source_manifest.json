@@ -512,7 +512,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "6b18defad3108d1bf77ac86eb368b725a6d29e2fb66b352dd0fe44b43853f32f"
+      "sha256": "53d6e6de31b67acbe3c29cee6698f4e7d8cf367fe4652778d277a1e81637774f"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
