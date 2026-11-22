@@ -897,9 +897,8 @@ void sw_hud(void)
         int n = 0;
         while (msg[n])
             n++;
-        y = 128;                                  /* (under the steady line at y117 and the space HUD's) */
-        /* 36 letters at most: in space the picture's right end at these rows is not painted every frame, and
-           what a longer line leaves there stays on screen after the line has gone */
+        y = 151;                                  /* (the bottom rows: under the steady line at y117, the space HUD's, and
+                                                     Payback's ticker, whose two lines take rows 127..148) */
         d_fill(0, y - 2, n * TEXT_W + 8, 11, PANEL);
         d_text(4, y, msg, HI);
         y = 66;
