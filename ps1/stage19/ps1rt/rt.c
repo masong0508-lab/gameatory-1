@@ -673,6 +673,19 @@ static RTCOLD void gpu_init(void){
   gp0_2(0x02000000,XY(0,0),XY(320,480));                          /* fill both buffers black */
   gpu_idle(); disp_on=0;
 }
+#ifndef CDSIM
+/* rc8: a PAL disc shows a PAL picture.  The licence sector (LBA 4, written by tools7/mkdisc2.py) names the disc's region, and the emulators make
+   the console PAL from it.  Beetle/Mednafen shows nothing while a PAL console's GPU is left in NTSC mode, so the Europe disc programs PAL
+   (GP1(08h) bit 3) and the 240 lines centred in PAL's 256-line range (23h..123h of psx-spx): Y 2Bh..11Bh.  Display still off; one read at boot. */
+static u32 pal_disp;
+static RTCOLD void gpu_region(void){
+  u8 b[2048]; cd_read(4,1,b);
+  static const char E[8]="Euro pe "; int eu=1; for(int i=0;i<8;i++) if(b[0x3c+i]!=(u8)E[i]) eu=0;
+  if(!eu) return;
+  pal_disp=1; GP1=0x07000000|(0x2b|((0x2b+240)<<10)); GP1=0x08000009;
+  dbg("disc region E: PAL display\n");
+}
+#endif
 static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; }
 /* show the buffer at (0,o) once everything drawn into it is finished, at the next vertical blank; the display comes on with the first one */
 static void flip_to(int o){ gpu_idle(); vsync(); GP1=0x05000000|((u32)o<<10); if(!disp_on){ disp_on=1; GP1=0x03000000; } }
@@ -1095,6 +1108,9 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   ISTAT=0;
   dbg("PAYBACK PS1 stage2: start\n");
   gpu_init(); cdda_init();
+#ifndef CDSIM
+  gpu_region();
+#endif
   memset((void*)DL,0,0x2100);
   HELP[0]=(u32)h_memrd; HELP[1]=(u32)h_memwr; HELP[2]=(u32)h_miss; HELP[3]=(u32)h_vbl;
   const u32 *b=(const u32*)bootimg; const u8 *p=bootimg+160;

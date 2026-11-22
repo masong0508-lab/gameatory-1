@@ -244,7 +244,13 @@ static void pp_draw(int oy,int level){
   if(!level){ u32 c=pp_col(*(volatile u16*)(PAL),pp_bright); pp_rect(0,PP_Y0,320,PP_H,((c&31)<<3)|(((c>>5)&31)<<11)|(((c>>10)&31)<<19)); }
   /* the page (backdrops from blit 4 + transparent blits + guest writes): upload as 8 bpp (120 hw per row), draw with the transparent-0 CLUT (row 497) */
   pp_vload(L1_X,L1_Y,PS1_VRAM_PPU_L1_W,PS1_VRAM_PPU_L1_H,(const u32*)(VRAM+base),PS1_VRAM_PPU_L1_W*PS1_VRAM_PPU_L1_H/2);
-  pp_q(0,PP_Y0,320,PP_Y0+PP_H,0,0,240,160,PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+1),PP_TP8(L1_X,L1_Y),0x2d000000);   /* u 0..240 over 320 px, v 0..160 over 224 lines (4:3, 7:5) */
+  /* u 0..240 over 320 px, v 0..160 over 224 lines (4:3, 7:5).  rc8: the last line (PP_Y0+PP_H-1) samples texture row 160, which is not the page but
+     world-atlas texels at (L1_X, L1_Y+160) once a level has loaded (a strip of coloured dots along the bottom of every menu after the first pause).
+     So the quad stops one line early (drawing area) and the last line is its own one-line quad that samples row 159. */
+  gp0e(0xE4000000|319u|((u32)(oy+PP_Y0+PP_H-2)<<10));
+  pp_q(0,PP_Y0,320,PP_Y0+PP_H,0,0,240,160,PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+1),PP_TP8(L1_X,L1_Y),0x2d000000);
+  gp0e(0xE4000000|319u|((u32)(oy+PP_Y0+PP_H-1)<<10));
+  pp_q(0,PP_Y0+PP_H-1,320,PP_Y0+PP_H,0,159,240,159,PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+1),PP_TP8(L1_X,L1_Y),0x2d000000);
   if(d&0x1000) pp_obj();
 }
 #endif
