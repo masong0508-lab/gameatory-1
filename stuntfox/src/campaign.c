@@ -824,18 +824,18 @@ static void ending_draw(void)
     d_rect(6, 8, 228, 144, DIM);
     if (s2f.menu)                      /* (Payback's pause menu reads on the plain card) */
         return;
-    d_text(14, 16, "FOX STATION / FLIGHT LOG", HELP);
+    d_text(14, 16, "FOX STATION / FLIGHT LOG", INK);     /* (the small print in the body's ink: grey on the grey panel did not read) */
     d_text(14, 32, title[page], TITLE);
     d_hline(14, 225, 46, HI);
     for (int i = 0; i < 5; i++)
         d_text(14, 56 + i * 12, lines[page][i], i == 4 ? HI : INK);
     d_text(14, 124, page == 2 ? "A: ENTER FOX STATION" : "A: CONTINUE", HI);
     if (page)
-        d_text(14, 137, "B: PREVIOUS", HELP);
+        d_text(14, 137, "B: PREVIOUS", INK);
     char n[8];
     char *p = d_num(n, page + 1);
     d_cat(p, " / 3");
-    d_text(192, 137, n, HELP);
+    d_text(192, 137, n, INK);
 }
 
 void cp_hud(void)
