@@ -17,6 +17,7 @@ esac
 mkdir -p "$OUT"
 ONLY=${ONLY:-}
 SOAK_FRAMES=${SOAK_FRAMES:-120000}
+SOAK_GAME_SECONDS=${SOAK_GAME_SECONDS:-600}
 # Whitespace-separated KEY=VALUE tokens, optionally prefixed with --opt.
 # No eval or shell interpolation: an option is always passed as one argv item.
 RIG_OPTS=${RIG_OPTS:-}
@@ -84,7 +85,7 @@ run b b_assist_path        "$HERE/sessions/new_game_to_level.py" --path assist -
 run j j_replay_script      "$HERE/sessions/replay.py" --script "$OUT/b_new_game_to_level/script.txt" --assist off
 run d d_maps               "$HERE/sessions/maps.py"
 run e e_save_load          "$HERE/sessions/save_load.py"
-run f f_soak               "$HERE/sessions/soak.py" --max-frames "$SOAK_FRAMES"
+run f f_soak               "$HERE/sessions/soak.py" --max-frames "$SOAK_FRAMES" --game-seconds "$SOAK_GAME_SECONDS"
 run c c_in_level           "$HERE/sessions/in_level.py"
 run g g_state_check        "$HERE/sessions/state_check.py"
 run h h_speed              "$HERE/sessions/speed.py"
