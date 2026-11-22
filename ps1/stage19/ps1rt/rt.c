@@ -714,7 +714,7 @@ static u32 rd32g(u32 off){ return rom_read(0x08000000+off,4); }
 /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
 #include "../include/sf_entity.h"
 extern u8 sf3_plook, sf3_ppol; extern u32 sf3_mt; extern int sf3_sin(int);
-extern int rd_spawn(s32 ux,s32 uy,s32 uz,int yaw,s32 vx,s32 vy,s32 vz,int id,u32 shirt); extern void rd_set_car(int on,s32 ux,s32 uy,s32 uz,int h16,s32 vx,s32 vy,s32 vz); extern void rd_step_all(const void*w,s32 cx,s32 cz); extern int rd_active(void); extern int rd_has(int id); extern u32 rd_spawned, rd_steps, rd_hurt_max, rd_rejected; extern const char sf3_rpw[]; extern int sf3_hide_player;
+extern int rd_spawn(s32 ux,s32 uy,s32 uz,int yaw,s32 vx,s32 vy,s32 vz,int id,u32 shirt); extern void rd_set_car(int on,s32 ux,s32 uy,s32 uz,int h16,s32 vx,s32 vy,s32 vz); extern void rd_step_all(const void*w,s32 cx,s32 cz); extern int rd_active(void); extern int rd_has(int id); extern void rd_drop(int id); extern void rd_clear(void); extern u32 rd_spawned, rd_steps, rd_hurt_max, rd_rejected; extern const char sf3_rpw[]; extern int sf3_hide_player;
 extern int sf3_init(void); extern u32 sf3_first_map; extern int sf3_map_load(u32 n); extern u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; extern int sf3_frame(int oy,s32 px,s32 py,s32 pz,int heading,int pkind,const SfEnt*ents,int nents,int hud);
 extern s32 sf3_score, sf3_hp, sf3_clock; extern u32 sf3_stat_eng, sf3_stat_prim, sf3_stat_ovf, sf3_stat_lod, sf3_frames; extern u32 sf3_ph[8], sf3_cnt[32], sf3_hash;
 void sf3_cd_read(u32 lba,u32 nsec,u8*dst){ cd_read(lba,nsec,dst); }
@@ -723,6 +723,10 @@ void sf3_cd_read(u32 lba,u32 nsec,u8*dst){ cd_read(lba,nsec,dst); }
 #endif
 static u32 st3_render, st3_hud_only, st3_lines_sum, st3_lines_max, st3_gather_lines, st3_id5;
 static SfEnt ents3[40]; static s32 map_dx,map_dz,map_dy;
+static int s7_reset;        /* rc7: set when the guest leaves a level: the next level's first frame starts the ragdoll events afresh (stage7_pre) */
+#ifndef HERO_DOLL_TICKS
+#define HERO_DOLL_TICKS 90  /* rc7: the player's own doll (a bail-out) hides him for at most 3 s of game time (level clock ticks, 30 a second) */
+#endif
 #ifdef SF3_DEMO
 static const s16 S4[18]={0,1608,3196,4756,6270,7723,9102,10394,11585,12665,13623,14449,15137,15679,16069,16305,16384,16384};   /* sin(k*pi/32) in 1.14 */
 static int sin_t(int a){ a&=0xffff; int q=a>>14, x=a&16383; if(q&1) x=16384-x; int k=x>>10, r=x&1023; int v=S4[k]+(((S4[k+1]-S4[k])*r)>>10); return (q&2)?-v:v; }
@@ -779,20 +783,32 @@ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
       { extern int sf3_floor_at(int,int); int fl=sf3_floor_at(px,pz); if(fl<60000&&py<fl-1024) py=fl;      /* Little Chicago (guest map 4): the guest's start pose is 2048 units below this world's ground (camera under the floor); lift it to the floor */
         for(int q=0;q<ne;q++){ int f2=sf3_floor_at(ents3[q].x,ents3[q].z); if(f2<60000&&ents3[q].y<f2-1024) ents3[q].y=f2; } }
       { /* stage 7 ragdolls: events from the guest's state (bail-out = the driver leaves a moving car, or Triangle in a car; hit = a pedestrian within 3 m of the player's car doing > 4 m/s), the solver steps in renderer units */
-        static int pkp=-1; static s32 ppx,ppy,ppz,pvx,pvy,pvz,pmap=-1; static u8 conv[128]; static u32 cdn[128], nfr;
-        s32 vx=(px-ppx)*491520, vy=(py-ppy)*491520, vz=(pz-ppz)*491520; if(!nfr||pmap!=(s32)sf3_map_cur){ vx=vy=vz=0; pkp=-1; } pmap=sf3_map_cur; nfr++;
+        static int pkp=-1; static s32 ppx,ppy,ppz,pvx,pvy,pvz,pmap=-1; static u8 conv[128]; static u32 cdn[128], nfr, pclk, hero_clk;
+        /* rc7: velocities (m/s Q20) over GAME time: the position change since the previous gathered frame divided by the level clock ticks between
+           the two (30 a second; 491520 = one unit per tick).  The solver's events assumed one 3D frame per tick; at this port's 3D frame rate (one
+           every 2 to 9 ticks) a car crawling against a tree read as a bail-out at 300 m/s, and the doll hid the man for some 300 frames (minutes).
+           No movement at all across a jump of more than 4000 units or 90 ticks (respawn, rig pokes), a new map, or the first frame of a new level
+           (s7_reset; the level clock starts again there, so dt is out of range too). */
+        u32 clk=*(volatile u32*)(EW+0x1e00), dt=clk-pclk; pclk=clk;
+        s32 ddx=px-ppx, ddy=py-ppy, ddz=pz-ppz;
+        int jump=!nfr||pmap!=(s32)sf3_map_cur||s7_reset||dt>90||ddx>4000||ddx<-4000||ddy>4000||ddy<-4000||ddz>4000||ddz<-4000;
+        if(!dt) dt=1;
+        s32 vx=jump?0:ddx*491520/(s32)dt, vy=jump?0:ddy*491520/(s32)dt, vz=jump?0:ddz*491520/(s32)dt;
+        if(jump){ pkp=-1; if(s7_reset){ s7_reset=0; for(int q=0;q<128;q++) cdn[q]=0; } }
+        pmap=sf3_map_cur; nfr++;
         if(vy>8*1048576) vy=8*1048576; if(vy<-8*1048576) vy=-8*1048576;
         u32 tri=pad_new_extra&1; s32 sp=(vx<0?-vx:vx)+(vz<0?-vz:vz);
         if((pkp==1&&pk==0&&(((pvx<0?-pvx:pvx)+(pvz<0?-pvz:pvz))>2621440)) || (pk==1&&tri&&sp>1048576)){
-          s32 bx=pk==1?vx:pvx, bz=pk==1?vz:pvz; int k=rd_spawn(px,py,pz,hd,bx,3*1048576,bz,200,0x2040D0); dbg("DOLL bail-out slot "); dec(k); dbg("speed "); dec(sp>>20); dbg("\n"); }
+          s32 bx=pk==1?vx:pvx, bz=pk==1?vz:pvz; int k=rd_spawn(px,py,pz,hd,bx,3*1048576,bz,200,0x2040D0); if(k>=0) hero_clk=clk; dbg("DOLL bail-out slot "); dec(k); dbg("speed "); dec(((bx<0?-bx:bx)+(bz<0?-bz:bz))>>20); dbg("\n"); }
         if(pk==1&&sp>4*1048576){ for(int q=0;q<ne;q++){ if(ents3[q].kind!=1) continue; int id=ents3[q].spare&127; if(cdn[id]) continue;
             s32 dx=ents3[q].x-px, dz=ents3[q].z-pz; if(dx<0) dx=-dx; if(dz<0) dz=-dz; if(dx+dz>270) continue;
             int k=rd_spawn(ents3[q].x,ents3[q].y,ents3[q].z,ents3[q].yaw,vx*9/10,vy+2*1048576+(sp>>3),vz*9/10,id,0x30A0E0+(id*0x13A7C1&0x7f7f7f)); if(k>=0){ cdn[id]=420; dbg("DOLL hit ped "); dec(id); dbg("slot "); dec(k); dbg("speed "); dec(sp>>20); dbg("\n"); } } }
 #ifdef DOLLTEST
-        if(nfr==DOLLTEST_AT){ int k=rd_spawn(px,py,pz,hd,3*1048576,3*1048576,2*1048576,200,0x2040D0); dbg("TEST-ONLY forced doll slot "); dec(k); dbg("\n"); }
+        if(nfr==DOLLTEST_AT){ int k=rd_spawn(px,py,pz,hd,3*1048576,3*1048576,2*1048576,200,0x2040D0); if(k>=0) hero_clk=clk; dbg("TEST-ONLY forced doll slot "); dec(k); dbg("\n"); }
 #endif
         for(int q=0;q<128;q++) if(cdn[q]) cdn[q]--;
         { int m=0; for(int q=0;q<ne;q++){ if(ents3[q].kind==1&&cdn[ents3[q].spare&127]) continue; ents3[m++]=ents3[q]; } ne=m; }
+        if(rd_has(200)&&clk-hero_clk>HERO_DOLL_TICKS){ rd_drop(200); dbg("DOLL player released, ticks "); dec(clk-hero_clk); dbg("\n"); }   /* rc7: the solver steps once a 3D frame: at this port's frame rate its own release (asleep 10 s of solver time) took minutes */
         sf3_hide_player=rd_has(200);
         rd_set_car(pk==1,px,py,pz,hd,vx,vy,vz);
         if(rd_active()){ u32 d0=RC1_VAL; rd_step_all(sf3_rpw,px,pz); u32 dl=(RC1_VAL-d0)&0xffff; static u32 dmax,dsum,dn; dn++; dsum+=dl; if(dl>dmax) dmax=dl; if((dn&15)==1){ dbg("RD lines "); dec(dl); dbg("max "); dec(dmax); dbg("avg "); dec(dsum/dn); dbg("active "); dec(rd_active()); dbg("steps "); dec(rd_steps); dbg("hurtmax "); dec(rd_hurt_max); dbg("\n"); } }
@@ -910,7 +926,7 @@ static void present(void){
        they were refused and interpreted: 3.4 M interpreter steps and about 3000 frames of the menu picture before a second level showed its city.
        The next level start runs the deferred sf3_init again, as the first one did (the world is read from the disc again). */
     { static u32 nl, lc; u32 c=*(volatile u32*)(EW+0x1e00);
-      if(hvalid && *(volatile s16*)(IW+0xc)==-1 && c==lc){ if(++nl>=3){ nl=0; hvalid=0; sf3_ok=0; sf3_tried=0; sf3_left=1; sf3_left_clk=c;
+      if(hvalid && *(volatile s16*)(IW+0xc)==-1 && c==lc){ if(++nl>=3){ nl=0; hvalid=0; sf3_ok=0; sf3_tried=0; sf3_left=1; sf3_left_clk=c; rd_clear(); s7_reset=1;   /* no doll or bail-out carried into the next level */
           dbg("SF3 off: the guest left the level, level clock "); dec(c); dbg("\n"); goto no3d; } }
       else nl=0;
       lc=c; }

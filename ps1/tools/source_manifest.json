@@ -217,12 +217,12 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "53a6bb640c19acaf397be7009f0f0b4b15f44ae8625cbc23a140b03dce36dc12"
+      "sha256": "a6a6774a4c952bdf062d78b75ea25652db1f57309428e7711227b5c209b6fcd9"
     },
     {
-      "source": "stage7/integration/rd/doll.c",
+      "source": "stage19/rd/doll.c",
       "target": "rd/doll.c",
-      "sha256": "6bbd9315e074530ba54c26a9a5d7d97f223713e92f0fe9616608578064ea1112"
+      "sha256": "df24b18fc8bc037c4c0fefdab4fbfef6d954687be54287e205b70729e1a2cf66"
     },
     {
       "source": "stage7/integration/rd/gte_rp.h",
