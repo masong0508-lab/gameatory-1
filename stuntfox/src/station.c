@@ -723,19 +723,25 @@ static int tick2(u16 hit, u16 keys)
 /* a full-screen page that comes and goes at the speed of a mashed button would flash: a page is held for PAN ticks when it opens,
    closes or gives way to another, and the keys that would open, close, choose or turn a page wait (UP DOWN inside it do not). The
    Nav board's two pages are held for TURN: SPACE WALKS is dark from edge to edge and the HOLO MAP shows the room round its box, so
-   LEFT RIGHT mashed there would swap two fifths of the screen between light and dark (with TURN, once a second at most) */
+   LEFT RIGHT mashed there would swap two fifths of the screen between light and dark (with TURN, once a second at most). Only the
+   keys that turn back (LEFT RIGHT, and B on SPACE WALKS) wait the whole TURN; the others wait PAN as on any other page, since what
+   they do there (launch, close, travel) leaves the board and opening it again is held. A turn's hold counts down from PAN + TURN
+   to PAN + 1, so it is told apart from a page's */
 int st_tick(u16 hit, u16 keys)
 {
     if (!st_ok() || stw.room == R_HANGAR || !s2f.docked)
         return 0;
-    int was = stw.term;
-    if (stw.pan) {
-        stw.pan--;
-        hit &= was ? ~(KEY_A | KEY_B | KEY_L | KEY_LEFT | KEY_RIGHT) : ~(KEY_A | KEY_L);
+    int was = stw.term, t = stw.pan;
+    if (t) {
+        stw.pan = t == PAN + 1 ? 0 : t - 1;
+        u16 held = was ? KEY_A | KEY_B | KEY_L | KEY_LEFT | KEY_RIGHT : KEY_A | KEY_L;
+        if (t > PAN && t <= TURN)                        /* (a turn, its first PAN ticks gone) */
+            held &= was == T_EVA ? ~(KEY_A | KEY_L) : ~(KEY_A | KEY_B | KEY_L);
+        hit &= ~held;
     }
     int r = tick2(hit, keys);
     if (stw.term != was)
-        stw.pan = (was == T_MAP && stw.term == T_EVA) || (was == T_EVA && stw.term == T_MAP) ? TURN : PAN;
+        stw.pan = (was == T_MAP && stw.term == T_EVA) || (was == T_EVA && stw.term == T_MAP) ? PAN + TURN : PAN;
     return r;
 }
 
