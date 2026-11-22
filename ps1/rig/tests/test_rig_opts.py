@@ -15,7 +15,7 @@ SAVE_LOAD = ROOT / 'sessions' / 'save_load.py'
 
 
 class RigOptionsTests(unittest.TestCase):
-    def mock_run(self, rig_opts=None, core='swanstation', only='b', case='pass'):
+    def mock_run(self, rig_opts=None, core='swanstation', only='b', case='pass', env_updates=None):
         with tempfile.TemporaryDirectory(prefix='ps1 rig options ') as tmp:
             tmp = pathlib.Path(tmp)
             script = tmp / 'bin' / 'python3'
@@ -35,6 +35,7 @@ exit 22
             cap = tmp / 'arguments.txt'
             env = dict(os.environ, PATH=str(script.parent) + os.pathsep + os.environ['PATH'],
                        ARGUMENTS=str(cap), CASE=case, ONLY=only)
+            env.update(env_updates or {})
             if rig_opts is None:
                 env.pop('RIG_OPTS', None)
             else:
@@ -91,6 +92,15 @@ exit 22
         self.assertEqual(argv[argv.index('--max-frames') + 1], '120000')
         self.assertEqual(argv[argv.index('--game-seconds') + 1], '600')
         self.assertEqual(self.options(argv), ['swanstation_CPU_Overclock=400'])
+
+    def test_explicit_30_minute_soak_budget(self):
+        p, chunks, *_ = self.mock_run(
+            'swanstation_CPU_Overclock=400', only='f',
+            env_updates={'SOAK_FRAMES': '108000', 'SOAK_GAME_SECONDS': '1800'})
+        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        argv = chunks[0]
+        self.assertEqual(argv[argv.index('--max-frames') + 1], '108000')
+        self.assertEqual(argv[argv.index('--game-seconds') + 1], '1800')
 
     def test_invalid_tokens_fail_before_any_session(self):
         for bad in ('swanstation_CPU_Overclock', '=400', 'swanstation_CPU_Overclock=',
