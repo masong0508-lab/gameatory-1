@@ -265,7 +265,7 @@ int sw_job_take(int job)
     if (!s2f.docked || sg_state != SG_DOCKED)
         return SWJ_DOCK;
     obj_n = job, obj_s = 0;
-    hint("Fly to the marker. Hold SELECT to walk.");
+    hint("Fly to marker. Hold SELECT to walk.");   /* (36 letters at most: see sw_hud) */
     return SWJ_READY;
 }
 
@@ -294,7 +294,7 @@ static void obj_reached(void)
     s2_ev(EV_WALK, 3, obj_n == 2 ? 3 : obj_n == 1 ? 0 : 1 + obj_s);
     if (obj_n == 3) {
         obj_s++;
-        hint(obj_s == 1 ? "Beacon B clear. Reach beacon C." : "Relay complete. Hold SELECT to board.");
+        hint(obj_s == 1 ? "Beacon B clear. Reach beacon C." : "Relay clear. Hold SELECT to board.");
     } else
         obj_finish();
 }
@@ -898,12 +898,25 @@ void sw_hud(void)
         while (msg[n])
             n++;
         y = 128;                                  /* (under the steady line at y117 and the space HUD's) */
+        /* 36 letters at most: in space the picture's right end at these rows is not painted every frame, and
+           what a longer line leaves there stays on screen after the line has gone */
         d_fill(0, y - 2, n * TEXT_W + 8, 11, PANEL);
         d_text(4, y, msg, HI);
         y = 66;
     }
     if (!swk.on && !obj_n)
         return;
+    if (obj_n) {                                  /* first: the longest line, and on the third row it lay over the man */
+        static const char *const what[] = {"", "REACH BEACON A", "LAND ON THE MOON", "BEACON B", "BEACON C", "BOARD THE ARWING"};
+        V3 t = target(), d = vsub(t, s2f.pos);
+        p = d_cat(b, what[obj_n == 3 ? 3 + obj_s : obj_n]);
+        p = d_cat(p, " ");
+        p = d_num(p, vlen(vshr(d, 1)) * 2);
+        d_fill(4, y - 2, (p - b) * TEXT_W + 8, 10, PANEL);
+        d_text(8, y, b, HI);
+        mark(t, HI);
+        y += 10;
+    }
     if (swk.on) {
         p = d_cat(b, swk.kind == SWK_MOON ? "MOON " : swk.kind == SWK_FLOAT ? "SPACE " : "FALLING ");
         p = d_cat(p, "ALT ");
@@ -914,17 +927,6 @@ void sw_hud(void)
         p = d_cat(b, swk.call ? "ARWING COMING" : sw_pack ? "JET PACK" : "NO JET PACK");
         d_fill(4, y - 2, (p - b) * TEXT_W + 8, 10, PANEL);
         d_text(8, y, b, swk.call || sw_pack ? INK : HI);
-        y += 10;
-    }
-    if (obj_n) {
-        static const char *const what[] = {"", "REACH BEACON A", "LAND ON THE MOON", "BEACON B", "BEACON C", "BOARD THE ARWING"};
-        V3 t = target(), d = vsub(t, s2f.pos);
-        p = d_cat(b, what[obj_n == 3 ? 3 + obj_s : obj_n]);
-        p = d_cat(p, " ");
-        p = d_num(p, vlen(vshr(d, 1)) * 2);
-        d_fill(4, y - 2, (p - b) * TEXT_W + 8, 10, PANEL);
-        d_text(8, y, b, HI);
-        mark(t, HI);
     }
 }
 

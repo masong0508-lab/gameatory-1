@@ -1961,7 +1961,7 @@ static void menu_draw(void)
         d_cat(p, job_name[job]);
         d_text(x, y0 + 64, b, TITLE);
     }
-    if (menu == MN_MAIN && sw_pack)
+    if (menu == MN_MAIN && sw_pack && (job || n < 6))   /* (six lines and no job's row: it lay over the last line, LAUNCH) */
         d_text(x, y0 + (job ? 74 : 64), "JET PACK FITTED", HELP);
     /* what the line under the cursor does, before you pick it (24 letters at most) */
     if (menu == MN_JOBS) {
