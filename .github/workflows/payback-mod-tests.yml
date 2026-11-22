@@ -42,7 +42,7 @@ jobs:
       - name: Install Python build dependencies
         run: python -m pip install -r stuntfox/requirements.txt
       - name: Syntax check
-        run: python -m compileall -q payback-mod stuntfox tools ps1/tests ps1/tools
+        run: python -m compileall -q payback-mod stuntfox tools ps1/tests ps1/tools ps1/rebuild ps1/rig
       - name: Gameplay logic, campaign saves, content and ARM/MIPS build integrity
         run: python tools/check.py --report test-results.json
       - name: Compile ARM7TDMI in-game editor

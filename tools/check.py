@@ -54,6 +54,8 @@ def gates():
          [PYTHON, "-m", "unittest", "discover", "-s", "tests/build", "-v"]),
         ("ps1", "PlayStation build integrity", ROOT,
          [PYTHON, "-m", "unittest", "discover", "-s", "ps1/tests", "-v"]),
+        ("ps1", "PlayStation rebuild scripts", ROOT,
+         [PYTHON, "-m", "unittest", "discover", "-s", "ps1/rebuild/tests", "-v"]),
         ("ps1", "PlayStation source assembly", ROOT,
          [PYTHON, "ps1/tools/prepare.py", "--check"]),
         ("ps1", "PlayStation native compilation and RAM budgets", ROOT,
