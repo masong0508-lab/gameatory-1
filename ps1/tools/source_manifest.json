@@ -172,7 +172,7 @@
     {
       "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "428002302d467ff38334b54589a59fbdda52526f91eb02bcaab1865da478c224"
+      "sha256": "2993a636bee565b72ee7d9bb472582b43480bf732dc184d96f162550174207da"
     },
     {
       "source": "stage19/ps1rt/hw_pad.h",
@@ -207,7 +207,7 @@
     {
       "source": "stage19/ps1rt/ps1.ld",
       "target": "ps1rt/ps1.ld",
-      "sha256": "b02098f08d3c153ab7d2310cd22592a0e861f4466392eb999f98752186fe04cb"
+      "sha256": "31f7a03d22e743482a3095d1b5e1819beaee9d3d5135d4b42b7984a2362fb824"
     },
     {
       "source": "stage16/merge/ps1rt/ps1_f.ld",

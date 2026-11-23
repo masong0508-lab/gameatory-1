@@ -3,14 +3,17 @@ SECTIONS{ . = 0x80010000;
  .text : { *(.text.start) *(.text*) *(.rodata*) *(.data*) *(.sdata*) }
  . = ALIGN(4); __bss_start = .; .bss : { *(.bss*) *(.sbss*) *(COMMON) } __bss_end = .;
  ASSERT(. < 0x80028000, "C runtime overlaps the helper table at 0x80028000")
+ /* rc8: the dispatch tables of speed wave 1 (D1 dsp_mcache 4 KB, D2 dsp_lq 1 KB) are BSS arrays inside this bound; wave 1 had them at 0x80028400,
+    which .rtcold fills. */
  /* rc7: one-time and fault-only runtime code (RTCOLD in rt.c and interp_glue.h) in the RAM between the helper table (0x80028000..0x80028010, t2m cfg.HELP)
-    and 0x8002a000 (t2m cfg.ROMPG, read only by the disabled RT_MEMRD fast path; the interpreter stacks start at 0x8002c000): nothing else uses it.  It is
+    and 0x8002a000 (t2m cfg.ROMPG, the D3 ROM page table rom_pg, 0x8002a000..0x8002c000; the interpreter stacks start at 0x8002c000): nothing else uses it.  It is
     part of the EXE image, so the BIOS loads it and flushes the cache with the rest of the program before main runs. */
  . = 0x80028040; __rtcold_start = .; .rtcold : { *(.rtcold.text*) *(.rtcold.rodata*) *(.rtcold.data*) } __rtcold_end = .;
  ASSERT(__rtcold_start >= 0x80028010, "cold runtime code overlaps the helper table")
  ASSERT(__rtcold_end <= 0x8002a000, "cold runtime code overlaps the ROM page-table area at 0x8002a000")
  . = 0x80030000; .blob : { *(.blob) }
  . = ALIGN(16); .bootimg : { *(.bootimg) }
+ ASSERT(. <= 0x8011c000, "translated blob or boot image overlaps the cold table at 0x8011c000")
  . = 0x8011c000; .coldtab : { *(.coldtab) }
  . = ALIGN(16); .rompack : { *(.rompack) }
  ASSERT(. <= __ps1_pcache_start, "resident ROM pages overlap the page cache")
