@@ -35,10 +35,11 @@ int main(void)
                 for (int active = 0; active <= 1; active++) {
                     const char *p = st_eva_board_prompt(campaign, pack, row, active);
                     valid(p);
+                    CHECK(strstr(p, "<: MAP") != NULL);
                     if (row < 3) {
                         CHECK((strstr(p, "A: TAKE") != NULL) == (campaign && pack));
                         if (!campaign)
-                            CHECK(strstr(p, "START CAMPAIGN") != NULL);
+                            CHECK(strstr(p, "L: CAMPAIGN") != NULL);
                         else if (!pack)
                             CHECK(strstr(p, "JET PACK") != NULL);
                     } else {
