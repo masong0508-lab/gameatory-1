@@ -45,17 +45,18 @@ class ResumeEvidence:
         if frame < self.start_frame:
             raise ValueError('frame_before_resume_press')
 
-        # Check the immediately previous sampled frame, NOT the pause baseline
-        # alone. Otherwise a counter that stepped on an unchanged pause image
-        # would be misreported as a visible display flip/render at stock.
+        # A counter can step on an unchanged picture or a frame before it
+        # displays. Record the counter's FIRST *visible* evidence only on an
+        # actual new city picture, but accept an advance since pause even if
+        # it happened just before the changed image became visible.
         changed = (image_hash is not None and self.previous_hash is not None
                    and image_hash != self.previous_hash)
         new_picture = changed and image_hash != self.pause_image_hash
         new_city_picture = new_picture and looks_like_city
-        flip_changed = (display_flips is not None and self.previous_flip is not None
-                        and display_flips != self.previous_flip)
-        render_changed = (rendered_3d is not None and self.previous_renderer is not None
-                          and rendered_3d != self.previous_renderer)
+        flip_ready = (display_flips is not None and self.pause_flip is not None
+                      and display_flips != self.pause_flip)
+        render_ready = (rendered_3d is not None and self.pause_renderer is not None
+                        and rendered_3d != self.pause_renderer)
 
         if self.events['clock_restarted'] is None and clock > self.pause_clock:
             self.events['clock_restarted'] = frame
@@ -63,9 +64,9 @@ class ResumeEvidence:
             self.events['first_any_picture_change'] = frame
         if new_city_picture and self.events['first_new_picture'] is None:
             self.events['first_new_picture'] = frame
-        if new_city_picture and flip_changed and self.events['first_gpu_flip'] is None:
+        if new_city_picture and flip_ready and self.events['first_gpu_flip'] is None:
             self.events['first_gpu_flip'] = frame
-        if new_city_picture and render_changed and self.events['first_3d_render'] is None:
+        if new_city_picture and render_ready and self.events['first_3d_render'] is None:
             self.events['first_3d_render'] = frame
         if (new_city_picture and self.events['first_playable_picture'] is None
                 and self.events['clock_restarted'] is not None
