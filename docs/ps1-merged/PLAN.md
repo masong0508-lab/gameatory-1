@@ -23,9 +23,9 @@ For B's first PS1 disc, pin the original owner ROM and the merged Star-FlyBack s
 | Owner/path | Existing risk | Milestone B change and assertion |
 | --- | --- | --- |
 | Stage19 / rc7 [ps1rt/rt.c](../../ps1/stage19/ps1rt/rt.c) ROM page cache | rom_pg[2048] and pg &= 2047 wrap at 8 MiB | Size from validated 16 MiB manifest; all cached loads and eviction use full page identity |
-| [t/t2m.py](../../ps1/stage7/integration/t/t2m.py) blob translation fast path (speed D3 uses it) | A second 0x7FF mask; D3 path does not set the reference bit | Preserve high page IDs and cache CLOCK/reference semantics on hot loads |
+| `t/t2m.py` (prepared/private translator) blob translation fast path (speed D3 uses it) | A second 0x7FF mask; D3 path does not set the reference bit | Preserve high page IDs and cache CLOCK/reference semantics on hot loads |
 | rc7 [interp_glue.h](../../ps1/stage19/ps1rt/interp_glue.h) | Interpreter also masks 2047, and can accept region 9 | Interpreter and translated loads return identical guest bytes in 8/9 regions |
-| [t/mkrompages.py](../../ps1/stage19/t/mkrompages.py), [t/disc.py](../../ps1/stage19/t/disc.py) | Generated page catalogue and discovery cap at 8 MiB | Rebuild their output for the exact 4096-page guest; assert zero lower-page aliases |
+| [t/mkrompages.py](../../ps1/stage19/t/mkrompages.py), `t/disc.py` (prepared-tree discovery) | Generated page catalogue and discovery cap at 8 MiB | Rebuild their output for the exact 4096-page guest; assert zero lower-page aliases |
 | [rt.c](../../ps1/stage19/ps1rt/rt.c) resolve()/gread() | ROM DMA uses resolve() and gread(), **not** a nonexistent ROM case in g2h() | Cross-page and region-9 DMA checks cover the *real* copy path |
 | [stuntfox/src/radio.c](../../stuntfox/src/radio.c) | Radio accesses region-9 tables, with semantics different across old readers | Verified region-9 lookup consistent in translator, interpreter and DMA |
 
@@ -55,7 +55,7 @@ Per [AGENTS.md](../../AGENTS.md): **"Textures stay on. No shorter view distance 
 
 ## 4. Correct save premise: one 8 KiB guest EEPROM, not a second campaign image
 
-The merged GBA [campaign.h](../../stuntfox/src/campaign.h) has a **260-byte Prog** containing the **32-byte sg/SgProgress member**. This is **not a separate 32-byte ship-equipment image**. Campaign save blocks starting at EEPROM block 64 are already part of the guest's **whole 8,192-byte EEPROM**, and the existing PS1 [hw_card.h](../../ps1/stage19/ps1rt/hw_card.h) card file stores that entire image. Keep that container and all guest EEPROM bytes intact. Do not propose a second independent save file or assume the 260-byte structure is the entire PS1 card payload.
+The merged GBA [campaign.h](../../stuntfox/src/campaign.h) has a **260-byte Prog** containing the **32-byte sg/SgProgress member**. This is **not a separate 32-byte ship-equipment image**. Campaign save blocks starting at EEPROM block 64 are already part of the guest's **whole 8,192-byte EEPROM**, and the existing PS1 [hw_card.h](../../ps1/stage16/merge/ps1rt/hw_card.h) card file stores that entire image. Keep that container and all guest EEPROM bytes intact. Do not propose a second independent save file or assume the 260-byte structure is the entire PS1 card payload.
 
 Real gaps to address and regression-test:
 - **Collision:** the original and merged discs would otherwise select the same PS1 memory-card file name. Assign a unique merged-disc game/card filename and do not overwrite original progress.
