@@ -12,7 +12,10 @@ import os
 from pathlib import Path
 import sys
 
-RIG = str(Path(__file__).resolve().parents[1] / 'rig')
+HERE = Path(__file__).resolve().parent
+RIG = str(HERE.parent / 'rig')
+# ob_session.py invokes this file via runpy: runpy does not add ps1/qa to sys.path.
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, RIG)
 from payback import *  # noqa
 from flicker_evidence import choose_counter, display_step
