@@ -60,9 +60,28 @@ python3 ps1/qa/audit.py --root /private/results/swan \
   --core swanstation --profile gameplay \
   --min-guest-fps 20 --min-presented-fps 10
 
-# Without a finished disc, these 12 deterministic tests need NO ROM/BIOS/core:
+# Without a finished disc, these 16 deterministic tests need NO ROM/BIOS/core:
 python3 -m unittest discover -s ps1/qa -p 'test_*.py' -v
 ```
+
+### Avoid stale results and ambiguous emulator settings
+
+The rig writes `OUTROOT/session_failures.txt` for the **current** batch.
+If that manifest is nonempty, the auditor now fails even if a prior
+`result.json` still says PASS. It also rejects stale result files when a
+newer session log indicates a later failed run, and rejects a cold-boot
+`e_save_load/reboot/result.json` older than its parent save result. Use a
+fresh OUTROOT for each core/setting; avoid reusing a stock run's result folder
+for a 400% CPU run.
+
+The summary's `exe_sha1` refers to the **PSX.EXE executable only**, not
+the entire disc or its data/audio tracks. `disc_sha1` is a legacy alias for
+that same executable hash, retained for existing audit consumers. A matching
+EXE fingerprint **cannot** prove the same ISO data/audio. A session's
+`meta.core_options` records the core settings after PR #11's recorder is
+merged; if the field is absent, the audit adds a
+`emulator_options_not_recorded` warning. Unavailable guest TTY monitoring is
+also flagged, since an empty fault list alone cannot prove a fault-free run.
 
 The audit exits **0** only when its selected evidence profile passes; missing,
 empty, inconsistent, crashed, wrong-core, mixed-disc, or failing sessions exit
