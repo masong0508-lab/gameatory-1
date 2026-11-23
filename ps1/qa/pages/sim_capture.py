@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
 from collections import deque
 import os
 import sys
 from pathlib import Path
-from working_set import capture, page_indices
+from working_set import capture, page_indices, trace_fingerprint
 
 EW, IW = 0x801b0000, 0x801f0000
 DESC0 = 0x08354af4
@@ -123,6 +124,15 @@ def main(argv=None):
     elf = tree / 'out' / f'bld_{a.variant}' / 'payback.elf'
     if not all(x.is_file() for x in (simfile, exe, iso, elf, a.rom)):
         ap.error('missing private sim4.py, EXE, ISO, ELF or owner ROM')
+    # The size guard alone used to admit an arbitrary zero-filled 8 MiB file,
+    # which can misidentify the controlled entity as a vehicle. Verify the
+    # untouched European dump against the same constant used by the mod.
+    repo_root = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(repo_root / 'payback-mod'))
+    from paybackmod.rom import PAYBACK_EU_SHA1
+    rom = a.rom.read_bytes()
+    if len(rom) != 0x800000 or hashlib.sha1(rom).hexdigest() != PAYBACK_EU_SHA1:
+        ap.error('requires the exact original European 8 MiB Payback ROM (SHA-1 mismatch)')
     try:
         from unicorn import UC_HOOK_CODE
         from unicorn.mips_const import UC_MIPS_REG_4, UC_MIPS_REG_5
@@ -133,9 +143,6 @@ def main(argv=None):
     s = Sim(str(exe), str(iso), str(elf))
     if 'h_memrd' not in s.sym or 'io_cyc' not in s.sym:
         ap.error('sim ELF does not expose h_memrd/io_cyc symbols')
-    rom = a.rom.read_bytes()
-    if len(rom) != 0x800000:
-        ap.error('requires original 8 MiB ROM, not a merged GBA ROM')
     recorder = PageRecorder(a.prelevel_present_frames)
     reached_limit = False
 
@@ -178,6 +185,8 @@ def main(argv=None):
             continue
         obj = capture(mi, mode, phase, reads, source='unicorn_sim_h_memrd_cpu_data_only')
         obj['sampled_present_frames'] = recorder.samples[(mi, mode, phase)]
+        obj['coverage_status'] = 'live_observed'
+        obj['trace_sha256'] = trace_fingerprint(reads)
         obj['limitations'] = ['CPU helper reads only; DMA accesses not guaranteed', 'map/mode attribution at presentation boundaries', 'pre_level window may include the last menu pages']
         target = out / f'map{mi:02d}_{mode}_{phase}.json'
         target.write_text(json.dumps(obj, indent=2, sort_keys=True) + '\n')
