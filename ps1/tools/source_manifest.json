@@ -192,7 +192,7 @@
     {
       "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "df82bdea9ab0ad41d63381029ff14836730bb377c8f4a7500d9f8f577e034014"
+      "sha256": "785ebbb4a22d135a038f0d2b955ab953167e8f6f2ab920556aac5480202009bb"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",

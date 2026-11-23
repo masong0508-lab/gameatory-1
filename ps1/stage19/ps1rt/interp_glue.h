@@ -117,8 +117,10 @@ static u32 film_skip(void){ film_ends++; for(u32 k=0;k<0x12c00u;k+=4) *(volatile
 /* film_miss: h_miss for an address of the overlay area while overlay 1 is resident */
 static u32 film_miss(u32 addr){
   u32 a=addr&~1u; ov_stale_n++;
+#ifndef FILMTEST
   if(a==OV1_INIT) return (u32)rt_ret0;
   if(a==FILM_PLAY){ film_skip(); return (u32)rt_ret1; }
+#endif
   interp_target=a; return (u32)interp_enter;
 }
 /* boot: the words the intro fix relies on, or an error screen (never a silent fallback) */
@@ -160,7 +162,10 @@ u32 ip_hle(IS*s,u32 t){
     else    { ov_copy(0x087e077cu,0x2df0u,IW+(OV_BASE&0x7fffu)); ov_copy(0x087ffc8cu,0x20u,EW+0x1ce8u); }
     ov_slots(n!=0);
     s->r[0]=s->r[14]; s->r[1]=s->r[2]=s->r[3]=0;
-  } else if((a==FILM_PLAY||a==OV1_INIT) && ov_stale(a)){ ov_stale_n++; s->r[0]=a==FILM_PLAY?film_skip():0; }   /* the overlay-1 entry points, called from interpreted code */
+  }
+#ifndef FILMTEST          /* TEST-ONLY measurement: the film player and its init are interpreted (the PPU has no bitmap mode: the picture is wrong) */
+  else if((a==FILM_PLAY||a==OV1_INIT) && ov_stale(a)){ ov_stale_n++; s->r[0]=a==FILM_PLAY?film_skip():0; }   /* the overlay-1 entry points, called from interpreted code */
+#endif
   else return 0;
   ip_hles++; s->pc=s->r[14]; return 1;
 }
