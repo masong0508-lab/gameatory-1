@@ -98,6 +98,18 @@ def delta(a,b):
                 heading_units=((b['heading']-a['heading']+2880)%5760)-2880)
 
 
+def helicopter_climbed(before, after, min_units=1000):
+    """Payback's z decreases on ascent; a fall is NOT takeoff."""
+    return bool(before and after and before['z'] - after['z'] > min_units)
+
+
+def helicopter_landed(ground_z, before, after, tolerance=2048):
+    """Returning to the entry-ground altitude is evidence of landing."""
+    return (ground_z is not None and before is not None and after is not None
+            and abs(after['z'] - ground_z) <= tolerance
+            and after['z'] >= before['z'])
+
+
 def press(e, keys, frames, after=20):
     e.run(frames, list(keys))
     e.run(after, [])
@@ -171,7 +183,7 @@ def helicopter(e):
     ground_z = None if a is None else a['z']
     press(e,('L',),16,300)
     b=actor(e)
-    airborne=bool(a and b and a['z']-b['z'] > 1000)
+    airborne=helicopter_climbed(a, b)
     rows.append(dict(action='L takeoff',change=delta(a,b),
                      passed=airborne,airborne=airborne))
     before=actor(e)
@@ -194,14 +206,10 @@ def helicopter(e):
     press(e,('L',),16,900)
     after=actor(e)
     d=delta(before,after)
-    near_street=(ground_z is not None and after is not None
-                 and abs(after['z']-ground_z)<=2048)
-    moving_down=(before is not None and after is not None
-                 and after['z'] >= before['z'])
+    landed=helicopter_landed(ground_z, before, after)
     rows.append(dict(action='L land',change=d,
-                     passed=bool(after and after['kind'] == HELICOPTER
-                                 and near_street and moving_down),
-                     near_entry_ground=bool(near_street)))
+                     passed=bool(after and after['kind'] == HELICOPTER and landed),
+                     near_entry_ground=landed))
     press(e,('L',),16,300)
     p=actor(e)
     rows.append(dict(action='L exit after landing',passed=bool(p and p['kind'] is None),
