@@ -1,7 +1,8 @@
 #!/bin/sh
 # run_all.sh DISC OUTROOT [SYMS] [CORE]
 # Scripted PS1 acceptance run. A test FAIL, empty result or a crashed child
-# makes the entire runner fail. This script never handles copyrighted data.
+# makes the entire runner fail. RIG_OPTS passes --opt KEY=VALUE to EVERY session.
+# This script never handles copyrighted data.
 set -u
 DISC=${1:-}; OUT=${2:-}; SYMS=${3:-}; CORE=${4:-pcsx_rearmed}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -13,9 +14,49 @@ case "$CORE" in
     swanstation|beetle|pcsx_rearmed) ;;
     *) echo "unknown libretro core: $CORE" >&2; exit 2 ;;
 esac
-mkdir -p "$OUT"
 ONLY=${ONLY:-}
 SOAK_FRAMES=${SOAK_FRAMES:-120000}
+SOAK_GAME_SECONDS=${SOAK_GAME_SECONDS:-600}
+# Whitespace-separated KEY=VALUE tokens, optionally prefixed with --opt.
+# No eval or shell interpolation: an option is always passed as one argv item.
+RIG_OPTS=${RIG_OPTS:-}
+set -f                              # prevent wildcard expansion of option values
+expect_value=0
+for rig_token in $RIG_OPTS; do
+    if [ "$rig_token" = "--opt" ]; then
+        [ "$expect_value" -eq 0 ] || { echo 'RIG_OPTS: duplicate --opt' >&2; exit 2; }
+        expect_value=1
+        continue
+    fi
+    case "$rig_token" in
+        [A-Za-z_]*=*) ;;
+        *) echo 'RIG_OPTS: expected KEY=VALUE tokens' >&2; exit 2 ;;
+    esac
+    rig_key=${rig_token%%=*}
+    case "$rig_key" in
+        *[!A-Za-z0-9_]*|'') echo 'RIG_OPTS: invalid option name' >&2; exit 2 ;;
+    esac
+    rig_value=${rig_token#*=}
+    # Value grammar deliberately avoids shell metacharacters, spaces and
+    # substitutions. Valid core options use strings such as 400, 10, false,
+    # Software, 2x(native) and scph5501.bin.
+    case "$rig_value" in
+        ''|*[!A-Za-z0-9_./:%+,\(\)-]*)
+            echo 'RIG_OPTS: invalid option value' >&2; exit 2 ;;
+    esac
+    expect_value=0
+done
+[ "$expect_value" -eq 0 ] || { echo 'RIG_OPTS: missing KEY=VALUE after --opt' >&2; exit 2; }
+for duration in "$SOAK_FRAMES" "$SOAK_GAME_SECONDS"; do
+    case "$duration" in
+        ''|*[!0-9]*) echo 'SOAK_FRAMES and SOAK_GAME_SECONDS must be positive integers' >&2; exit 2 ;;
+    esac
+    [ "$duration" -gt 0 ] 2>/dev/null || {
+        echo 'SOAK_FRAMES and SOAK_GAME_SECONDS must be greater than zero' >&2; exit 2;
+    }
+done
+# Do not create an output directory until all user settings pass validation.
+mkdir -p "$OUT"
 failures="$OUT/session_failures.txt"
 : > "$failures"             # do not include stale FAIL lines from prior runs
 failed=0
@@ -33,6 +74,9 @@ run() {
     echo "=== $name: $*"
     set -- "$@" --disc "$DISC" --core "$CORE"
     [ -z "$SYMS" ] || set -- "$@" --syms "$SYMS"
+    for rig_opt in $RIG_OPTS; do
+        [ "$rig_opt" = "--opt" ] || set -- "$@" --opt "$rig_opt"
+    done
     set -- "$@" --state-dir "$OUT/states" --out "$OUT/$name"
     if [ "$CORE" = swanstation ] || [ "$CORE" = beetle ]; then
         python3 "$HERE/tools/ob_session.py" "$@" > "$log" 2>&1
@@ -53,8 +97,8 @@ run() {
 }
 run a a_boot_to_title      "$HERE/sessions/boot_to_title.py" --save-state
 run b b_new_game_to_level  "$HERE/sessions/new_game_to_level.py" --path pad --save-state
-# KPL/KPLB menu-assist hooks exist only on TEST discs. Release discs do
-# not contain them; running the assist route would fail by design.
+# KPL/KPLB assist hooks exist only on TEST discs. Real release images
+# must not run this impossible route or fail the entire matrix by design.
 if [ -n "$SYMS" ] && [ -f "$SYMS" ] && grep -aq 'KPL' "$SYMS"; then
     run b b_assist_path    "$HERE/sessions/new_game_to_level.py" --path assist --save-state
 else
@@ -63,7 +107,7 @@ fi
 run j j_replay_script      "$HERE/sessions/replay.py" --script "$OUT/b_new_game_to_level/script.txt" --assist off
 run d d_maps               "$HERE/sessions/maps.py"
 run e e_save_load          "$HERE/sessions/save_load.py"
-run f f_soak               "$HERE/sessions/soak.py" --max-frames "$SOAK_FRAMES"
+run f f_soak               "$HERE/sessions/soak.py" --max-frames "$SOAK_FRAMES" --game-seconds "$SOAK_GAME_SECONDS"
 run c c_in_level           "$HERE/sessions/in_level.py"
 run g g_state_check        "$HERE/sessions/state_check.py"
 run h h_speed              "$HERE/sessions/speed.py"

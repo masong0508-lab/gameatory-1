@@ -561,8 +561,11 @@ class Game(Emu):
             self.card_in = img
         self.disc = Disc(self.bin_path())
         self._rom = None
+        # Preserve resolved libretro settings in private result.json. Without
+        # this, a stock run and a 400%-CPU/10x-CD run look identical to QA.
         self.meta = {'disc': self.disc_path, 'core': core, 'card': card if isinstance(card, str) else 'bytes', 'syms': syms, 'fps': self.fps,
-                     'exe_sha1': self.disc.sha1('PSX.EXE') if 'PSX.EXE' in self.disc.files else None, 'tty': self.tty_available}
+                     'exe_sha1': self.disc.sha1('PSX.EXE') if 'PSX.EXE' in self.disc.files else None, 'tty': self.tty_available,
+                     'core_options': {k: v.decode('utf-8', 'replace') for k, v in sorted(self.opts.items())}}
         if self.sym and 'PSX.EXE' in self.disc.files:
             self.meta['syms_match_disc'] = self._syms_match()
 

@@ -58,6 +58,50 @@ session prints PASS / FAIL lines and exits 1 on any FAIL; `runs/sw_level/` gets 
 `--core beetle` runs it on Beetle PSX; without `tools/ob_session.py` and with `--core pcsx_rearmed` (the default) it runs on
 the fast core. Every session in a row: `./run_all.sh DISC OUTROOT [SYMS] [CORE]`.
 
+## Run the full matrix with measured CPU/CD options
+
+`run_all.sh` accepts `RIG_OPTS`: a **whitespace-separated list of core
+`KEY=VALUE` settings**, optionally with explicit `--opt` before each.
+Each setting is forwarded unchanged as `--opt KEY=VALUE` to every selected
+session, including both save/load processes. The runner never evaluates the
+contents as shell code. Values with spaces are not supported.
+
+For **SwanStation**, use the exact measured rc7 options in
+[`ps1/EMULATOR_SETTINGS.md`](../EMULATOR_SETTINGS.md):
+
+```sh
+export RIG_OPTS='swanstation_CPU_Overclock=400 swanstation_CDROM_ReadSpeedup=10 swanstation_CDROM_SeekSpeedup=0'
+# Paths may contain spaces, provided they are properly quoted.
+# 108000 emulator frames ~= 30 minutes at 60 fps. Require 1800 game-clock
+# seconds too; a slow build failing the clock target is reported as FAIL.
+SOAK_FRAMES=108000 SOAK_GAME_SECONDS=1800 \
+  sh ps1/rig/run_all.sh "$DISC" "$OUTROOT" "$SYMS" swanstation
+
+# For any defect, repeat the affected session at stock settings on a fresh
+# output directory, e.g. ONLY='c' for the in-level session.
+unset RIG_OPTS
+ONLY='c' sh ps1/rig/run_all.sh "$DISC" "$STOCK_OUTROOT" "$SYMS" swanstation
+```
+
+`SOAK_GAME_SECONDS` defaults to **600** (the existing 10-minute gameplay-time
+target); `SOAK_FRAMES` defaults to 120000 (emulated-frame budget). Setting
+both is necessary when requiring a specific *minimum in-game* duration,
+because the soak ends when **either** limit is reached. Record the actual
+emulated frames and guest seconds; meeting the frame budget alone is not proof
+of 30 minutes of gameplay. The default `ONLY` includes all sessions.
+
+At **stock** (unset or empty `RIG_OPTS`) no `--opt` arguments are added.
+For Beetle PSX use its own option keys; there is no Beetle counterpart for
+instant seek in the current rig. SwanStation results remain emulator-only,
+not DuckStation Android or physical console acceptance.
+
+The ROM-free tests for option parsing, argument preservation and the
+second save/load process are:
+
+```sh
+python3 -m unittest discover -s ps1/rig/tests -p 'test*.py' -v
+```
+
 ## Environment
 
 | variable | default | what |
@@ -68,7 +112,8 @@ the fast core. Every session in a row: `./run_all.sh DISC OUTROOT [SYMS] [CORE]`
 | `RIG_BUILD` | `ps1/rig/build` | where the two small C shims are compiled to (gcc) |
 | `RIG_MGBA_HARNESS` | `ps1/stage7/integration/mgba` | the mGBA harness for `tools/gba_ref_intro.py` |
 | `PS1GAME_LAYOUT` | none | moved guest windows of a build, e.g. `EW=0x801b0000,DL=0x8017c000` |
-| `SOAK_FRAMES`, `ONLY` | 120000, all | `run_all.sh`: soak length, session letters to run |
+| `SOAK_FRAMES`, `SOAK_GAME_SECONDS`, `ONLY` | 120000, 600, all | `run_all.sh`: emulator-frame budget, game-time target (seconds), session letters |
+| `RIG_OPTS` | none (stock) | whitespace-separated `KEY=VALUE` core options forwarded to every session, including save/load cold boot |
 | `OB_*` | per script | parameters of the `sessions_ob/` scripts for `tools/obrun.py` |
 | `OUT` | `openboot/build` | `openboot/build.sh`: output directory |
 
