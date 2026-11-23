@@ -1,5 +1,6 @@
 """ROM-free page-profiling tests, including adversarial legacy pickle input."""
 import collections
+import hashlib
 import io
 import json
 import pickle
@@ -9,7 +10,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from working_set import page_indices, validate, capture, summarize, trace_fingerprint, LIVE_SOURCE, main as summary_main
 from from_reference import load_counts
-from sim_capture import controlled_mode, PageRecorder, EW, IW, DESC0
+from sim_capture import controlled_mode, owner_rom_matches, PageRecorder, EW, IW, DESC0
 
 
 def live(map_id, mode, phase, counts):
@@ -147,6 +148,14 @@ class PageTests(unittest.TestCase):
         for data in (b'\\x80\\x04\\x95', b'\\x80\\x04}\\x94(', b''):
             with self.assertRaises(ValueError):
                 load_counts(data)
+
+    def test_simulator_rejects_wrong_rom_even_if_8mb_size_matches(self):
+        zeroed = b'\\0' * 0x800000
+        correct_for_synthetic = hashlib.sha1(zeroed).hexdigest()
+        self.assertTrue(owner_rom_matches(zeroed, correct_for_synthetic))
+        self.assertFalse(owner_rom_matches(zeroed,
+                         '08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7'))
+        self.assertFalse(owner_rom_matches(zeroed[:-1], correct_for_synthetic))
 
     def test_controlled_vehicle_class_uses_descriptor_id(self):
         regs={IW+0x0c:8,EW+0x1db8:2,IW+0xc60+2*4:0x02002000,
