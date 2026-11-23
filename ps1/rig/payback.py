@@ -302,7 +302,7 @@ def open_game(args, name, **kw):
 
 
 # ---------------------------------------------------------------------------------------------- level: picture and steering
-def view_state(im):
+def view_state(im, renderer_evidence=False):
     """What a picture shows, judged from the whole frame (calibrated on this game's screens, see RIG.md):
     'city'  - the 3D view of the level: nearly every pixel lit and a good part of them coloured;
     'black' - nothing; 'white' - more than half nearly white (the fade at a level start); 'dark' - text or a logo on
@@ -326,7 +326,23 @@ def view_state(im):
     # vehicles) even though the 3D view covers the frame. Preserve the
     # saturated-city rule and add a strictly high-coverage, low-chroma path;
     # a truly grey menu with c=0 and white fade still fail this gate.
-    return 'city' if (l >= 0.8 and c >= 0.105) or (l >= 0.9 and c >= 0.02 and w < 0.35) else 'menu'
+    return 'city' if (l >= 0.8 and c >= 0.105) or (renderer_evidence and l >= 0.9 and c >= 0.02 and w < 0.35) else 'menu'
+
+
+
+def rendered_view_state(g, im, since_render=None):
+    """Use a low-chroma city classification ONLY with new 3D render evidence.
+
+    A pale rendered street and the bridge-photograph language menu can have
+    the same chroma fraction. No pixel-only threshold can separate them.
+    The renderer must be active *and* st3_render must have advanced since
+    the earlier observation. Missing symbols fail closed to old strict colour
+    classification; a menu never becomes a city solely by looking pale.
+    """
+    now = g.v('st3_render')
+    active = (since_render is not None and now is not None
+              and now > since_render and g.v('sf3_ok') == 1)
+    return view_state(im, renderer_evidence=active)
 
 
 def heading_to(dx, dy):
@@ -374,13 +390,14 @@ def level_view(g, r0=None, budget=14000):
     """After a level start: wait until the level's own pictures are on screen (two frames presented since, and with symbols two
     3D frames rendered since r0 = st3_render before the start), then until the 3D city is seen.  Returns (ok, detail)."""
     f0 = g.nrun
+    before_render = r0 if r0 is not None else g.v('st3_render')
     g.wait_presented(2, budget)
-    if r0 is not None and 'st3_render' in g.sym:
-        g.wait_until(lambda: g.v('st3_render') >= r0 + 2, budget, step=4)
-    g.wait_until(lambda: view_state(g.image()) == 'city', 6000, step=60)
-    vs = view_state(g.image())
+    if before_render is not None and 'st3_render' in g.sym:
+        g.wait_until(lambda: g.v('st3_render') >= before_render + 2, budget, step=4)
+    g.wait_until(lambda: rendered_view_state(g, g.image(), before_render) == 'city', 6000, step=60)
+    vs = rendered_view_state(g, g.image(), before_render)
     r1 = g.v('st3_render')
-    ok = vs == 'city' and g.level_clock() > 0 and not g.at_rampage() and (r0 is None or r1 is None or r1 >= r0 + 2)
+    ok = vs == 'city' and g.level_clock() > 0 and not g.at_rampage() and (before_render is None or r1 is None or r1 >= before_render + 2)
     return ok, 'view %s, clock %d, 3D frames rendered since the start %s, sf3_ok %s, %d frames after the start' % (
         vs, g.level_clock(), None if (r0 is None or r1 is None) else r1 - r0, g.v('sf3_ok'), g.nrun - f0)
 
@@ -397,6 +414,7 @@ class Scan:
         self._cur = None
         self.samples = 0
         self.states = {}
+        self._render_before = g.v('st3_render')
 
     def run(self, frames, buttons=(), until=None):
         g, n = self.g, 0
@@ -407,7 +425,8 @@ class Scan:
             g.run(k, buttons)
             n += k
             im = g.image()
-            vs = view_state(im)
+            vs = rendered_view_state(g, im, self._render_before)
+            self._render_before = g.v('st3_render')
             self.samples += 1
             self.states[vs] = self.states.get(vs, 0) + 1
             if vs != 'city':
