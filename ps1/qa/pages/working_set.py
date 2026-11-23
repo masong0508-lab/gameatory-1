@@ -8,6 +8,7 @@ predict CD seeks or FPS; a temporal replay is still needed.
 from __future__ import annotations
 import argparse
 import collections
+import hashlib
 import json
 import re
 import sys
@@ -18,6 +19,7 @@ NPAGE = 2048
 PAGE = 4096
 MODE_RE = re.compile(r'^(foot|vehicle_\d{1,3}|unclassified)$')
 PHASES = {'pre_level', 'early_play', 'play', 'combined'}
+LIVE_SOURCE = 'unicorn_sim_h_memrd_cpu_data_only'
 
 
 def page_indices(address: int, size: int) -> tuple[int, ...]:
@@ -37,7 +39,7 @@ def page_indices(address: int, size: int) -> tuple[int, ...]:
 
 
 def validate(raw):
-    if not isinstance(raw, dict) or raw.get('schema') != 1:
+    if not isinstance(raw, dict) or type(raw.get('schema')) is not int or raw['schema'] != 1:
         raise ValueError('wrong_capture_schema')
     mi = raw.get('map')
     if type(mi) is not int or not 0 <= mi < NMAP:
@@ -46,7 +48,7 @@ def validate(raw):
     if not isinstance(mode, str) or not MODE_RE.fullmatch(mode):
         raise ValueError('invalid_mode')
     phase = raw.get('phase')
-    if phase not in PHASES:
+    if not isinstance(phase, str) or phase not in PHASES:
         raise ValueError('invalid_phase')
     reads = raw.get('reads4k')
     if not isinstance(reads, dict) or not reads:
@@ -68,6 +70,31 @@ def capture(map_id, mode, phase, counts, *, source):
             'source': source, 'bytes_included': False}
 
 
+def trace_fingerprint(counts):
+    """Hash only the ROM *page IDs and hit counts*, never ROM bytes or text.
+
+    Omitting map/mode is intentional: relabeling the same trace as multiple
+    maps must NOT make it independent evidence of 11-map coverage.
+    """
+    data = json.dumps({str(k): counts[k] for k in sorted(counts)},
+                      sort_keys=True, separators=(',', ':')).encode('ascii')
+    return hashlib.sha256(data).hexdigest()
+
+
+def live_coverage(rec, mi, mode, phase, counts):
+    """Conservatively credit only self-reported, checked live sim captures.
+
+    Capture metadata is not cryptographic proof of real gameplay; private
+    simulator logs still need independent review before a release decision.
+    """
+    return (phase in ('early_play', 'play') and mode != 'unclassified'
+            and rec.get('source') == LIVE_SOURCE
+            and rec.get('coverage_status') == 'live_observed'
+            and type(rec.get('sampled_present_frames')) is int
+            and rec['sampled_present_frames'] > 0
+            and rec.get('trace_sha256') == trace_fingerprint(counts))
+
+
 def summarize(records, budget4k=56, required_modes=()):
     if not isinstance(budget4k, int) or budget4k < 1 or budget4k > NPAGE:
         raise ValueError('invalid_budget')
@@ -78,34 +105,53 @@ def summarize(records, budget4k=56, required_modes=()):
     scenes = []
     combined = collections.Counter()
     by_scene = {}
+    observations = []
+    hashes_by_scene = collections.defaultdict(set)
     for rec in records:
         mi, mode, phase, counts = validate(rec)
         key = (mi, mode, phase)
         by_scene.setdefault(key, collections.Counter()).update(counts)
+        eligible = live_coverage(rec, mi, mode, phase, counts)
+        digest = rec.get('trace_sha256') if eligible else None
+        if eligible:
+            hashes_by_scene[digest].add((mi, mode))
+        observations.append((key, eligible, digest))
     if not by_scene:
         raise ValueError('no_captures')
+    # Two different maps/modes must not be certified by changing the JSON
+    # labels on the SAME page/count trace. Identical fingerprints are rare
+    # enough that genuine matching scenes require a fresh verified capture.
+    reused = {h for h, locations in hashes_by_scene.items() if len(locations) > 1}
+    trusted = {key for key, eligible, digest in observations
+               if eligible and digest not in reused}
     for (mi, mode, phase), counts in sorted(by_scene.items()):
         total = sum(counts.values())
-        # Equal weight per scene, so a long-running route does not drown out
-        # shorter map/vehicle captures. No claim this predicts CD latency.
-        for page, n in counts.items():
-            combined[page] += n / total
+        # Pre-level windows can contain the TITLE MENU, not level data.
+        # Exclude from cache ranking by default, while retaining the
+        # diagnostic counts in the output for future explicit comparison.
+        if phase != 'pre_level':
+            # Equal weight per scene, so a long route does not drown out
+            # shorter map/vehicle captures. Not CD latency.
+            for page, n in counts.items():
+                combined[page] += n / total
         scenes.append({'map': mi, 'mode': mode, 'phase': phase,
+                       'coverage_eligible': (mi, mode, phase) in trusted,
                        'distinct_4k': len(counts), 'total_data_reads': total})
     selected = [k for k, _ in sorted(combined.items(), key=lambda kv: (-kv[1], kv[0]))[:budget4k]]
     aggregate16 = collections.Counter()
     for p, weight in combined.items():
         aggregate16[p // 4] += weight
     ranked16 = [p for p, _ in sorted(aggregate16.items(), key=lambda kv: (-kv[1], kv[0]))]
-    maps = sorted({r['map'] for r in scenes if r['phase'] != 'pre_level'})
-    veh = sorted({r['mode'] for r in scenes if r['mode'].startswith('vehicle_')})
-    observed_pairs = {(r['map'], r['mode']) for r in scenes if r['phase'] != 'pre_level'}
+    maps = sorted({r['map'] for r in scenes if r['coverage_eligible']})
+    veh = sorted({r['mode'] for r in scenes if r['coverage_eligible'] and r['mode'].startswith('vehicle_')})
+    observed_pairs = {(r['map'], r['mode']) for r in scenes if r['coverage_eligible']}
     missing_pairs = [{'map': mi, 'mode': mode} for mi in range(NMAP)
                      for mode in required_modes if (mi, mode) not in observed_pairs]
     per_scene = []
     for (mi, mode, phase), counts in sorted(by_scene.items()):
         total = sum(counts.values())
         per_scene.append({'map': mi, 'mode': mode, 'phase': phase,
+                          'included_in_default_ranking': phase != 'pre_level',
                           'candidate_data_read_share': round(sum(counts.get(p, 0) for p in selected) / total, 5)})
     return {'schema': 1, 'classification': 'read_frequency_only_no_temporal_cache_model',
             'budget_4k_pages': budget4k, 'candidate_4k_pages': sorted(selected),
@@ -116,8 +162,12 @@ def summarize(records, budget4k=56, required_modes=()):
             'required_modes': required_modes,
             'missing_required_map_mode_pairs': missing_pairs,
             'complete_required_map_mode_matrix': bool(required_modes) and not missing_pairs,
+            'reused_trace_sha256_count': len(reused),
             'scenes': scenes, 'per_scene_candidate_read_share': per_scene,
-            'warnings': ['No traffic/scene is certified unless its capture was observed.',
+            'warnings': ['Historical or relabeled reference traces are not live map/vehicle evidence.',
+                         'Identical read-count trace hashes across different maps/modes are rejected for coverage.',
+                         'Pre-level windows may contain menu data and are excluded from default cache rankings.',
+                         'Capture provenance is self-reported and still requires private simulator validation.',
                          'CPU data read frequencies are not CD miss counts; validate with a temporal cache trace.',
                          'DMA data and original GBA hardware behavior may be missing from the simulator profile.']}
 
@@ -147,7 +197,7 @@ def main(argv=None):
         a.output.write_text(text, encoding='utf-8')
     print(text, end='')
     incomplete = ((a.require_11_maps and not report['complete_11_map_coverage']) or
-                  (a.require_complete_matrix and not report['complete_required_map_mode_matrix']))
+                  (bool(a.require_mode) and not report['complete_required_map_mode_matrix']))
     return 3 if incomplete else 0
 
 
