@@ -65,11 +65,11 @@ def main() -> int:
             return target
 
         # release profile (tools12/build.sh): single-page CD fetches, no menu assist, no PADDBG log, the real-time guest clock (CLOCKF:
-        # speed stage 1), dispatch phase 1 (DISP: D3 D1 D4 D2), the speed stage 3 items (BOOTF: COLD1PASS, PCPAIR, CDPADPOLL in rt.c,
+        # speed stage 1), dispatch phase 1 (DISP: D3 D1 D4 D2), the speed stage 3 items (BOOTF: COLD1PASS, PCPAIR, CDPADPOLL, PADSPLIT in rt.c,
         # EXEPACK in crt0.s); the TEST profile adds KPLAN and PADDBG
         clock = ["-DRTC64", "-DRTC_TIMERS", "-DRTC_PRESENT", "-DRTC_PMAX=100", "-DRTC_GFRAMES", "-DRTC_QUANT", "-DRTC_DT"]
         dispatch = ["-DDISP_D3", "-DDISP_D1", "-DDISP_D4", "-DDISP_D2"]
-        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", *clock, *dispatch, "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-Iinterp"]
+        runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", *clock, *dispatch, "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-DPADSPLIT", "-Iinterp"]
         test_runtime = [*runtime, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]

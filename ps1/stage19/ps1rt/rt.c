@@ -58,8 +58,17 @@ static u32 cd_nreq, cd_npass;   /* test counters (speed stage 3): data requests 
    right after 'Play game' the guest fills guest memory that way for about 0.2 s with no cold call and no I/O read), so a press made while
    the guest stands still for a read or a long load is not lost: pad_cdlat keeps the buttons seen there (GBA KEYINPUT bits, 1 = pressed)
    until the guest's next KEYINPUT read, which sees them pressed once; pad_latch (defined with the pad path below) gets them too (radio,
-   map keys). */
-static u32 pad_cdt, pad_cdlat, pad_rawn; static u32 pad_latch;
+   map keys).
+   Coverage with the dispatch items on (wave 1 review): DISP_D1 / DISP_D2 send repeated cold calls past cold_find (rt_mcache hit or a
+   linked jal), and DISP_D4's wr_front stores to EWRAM / IWRAM without h_memwr, so the cold-call and raw-store polls fire only on a D1
+   miss and on raw stores to regions 5-7.  What still covers a long stall is the poll in the CD waits (the level is CD-bound: most of an
+   iteration is CD wait) and the real-frame pad read at every KEYINPUT read and present (RTC_GFRAMES); the level-start taps of 3, 6 and 12
+   frames lose none on the combined build (taps_level_vf). */
+/* pad_cddn: the buttons down at the last look (the guest's last KEYINPUT read, or the last poll here).  Only a button that goes down after
+   that is latched: a press the guest has already seen (a cursor key still held at a CD wait right after the read that moved the cursor)
+   is not delivered again at the next read.  Without this edge rule the title menu got that stale DOWN together with the next Cross, many
+   frames after DOWN was released (Down+A in one read), and did not open the entry (wave 1 fixup: boot_to_title, title_trace 8/8). */
+static u32 pad_cdt, pad_cdlat, pad_cddn, pad_rawn; static u32 pad_latch;
 #ifdef CDSTAT
 static u32 pad_cdpolls, pad_cddeliv;   /* test counters: polls made here; KEYINPUT reads that a latched press changed */
 #endif
@@ -167,7 +176,7 @@ static void cd_error_screen(u32 lba); static void cd_error_gone(void);
 #endif
 #if defined(CDPADPOLL) && !defined(CDSIM)
 __attribute__((noinline)) static void cd_padpoll(u32 lines){ u32 t=RC1_VAL&0xffff; if(((t-pad_cdt)&0xffff)<lines) return; pad_cdt=t;
-  pad_cdlat|=0x3ffu&~pad_poll(); pad_latch|=pad_raw; CDSTAT_INC(pad_cdpolls); }
+  u32 dn=0x3ffu&~pad_poll(); pad_cdlat|=dn&~pad_cddn; pad_cddn=dn; pad_latch|=pad_raw; CDSTAT_INC(pad_cdpolls); }
 #endif
 #ifndef CDSIM
 #ifdef RTC_GFRAMES
@@ -647,6 +656,23 @@ u32 io_read(u32 off,u32 size){
 #endif
    io_keys&=~pad_cdlat; pad_cdlat=0; }   /* P6: presses seen during a CD wait or a long load read as pressed once */
 #endif
+#ifdef PADSPLIT
+ /* wave 1 fixup, PADSPLIT: one pad change per guest frame.  The guest reads KEYINPUT once per frame of its own, and in the menus a
+    frame can now take 30-40 real frames when it waits for ROM pages; a player who lets go of DOWN and presses Cross within that time
+    gave the guest both changes in one read (DOWN up and A down together), and Payback's title menu then takes no A: the entry did
+    not open however long A was held (rig boot_to_title, title_trace 8/8).  When a read sees a button go up and another go down,
+    this read reports only the release; the new press is reported from the next guest frame on (kept in pad_split even if it was let
+    go meanwhile, so it reads as pressed once).  Only while the level clock stands still (menus, pause): in a running level a guest
+    frame is a whole level iteration and a held-back press would come one iteration late. */
+ { static u32 pad_seen, pad_split, pad_split_vf, pad_lvclk; u32 lc=*(volatile u32*)(EW+0x1e00), menu=(lc==pad_lvclk); pad_lvclk=lc;
+   if(pad_split){ if(VF!=pad_split_vf||!menu){ io_keys&=~pad_split; pad_split=0; } else io_keys|=pad_split; }
+   u32 dn=0x3ffu&~io_keys, rel=pad_seen&~dn, nw=dn&~pad_seen;
+   if(menu&&rel&&nw&&!pad_split){ io_keys|=nw; pad_split=nw; pad_split_vf=VF; }
+   pad_seen=0x3ffu&~io_keys; }
+#endif
+#if defined(CDPADPOLL) && !defined(CDSIM)
+ pad_cddn=0x3ffu&~io_keys;               /* what the guest has now seen down (the edge rule of cd_padpoll) */
+#endif
 #endif
 #ifdef KPLAN
  io_keys=pad_gba&kplan_keys(io_cyc/280896);   /* MENU ASSIST: the stock game's title -> rampage menu path (frames from power-on) OR-ed with the real pad (active low: AND); the in-level plan is TESTTOUR (test only) */
@@ -752,7 +778,12 @@ static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel 
 #endif
 #ifdef COLD1PASS
 #ifndef COLD1_QUIET
+#ifdef RTC_GFRAMES
+#define COLD1_QUIET 30u        /* g_gframes counts REAL frames here (Stage 1): 0.5 s without a data read before present() starts the one pass
+                                  (the value 4 was tuned in virtual frames, 0.25-1 s in the menus; 4 real frames would be 67 ms) */
+#else
 #define COLD1_QUIET 4u         /* guest frames without a data read before present() starts the one pass */
+#endif
 #endif
 /* speed item M5: COLD.BIN in one pass.  The whole file is read into the homes of all groups (two requests of at most CD_RUN sectors, through
    cd_read's retries), every group is marked loaded only after the read, and the I-cache is flushed once.  Only in the menus before the
@@ -866,12 +897,14 @@ static int d2_site_ok(u32 addr,u32 ra){
   u32 hi=0x3c190000u|(addr>>16), lo=0x37390000u|(addr&0xffff);
   return (w[-1]==lo&&w[-2]==hi)||((addr&0xffff)==0&&w[-1]==hi);
 }
-/* 1 = the site is linked or queued (do not cache: the next calls from it must reach h_miss until the queue is written) */
+/* 1 = the site is linked or queued (do not cache: the next calls from it must reach h_miss until the queue is written).  A full queue
+   returns 0, so h_miss caches the target in D1 instead: else every call from a site that did not fit went through h_miss and cold_find
+   until the next present drained the queue, about once a second in a level (review of wave 1: 204 full in a 10 min soak). */
 static int d2_link(u32 addr,u32 ra,u32 host){
   if(!cf_perm||!d2_site_ok(addr,ra)) return 0;
   u32 s=ra-8;
   for(u32 q=0;q<lq_n;q++) if(LQ[4*q]==s) return 1;
-  if(lq_n>=LQ_N){ d2_full++; return 1; }
+  if(lq_n>=LQ_N){ d2_full++; return 0; }
   LQ[4*lq_n]=s; LQ[4*lq_n+1]=addr; LQ[4*lq_n+2]=host; lq_n++; d2_queued++; return 1;
 }
 /* at a present: write the queued sites (each checked again: its group may have been dropped since), then one FlushCache */

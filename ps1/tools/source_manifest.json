@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "bdcd30abb814d3d718eeb8bc35ffa502e8061fa714d90d01f40a2de12deb4db2"
+      "sha256": "744d79779e17e042ac268bd833720c566a9d8db8c61e470d2c48f54e8ce30964"
     },
     {
       "source": "stage7/integration/rd/doll.c",
@@ -517,7 +517,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "520fc76dd308cd721662183502992437f2ca5d01b226f83264c5bf480ead41a8"
+      "sha256": "73fec128f868687cfda9c8abd7678edf78b521c95035231cde2a3e7bcfa03c80"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -782,7 +782,7 @@
     {
       "source": "SPEED_WAVE1.md",
       "target": "SPEED_WAVE1.md",
-      "sha256": "84f5d80a91996ee7d4b34b7580517105890b00b16aa5c130981482630efa5434"
+      "sha256": "ee45694ce6d65ad43ba13979c581e4b4beafbd291c1848d7d34325330c534640"
     }
   ],
   "patches": [

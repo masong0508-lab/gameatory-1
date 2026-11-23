@@ -313,7 +313,7 @@ class BuildProfileTests(unittest.TestCase):
             self.assertIn(flag, flags)
 
     def test_release_has_the_stage3_speed_items(self):
-        items = ('-DEXEPACK', '-DCOLD1PASS', '-DPCPAIR', '-DCDPADPOLL')
+        items = ('-DEXEPACK', '-DCOLD1PASS', '-DPCPAIR', '-DCDPADPOLL', '-DPADSPLIT')
         for script, settings in (('tools12/build.sh', {}), ('tools12/build_test_assist.sh', {})):
             flags = self.profile(script, **settings)['CFLAGS'].split()
             for flag in items:

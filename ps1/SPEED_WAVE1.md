@@ -3,6 +3,92 @@
 Branch `ps1speed` (worktree `S/ps1speed/wt`, from 16a963b). S = the session scratchpad.
 All speeds are in emulated time: core frames / 59.94. Firmware is openboot unless a row says otherwise.
 
+## 0. Review fixup (supersedes the release of section 2 and open failure 1 of section 5)
+
+**New release: `payback_w1b`** (build `pbw5`), in `S/ps1speed/out/`:
+- `payback_w1b.bin` / `.cue` / `.chd` / `.elf` / `.exe` / `.nm.txt`; checksums in `sha256_w1b.txt` (bin 507b453f…, chd bbc142ee…, EXE 449205f4…).
+- verify_disc RESULT PASS: US licence, 15 tracks (songs 1, 2, 4 of the remix set, no song 3), data track 7,776 sectors. chdman exit 0.
+- CFLAGS: the wave-1 list plus `-DPADSPLIT` (now in `BOOTF` of tools12/build.sh).
+- Runtime 8,656 bytes free (was 9,040); renderer 3,540; ragdoll 2,428. Helper table and fixed addresses unchanged; verify_inputs 0 failed.
+- mips1_lint 0 invalid of 53,158 words; gpuwait_classify 14 waits, all before a command; prepare --check 156 files; unit tests 70 OK; check_native OK.
+- Test disc (data track only): `S/ps1speed/wave1fix/discs/pbw5.cue`. Runs: `S/ps1speed/runs/wave1fix`.
+
+**Findings and what was done**
+
+| finding | verdict | change |
+|---|---|---|
+| 1 (medium) title menu ignores the pad = rig artifact | **Half right.** The rig's 2-frame taps were an artifact, but with fixed-length presses the release still failed. | rig copy `wave1fix/sessions/tapfix.py` (tap() holds and releases at least 8 emulator frames); two runtime fixes below |
+| 2 (low) D2 queue full: neither linked nor cached | Confirmed | `d2_link` returns 0 when the queue is full, so the target goes into D1 |
+| 3 (low) P6 polls bypassed by D1/D2/D4 | Right by the code; no lost press measured in the cases P6 targets | comment in rt.c now states the real coverage; no new poll site |
+| 4 (low) COLD1_QUIET in virtual frames | Confirmed by the code | 30 real frames (0.5 s) under RTC_GFRAMES; 4 otherwise |
+
+**Finding 1, what really happens.** With the tap fix the release (pbw3) still failed boot_to_title. Control setup and Credits did not open, even with Cross held 82 frames.
+- Trace (`wave1fix/sessions/title_trace.py`, run `sw_ttrace8cold_pbw4`): after a cursor move the title menu waits for ROM pages. The guest then reads KEYINPUT only once in 30-40 real frames.
+- A player who lets go of DOWN and presses Cross inside that gap gives the guest both changes in one read (DOWN up and A down together). Payback's title menu then takes no A: no entry opens however long A is held. Cross pressed with a read in between opens the entry.
+- This depends on the real-time clock and not on CDPADPOLL. The clock-only build w1c with the fixed taps still fails (`sw_b2t_w1c`: 4 of 5 entries do not open).
+- CDPADPOLL made it worse. It latched a DOWN that the guest had already seen, and delivered it again together with the Cross (`io_keys 037e` in `sw_ttrace8_pbw3`).
+- Fix 1, in CDPADPOLL: the P6 latch is edge-triggered. Only a button that goes down after the guest's last look is latched (`pad_cddn`).
+- Fix 2, new flag **PADSPLIT**, rt.c io_read: while the level clock stands still (menus, pause), a read that sees one button go up and another go down reports only the release. The new press is reported from the next guest frame on, and it is kept even if released meanwhile.
+- Not in a running level: there a guest frame is a whole iteration.
+- The bisection of section 5 is replaced by:
+
+  | build | SW boot_to_title, fixed taps: entries that open |
+  |---|---|
+  | pbw3 (wave 1) | 2 of 5 |
+  | pbw4 (edge-triggered P6 only) | 2 of 5 |
+  | w1c (clock only) | 1 of 5 |
+  | **pbw5 (both fixes)** | **5 of 5** (SW data disc and full disc, BE, PCSX full disc) |
+
+- Before the fix, the title_trace repro with 8-frame cursor taps failed on its first Cross. With the fix it opens.
+
+**Gates of the fixup (pbw5, openboot unless noted)**
+
+| check | SW | BE |
+|---|---|---|
+| power-on -> level (pad route) | 27.28 s (= pbw3) | 26.38 s (pbw3 26.23) |
+| language / title reached | 10.88 / 18.30 s | 10.21 / 17.23 s |
+| logo 1 static | 2.252 s | 2.135 s |
+| pad route cold boot to the level (ngl_boot) | 10/10 | 10/10 |
+| boot_to_title, tap fix (data disc / full disc) | 29 PASS 8 FAIL / 29 / 8: all 5 entries open and return | 29 PASS 8 FAIL: all 5 entries open |
+| foot 60 s: ticks/s, it/s, fetches per 1000 ticks | 5.87, 1.30, 1,267 | 6.53, 1.45, 969 |
+| idle 60 s: ticks/s, it/s | 4.85, 1.02 | 3.55, 0.70 |
+| foot 180 s ticks/s (pbw1 in brackets) | 4.89 (4.88) | 4.65 (3.32) |
+| idle 180 s ticks/s (pbw1 in brackets) | 4.31 (4.65) | 3.44 (3.89) |
+| level gf/s | 59.81 | 60.11 |
+| menus pictures/s (language / title / game menu) | 19.24 / 11.97 / 19.94 | 19.2 / 10.0 / 14.97 |
+| level-start taps (3/6/12 frames, taps_level_vf) | 0 lost | 0 lost |
+| language-screen taps of 3 frames | 6/6 | 6/6 |
+| pause / unpause (pausek) | 8/8 | 8/8 |
+| in_level steps | 20/20 | 19/20 (the ANSWER THE PHONE banner, as pbw3; sheet viewed) |
+| flicker in the level (60 s): changes / presents / extra / black | 43 / 42 / 0 / 0 | 34 / 33 / 0 / 0 |
+| flicker in the menus (120 s) | 2,354 / 2,367 / 0 / 0 | 2,364 / 2,377 / 1 / 0 (frame 603, the language fade-in step as in wave 1; shot viewed, whole picture) |
+| soak 10 min with L1, seed 7 (SW) | 6 PASS 2 FAIL as in the review: speed, and "3D missing 3 s" (shot 011 viewed: city and HUD drawn) | - |
+| PCSX-ReARMed boot_to_title, full release disc, tap fix | 29 PASS 8 FAIL, all 5 entries open (wave 1: 15 / 10) | |
+
+Remaining boot_to_title FAILs on every core:
+- Two "logo drawn" checks: the rig's snapshot timing against the faster logos.
+- Five checks of the intro film / View intro: the rc6 intro bug (rc6 fails the same; rc7 has the fix).
+
+Also in boot_to_title: 4 of about 20 cursor presses (40 frames, about 1 guest frame) right after coming back from Credits or Set language moved the cursor only on the rig's retry. The title menu runs at about 1.5 guest frames/s after Credits, because it waits for ROM pages (`sw_tseq_pbw5`: 33 fetches in 280 frames). That is Stage 6 (page pool).
+
+**D2 queue (finding 2), measured.** The 204 "full" of the review's soak all came before the level state, during the boot and the level load. A 10-minute replay of the same soak inputs from the level state (`wave1fix/sessions/d2count.py`) has 0 full on both builds. Counters at the level state:
+
+| build | linked | full |
+|---|---|---|
+| pbw3 | 314 | 204 |
+| pbw5 | 269 | 62 |
+
+Cold calls up to the level state: 53,754 on pbw3, 53,465 on pbw5. Level throughput does not change measurably: cold_find runs about 100 times a minute in the level.
+
+**Finding 3.** The review reads the code correctly: D1/D2 send repeated cold calls past cold_find, and D4 stores to EWRAM/IWRAM without h_memwr.
+- No lost press was measured in the cases P6 is meant for:
+  - level-start taps of 3/6/12 frames: 0 lost on both cores;
+  - language taps of 3 frames: 6/6.
+- The menu losses the review cites were 2-frame presses, shorter than one guest frame. That is sampling, not P6.
+- Adding a poll site costs SIO transfers in the level. So the coverage is written down in rt.c and not extended. A wave-2 item if a measured loss appears.
+
+**Finding 4.** The power-on times are unchanged (SW 27.28 s, the same frame). The one-pass COLD.BIN read starts from the black-screen trigger on this route, so the fallback in present() did not fire. The fallback path was not forced in a run.
+
 ## 1. What was merged
 
 | commit | what |
@@ -22,7 +108,7 @@ All speeds are in emulated time: core frames / 59.94. Firmware is openboot unles
   - check_native variants for SPEEDPROF and the virtual clock.
   - A profile test that requires the clock and dispatch items in the release.
 
-## 2. Release
+## 2. Release (wave 1 as integrated; superseded by payback_w1b, section 0)
 
 - Full disc in `S/ps1speed/out/`, made with `mkdisc2 --region U --default-tracks`:
   - `payback_w1.bin`, `.cue`, `.chd`, `.elf`, `.exe`, `.nm.txt`.
@@ -183,7 +269,7 @@ Fast core run_all (PCSX-ReARMed, full disc). Results by session, wave 1 vs rc6 (
 
 **Open failures, not fixed here (each bisected):**
 
-1. **Title menu stops taking the pad after the first cursor move.**
+1. **Title menu stops taking the pad after the first cursor move.** FIXED in the review fixup (section 0): the cause was a release and a press merged into one KEYINPUT read during the menu's ROM waits (real-time clock), made worse by CDPADPOLL re-delivering a seen DOWN. The bisection below used the rig's 2-frame taps and is superseded.
    - rig boot_to_title, SW and PCSX: Control setup, Credits, Set language and Delete game do not open; the cursor stays on Delete game.
    - Two DOWN presses of 10-12 frames (167-200 ms) did not move the cursor within 3,000 frames.
    - Bisected on SwanStation, data discs:
@@ -211,6 +297,13 @@ Fast core run_all (PCSX-ReARMed, full disc). Results by session, wave 1 vs rc6 (
 4. **Logo 1 / logo 3 "drawn" checks** (lit pixels 0 %): the rig's snapshot timing against the faster logos. The logos are seen in the scene runs.
 
 ## 6. Not done
+
+Fixup round:
+- Finding 3: no new P6 poll site (see section 0). Finding 4: the present() fallback of COLD1PASS was not forced in a run.
+- Car hang (open failure 2) and the save_load intro case (open failure 3) are unchanged; full-disc car, radio, memory card, strict/OpenBIOS and CD-speed runs were not repeated for pbw5 (the fixup changes only the pad read in menus, the D2 queue-full return and a boot constant that did not fire).
+- Cursor presses right after Credits / Set language sometimes need a second try while the title menu waits for ROM pages (about 1.5 guest frames/s): Stage 6.
+
+Wave 1:
 
 - PLAN throughput targets for Stages 1-2: 28-32 ticks/s, ≥ 13.5 / ≥ 11 it/s. The level is CD-bound (Stage 6 page pool).
 - "100 % C3 over 1,000 iterations": 70 iterations measured, all C3.

@@ -18,7 +18,8 @@ DISP=${DISP-"-DDISP_D3 -DDISP_D1 -DDISP_D4 -DDISP_D2"}
 # PS1 speed stage 3, boot and CD quick wins, one flag each: -DEXEPACK packed PSX.EXE (ps1rt/exepack.py, crt0 unpacks it), -DCOLD1PASS
 # COLD.BIN in one pass in the boot's black screen, -DPCPAIR 8 KiB page pairs while no level clock runs, -DCDPADPOLL pad polls during CD
 # waits and long loads.  BOOTF= (set empty) builds without them; any subset works.  -DCDSTAT, -DCDDA_DATARADIO, -DCDPADPOLL_AB and
-# -DPCPAIR_LEVEL are TEST-only measurement switches.
-BOOTF=${BOOTF-"-DEXEPACK -DCOLD1PASS -DPCPAIR -DCDPADPOLL"}
+# -DPCPAIR_LEVEL are TEST-only measurement switches.  -DPADSPLIT (wave 1 fixup, rt.c io_read): in the menus a KEYINPUT read that sees one
+# button go up and another go down reports the release first and the new press from the next guest frame on.
+BOOTF=${BOOTF-"-DEXEPACK -DCOLD1PASS -DPCPAIR -DCDPADPOLL -DPADSPLIT"}
 NPAGES=${NPAGES:-62} PRD=pr_lb WORLDPRD=pr_l RPG=${RPG:-t/resident62.txt} VOL=PAYBACK KPLAN=$KP \
     bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG ${CLOCKF} ${DISP} ${BOOTF} ${2:-}" 0
