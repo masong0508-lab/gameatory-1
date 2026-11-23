@@ -1,11 +1,22 @@
 """ROM-free page-profiling tests, including adversarial legacy pickle input."""
 import collections
+import io
 import json
 import pickle
+import tempfile
 import unittest
-from working_set import page_indices, validate, capture, summarize
+from contextlib import redirect_stdout
+from pathlib import Path
+from working_set import page_indices, validate, capture, summarize, trace_fingerprint, LIVE_SOURCE, main as summary_main
 from from_reference import load_counts
 from sim_capture import controlled_mode, PageRecorder, EW, IW, DESC0
+
+
+def live(map_id, mode, phase, counts):
+    data = capture(map_id, mode, phase, counts, source=LIVE_SOURCE)
+    data.update(coverage_status='live_observed', sampled_present_frames=8,
+                trace_sha256=trace_fingerprint(counts))
+    return data
 
 
 class PageTests(unittest.TestCase):
@@ -34,26 +45,26 @@ class PageTests(unittest.TestCase):
         self.assertFalse(rep['complete_11_map_coverage'])
 
     def test_11_map_coverage_flag_requires_actual_captures(self):
-        samples=[capture(m,'foot','play',{m:100},source='synthetic') for m in range(11)]
+        samples=[live(m,'foot','play',{m:100}) for m in range(11)]
         rep=summarize(samples, budget4k=10)
         self.assertTrue(rep['complete_11_map_coverage'])
         self.assertEqual(len(rep['observed_map_ids']),11)
         self.assertEqual(rep['observed_vehicle_descriptor_indices'],[])
 
     def test_required_per_map_mode_matrix_cannot_be_faked_by_any_map_run(self):
-        samples=[capture(mi,'unclassified','combined',{mi:5},source='synthetic') for mi in range(11)]
+        samples=[capture(mi,'unclassified','combined',{mi:5},source='stage7_snapdump_h_memrd') for mi in range(11)]
         rep=summarize(samples,budget4k=11,required_modes=['foot','vehicle_007'])
-        self.assertTrue(rep['complete_11_map_coverage'])
+        self.assertFalse(rep['complete_11_map_coverage'])
         self.assertFalse(rep['complete_required_map_mode_matrix'])
         self.assertEqual(len(rep['missing_required_map_mode_pairs']),22)
-        samples=[capture(mi,mode,'play',{mi:5},source='synthetic')
+        samples=[live(mi,mode,'play',{mi:(5 if mode=='foot' else 7)})
                  for mi in range(11) for mode in ('foot','vehicle_007')]
         rep=summarize(samples,budget4k=11,required_modes=['foot','vehicle_007'])
         self.assertTrue(rep['complete_required_map_mode_matrix'])
         self.assertEqual(rep['missing_required_map_mode_pairs'],[])
 
     def test_16k_aggregation(self):
-        cap=capture(0,'vehicle_007','play',{0:10,1:20,4:5},source='synthetic')
+        cap=live(0,'vehicle_007','play',{0:10,1:20,4:5})
         rep=summarize([cap],budget4k=2)
         self.assertEqual(rep['candidate_16k_groups_ranked'][:2],[0,1])
         self.assertEqual(rep['observed_vehicle_descriptor_indices'],['vehicle_007'])
@@ -69,6 +80,73 @@ class PageTests(unittest.TestCase):
     def test_legacy_invalid_counter_rejected(self):
         for bad in [{-1:2},{2048:2},{5:0},{1:'no'},{}]:
             with self.assertRaises(ValueError): load_counts(pickle.dumps(bad,protocol=4))
+
+    def test_reference_relabel_to_11_maps_never_counts_as_live(self):
+        # A historical trace labeled map=0..10, mode=foot is NOT a capture.
+        same = {13: 100, 22: 20}
+        copies = [capture(mi, 'foot', 'play', same, source='stage7_snapdump_h_memrd')
+                  for mi in range(11)]
+        for cap in copies:
+            cap.update(coverage_status='partial_unverified_route',
+                       reference_trace_sha256='a'*64)
+        rep = summarize(copies, required_modes=['foot'])
+        self.assertEqual(rep['observed_map_ids'], [])
+        self.assertEqual(rep['missing_map_ids'], list(range(11)))
+        self.assertEqual(len(rep['missing_required_map_mode_pairs']), 11)
+        self.assertFalse(rep['complete_required_map_mode_matrix'])
+
+    def test_duplicate_live_trace_relabel_across_maps_is_rejected(self):
+        repeated = {31: 9, 32: 5}
+        records = [live(0, 'foot', 'play', repeated),
+                   live(1, 'foot', 'play', repeated)]
+        rep = summarize(records, required_modes=['foot'])
+        self.assertEqual(rep['reused_trace_sha256_count'], 1)
+        self.assertEqual(rep['observed_map_ids'], [])
+        self.assertEqual(sum(s['coverage_eligible'] for s in rep['scenes']), 0)
+        records.append(live(2, 'foot', 'play', {3: 17}))
+        rep = summarize(records)
+        self.assertEqual(rep['observed_map_ids'], [2])
+
+    def test_claimed_live_trace_needs_matching_digest_and_sample_count(self):
+        good = live(4, 'vehicle_011', 'play', {45: 11})
+        for bad in (
+            {**good, 'trace_sha256': '0'*64},
+            {**good, 'sampled_present_frames': 0},
+            {**good, 'sampled_present_frames': True},
+            {**good, 'source': 'stage7_snapdump_h_memrd'},
+            {**good, 'coverage_status': 'partial_unverified_route'},
+        ):
+            self.assertFalse(summarize([bad])['complete_11_map_coverage'])
+            self.assertEqual(summarize([bad])['observed_map_ids'], [])
+        self.assertEqual(summarize([good])['observed_map_ids'], [4])
+
+    def test_require_mode_works_without_extra_complete_matrix_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'sample.json'
+            path.write_text(json.dumps(live(0,'foot','play',{0:10})))
+            with redirect_stdout(io.StringIO()):
+                rc = summary_main([str(path), '--require-mode', 'foot'])
+            self.assertEqual(rc, 3)
+
+    def test_prelevel_menu_reads_excluded_from_default_page_ranking(self):
+        records = [live(0,'foot','play',{12:100}),
+                   capture(0,'unclassified','pre_level',{1595:9999999},
+                           source='unicorn_sim_h_memrd_cpu_data_only')]
+        rep = summarize(records, budget4k=1)
+        self.assertEqual(rep['candidate_4k_pages'], [12])
+        self.assertEqual(rep['candidate_16k_groups_ranked'][0], 3)
+        self.assertFalse(rep['scenes'][0]['coverage_eligible'] if rep['scenes'][0]['phase']=='pre_level' else rep['scenes'][1]['coverage_eligible'])
+
+    def test_boolean_schema_and_nonstring_phase_are_clean_errors(self):
+        a = live(0,'foot','play',{9:1})
+        for bad in ({**a,'schema':True}, {**a,'phase':[]}, {**a,'reads4k':{'²':1}}):
+            with self.assertRaises(ValueError):
+                validate(bad)
+
+    def test_malformed_primitive_pickle_is_clean_value_error(self):
+        for data in (b'\\x80\\x04\\x95', b'\\x80\\x04}\\x94(', b''):
+            with self.assertRaises(ValueError):
+                load_counts(data)
 
     def test_controlled_vehicle_class_uses_descriptor_id(self):
         regs={IW+0x0c:8,EW+0x1db8:2,IW+0xc60+2*4:0x02002000,
