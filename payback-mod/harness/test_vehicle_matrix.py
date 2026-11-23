@@ -1,5 +1,8 @@
 """ROM-free checks of original-Payback vehicle identity and test plans."""
 import importlib.util
+import tempfile
+import io
+from contextlib import redirect_stderr
 from pathlib import Path
 import unittest
 
@@ -34,6 +37,24 @@ class VehicleMatrixTests(unittest.TestCase):
         a=dict(x=0,y=0,z=19904,heading=5600)
         b=dict(x=300,y=400,z=20904,heading=100)
         self.assertEqual(m.delta(a,b),dict(horizontal_units=500.0,vertical_units=1000,heading_units=260))
+
+    def test_wrong_rom_hash_never_starts_mgba_or_claims_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom=Path(tmp)/'wrong.gba';rom.write_bytes(bytes(0x800000))
+            dest=Path(tmp)/'not_written.json'
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    m.main([str(rom),'--out',str(dest)])
+            self.assertEqual(ctx.exception.code,2)
+            self.assertFalse(dest.exists())
+
+    def test_private_report_path_required_before_emulation(self):
+        out=m.HERE.parent.parent/'vehicle-should-not-exist.json'
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                m.main(['/does/not/exist.gba','--out',str(out)])
+        self.assertEqual(ctx.exception.code,2)
+        self.assertFalse(out.exists())
 
     def test_lookups_are_bounded(self):
         class Dummy:
