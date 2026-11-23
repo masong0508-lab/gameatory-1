@@ -124,7 +124,7 @@ finds.
 
 ## Handing work back
 
-Open now (2026-11-23 15:30 UTC): #4, #6, #7, #8, #9, #10 and #19 are merged.
+Open now (2026-11-23 13:00 UTC): #4, #6, #7, #8, #9, #10 and #19 are merged.
 Waiting on fixes in their review comments: #11 (run_all.sh line 44 does not
 parse; escape the parens), #18 (the pale-city rule also labels the bridge menu
 as city; gate it on renderer evidence), #20 (helicopter checks use the wrong
