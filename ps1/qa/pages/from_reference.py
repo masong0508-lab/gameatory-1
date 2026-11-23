@@ -10,6 +10,7 @@ import hashlib
 import json
 import pickle
 import pickletools
+import struct
 from pathlib import Path
 from working_set import capture, validate
 
@@ -21,14 +22,23 @@ def load_counts(raw: bytes):
     if not raw or len(raw) > 5_000_000:
         raise ValueError('bad_trace_size')
     try:
-        ops = [op.name for op, _arg, _offset in pickletools.genops(raw)]
-    except (ValueError, IndexError, EOFError):
+        ops = []
+        for op, _arg, _offset in pickletools.genops(raw):
+            ops.append(op.name)
+            if len(ops) > 100_000:
+                raise ValueError('pickle_opcode_budget_exceeded')
+    except (ValueError, IndexError, EOFError, TypeError, OverflowError,
+            RecursionError, UnicodeError, struct.error):
         raise ValueError('malformed_pickle') from None
     if not ops or ops[-1] != 'STOP' or any(x not in ALLOWED for x in ops):
         raise ValueError('unsafe_or_unsupported_pickle_opcode')
     # With only these opcodes, unpickling performs primitive dict and integer
     # construction: there is no callable or arbitrary code execution opcode.
-    obj = pickle.loads(raw)
+    try:
+        obj = pickle.loads(raw)
+    except (pickle.UnpicklingError, EOFError, ValueError, TypeError,
+            OverflowError, RecursionError, UnicodeError, struct.error):
+        raise ValueError('malformed_pickle') from None
     if type(obj) is not dict or not obj:
         raise ValueError('not_a_nonempty_counter')
     for page, n in obj.items():
