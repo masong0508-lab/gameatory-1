@@ -30,8 +30,9 @@ provided as per-map scene samples.
   all 11 maps, every car/tank/bike/boat type, or all the loading transitions.
 - The 58 original 4 KiB pages collapse to 30 different **16 KiB** groups.
   Group 213 receives the largest read weight on that one route; this is not a
-  recommendation to pin it universally. The map coverage gate correctly
-  reports maps 1–10 missing and no observed vehicle descriptors.
+  recommendation to pin it universally. The **strict live-capture coverage
+  gate** reports **maps 0–10 missing**, because a legacy reference run cannot
+  certify the map/mode scene even if its original map-0 association is known.
 - No copyrighted game text, music, map geometry, ROM bytes, BIOS, translated
   guest instructions, emulator states, or screenshots have been committed.
   **Only page numbers, read counts and test tools** appear in this directory.
@@ -68,10 +69,20 @@ python3 ps1/qa/pages/working_set.py \
   --output /private/page-runs/cache-candidates.json
 ```
 
-`working_set.py` returns **exit 3** if the mandatory `--require-11-maps` gate
-is unmet, or if `--require-complete-matrix` is set and any required mode is
-missing from any map. Replace `vehicle_007` in the example with every vehicle
-descriptor that must be covered (repeat `--require-mode` for each).
+`working_set.py` returns **exit 3** if `--require-11-maps` is unmet
+or **whenever any `--require-mode` is absent on any map** (the legacy
+`--require-complete-matrix` flag is optional when a mode is provided).
+Replace `vehicle_007` with every vehicle descriptor that needs testing.
+
+Coverage counts only live `sim_capture.py` observations in `early_play` or
+`play`, with a matching page/count `trace_sha256`, positive
+`sampled_present_frames` and the instrumented-source label. Re-labeling one
+historical `.rompages` trace for 11 maps, or for a different vehicle mode,
+**cannot produce a pass**. Two claimed live observations with identical
+page/count trace hashes across different maps/modes are excluded from coverage.
+The SHA protects the recorded counts against accidental relabeling; it is not
+cryptographic proof of genuine emulation. Independently inspect the private
+simulation or mGBA trace before using the numbers for PS1 cache decisions.
 
 Run a separate, actually executed scene for **each map and vehicle
 class** and pass all of their capture JSON files to the analyzer. The profiler
@@ -104,7 +115,11 @@ never counts as evidence of on-foot or vehicle-type coverage.
   16 KiB grouping, `group = page >> 2` (0–511). The **16 MiB merged GBA game**
   is a later port and is out of scope.
 - Ranking treats each observed scene equally, rather than letting one long
-  driving route drown out other maps. These are **read-frequency candidates**
+  driving route drown out other maps. **`pre_level` windows are excluded
+  from the default ranking** because they may contain menu reads; they remain
+  visible as diagnostic scene counts and can be analyzed separately. Historical
+  `combined` traces still suggest candidates without certifying a live
+  map/vehicle scene. These are **read-frequency candidates**
   for testing, not optimized CD layouts or verified RAM budgets. The actual
   2 MiB PS1 memory map, renderer buffers, ragdolls and page cache still need
   explicit linker checks and before/after emulator measurements.
@@ -118,8 +133,11 @@ python3 -m unittest discover -s ps1/qa/pages -p 'test*.py' -v
 The tests are ROM-free and cover mirrored addresses, 4 KiB page boundaries,
 invalid counts, safe parsing of legacy primitive-only pickle dictionaries,
 16 KiB aggregation, per-scene fairness, map coverage, descriptor-ID
-classification and the rolling pre-level window. Arbitrary pickle globals,
-constructors and non-primitive opcodes are rejected **before deserialization**.
+classification, provenance/replay checks, missing-mode gates and the rolling
+pre-level window. Historical relabeling, identical trace hashes on multiple
+maps, boolean schemas and malformed phase values are covered. Arbitrary
+pickle globals, constructors and non-primitive opcodes are rejected
+**before deserialization**; malformed primitive dumps emit a controlled error.
 
 ### Requested private results for Claude's PS1 speed milestone
 
