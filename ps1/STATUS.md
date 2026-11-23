@@ -413,6 +413,73 @@ against a grey wall, picture viewed), the TEST_assist level check "three
 lives" (the assist takes a mode with five lives). Open: the intro film still
 does not play, the pause picture lingers 2-4 s after the pause menu.
 
+## Stage19 rc9: pause, Credits, renderer room
+
+rc9 is rc8 (bd3b080) plus five changes. Speed is in emulated time (core
+frames / 59.94); stock = SwanStation 100 % CPU and 1x CD, recommended =
+`CPU_Overclock=400`, `CDROM_ReadSpeedup=10`, `CDROM_SeekSpeedup=0`.
+
+| | Problem | rc9 |
+| --- | --- | --- |
+| P | The paused picture stayed 2-4 s after Return to game at stock | The cause was the CD: resume ran interpreted resume code and pause graphics from about 25 ROM pages, one seek each. `PZBLOCK`: the 59 pages that pause and resume need are one file (`PAUSE.BIN`), read with one CD read while the menu is up (`pz_load`). SwanStation stock, frames after Cross: walked level clock 189 -> 31, new picture 207 -> 36; PR #23 probe clock 142 -> 48, first playable picture 185 -> 84; in the tank 140/182 -> 66/88. Recommended: probe 7 / 10. Beetle stock (walked): clock 96, picture 123 (CPU bound there; the PR #23 probe's own pad route does not reach the level on Beetle). |
+| C | Credits slow, and never back at the title on the accurate cores | ROM page thrash before the first level: until a level starts the 8 page slots are a FIFO, and the Credits' interpreted text code cycles through more pages than that (3,318 misses in 10 min, 1,186 of about 2,200 guest frames). `POOL_THRASH=32`: a ring of the last 16 evicted pages counts refetches; after 32 the CLOCK pool (`rom_pool`) turns on, as it does in a level. The pad route to the level makes 13-15 refetches and is unchanged. Credits to the title: SwanStation stock 320 s (rc8: not after 600 s), Beetle stock 360 s, recommended 100 s (rc8 130 s). The GBA (mGBA): 7,900 frames = 132 s. At stock the remaining gap is CPU: 11.7 M interpreter steps for the Credits. |
+| R | Renderer room: 468 bytes free | The sine table is kept as a quarter wave (1,025 entries, `fsin` folds the index), bit-exact with the full table (host test, 4 M angles). Renderer 468 -> 6,304 bytes free. `-Oz` for the renderer gave 16,132 free but cost 12 % of the 3D pictures/s at stock and was not taken. Map tour (11 maps, start views) against rc8: the 3D picture is the same where the camera had settled; differences are the welcome text, the fist icon and the camera of maps 0, 3 and 4 (the two states start at different level times). 6,600 changes in the 11-map scan, 0 without a flip, 0 black. |
+| F | Intro films | Measured with the TEST build `FILMTEST` (the films interpreted): at recommended settings the player draws 2.5 full-picture equivalents per second against the GBA's 23.3, and the PPU has no bitmap mode 3 (black picture). Not feasible this round; the release still skips the films, and Cross still skips. |
+| T | Rig: `check_native` | Links the release runtime with `PZBLOCK` and `POOL_THRASH` (fixture `pz_pages.h`). |
+
+The rig fixes are on the branch `rig-fix` (from bd3b080): `_syms_match`
+accepts a packed `PSX.EXE` (`exe_image()` unpacks it like the build's
+unpacker; `tests/test_exepack_syms.py`), and SwanStation states that cannot be
+reloaded are refused. Those states are a SwanStation property, not the
+options, the size (4,359,3xx of 11,534,336 bytes) or the rig: a state saved
+in a frame where the runtime waits for a CD sector has timing events with a
+negative time since the last run, and SwanStation refuses to load it
+('unserialize failed'). It happens at every setting, with and without a card,
+1 of 4 to 1 of 109 states. `save_state_file` skips such frames;
+`load_state_file` names the cause; `tests/test_swanstation_state.py`.
+
+Memory of the release (rc8 in brackets): runtime ends `0x800278f0`, 1,808
+bytes free (3,856); `.rtcold` 76 free (76); ragdoll 2,140 free (2,140);
+renderer ends `0x801ae760`, 6,304 free (468). `check_native` runtime free:
+Release 2,220, KPLAN test 300, SPEEDPROF 220, virtual clock 5,884, D1CHK
+2,188. TEST_assist 224.
+
+Speed, SwanStation, emulated time (driving rows: level ticks/s / 3D pictures/s):
+
+| build | settings | language s | title s | power-on to level s | on foot | idle | tank | car | menus pictures/s (language/title/game menu) |
+|---|---|---|---|---|---|---|---|---|---|
+| rc8 | stock | 11.14 | 18.57 | 27.78 | 27.57 / 11.97 | 28.54 / 11.40 | 28.81 / 12.59 | 28.77 / 9.41 (k0) | 19.9 / 12.0 / 19.9 |
+| rc9 | stock | 11.14 | 18.57 | 27.81 | 27.39 / 12.00 | 28.49 / 11.25 | 29.15 / 13.25 | 28.23 / 9.23 (k3) | 19.9 / 12.0 / 19.9 |
+| rc8 | rec | 1.94 | 6.26 | 9.56 | 29.85 / 29.77 | 29.90 / 29.87 | 29.71 / 29.31 | 29.85 / 29.83 (k6) | 59.9 / 30.0 / 59.9 |
+| rc9 | rec | 1.94 | 6.26 | 9.56 | 29.87 / 29.79 | 29.90 / 29.87 | 29.61 / 28.93 | 29.65 / 29.47 (k6) | 59.9 / 30.0 / 59.9 |
+
+Pad route to the level (frames): SwanStation 1,667 (rc8 1,677), recommended
+573 (579); Beetle 1,605 (1,611), Beetle at 400 % 1,166 (1,168).
+
+Verified on the rc9 release discs: the static gates (`mips1_lint` 55,707
+words, gpuwait 15/15, loaddelay, `prepare --check`, 71 unit tests,
+`check_native`, `check_intro_site`, `disp_patch_check`, `verify_inputs`,
+`rtcold_proof`); disc layout (15 tracks, no song 3), `chdman verify` of both
+discs; boot to the title on both cores (the same 5 expected FAILs as rc8);
+pad route 13/13 at stock and recommended on both cores; the in-level session
+on SwanStation 34/35 (idle: a pedestrian walked into the man and pushed him
+208 units, picture viewed; the same state with no input moves him at frame
+620 too); tank on both cores, the sports car (k9), the helicopter (enter,
+fly, land, get out); quit from foot and from the tank, a second level;
+flicker in the level and while driving (0 changes without a flip, 0 black)
+and in the menus (1,640 changes, 0 extra); memory card save and cold-boot
+load on both cores; music (level / menus with sound): SwanStation stock
+90 % / 98 %, recommended 95 % / 94 %, Beetle 78 % / 94 %; Credits to the
+title on SwanStation stock and recommended and on Beetle; a 30-minute soak at
+recommended (1,800 s of game time in 108,300 frames, no fault, the
+classifier's "3D missing 33 s" is the man against a grey wall, picture
+viewed); the Europe disc to the title on both cores (the bin rebuilt for the
+test has the release's SHA-256). The title's white fade on SwanStation is the
+game's own, as in rc8.
+Open: the intro films; Credits at stock take 2.4x the GBA's time; the pause
+return at stock is 0.6 s walked but 1.4 s in the PR #23 probe and 2 s on
+Beetle.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
