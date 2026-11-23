@@ -762,7 +762,7 @@
     {
       "source": "stage19/tools12/build_test_assist.sh",
       "target": "tools12/build_test_assist.sh",
-      "sha256": "4ded2dbe9eb0118653de1cf0410e99dbab57e6da5d42538c6b19a1b6b56bbcba"
+      "sha256": "f79a7f887e7ae5b2ff18b6789b6954c55ca8470ffc44424eaad7010faaff48fd"
     },
     {
       "source": "tools/mips1_lint.py",

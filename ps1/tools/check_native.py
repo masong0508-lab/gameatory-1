@@ -29,6 +29,7 @@ const unsigned CD_ROM_LBA=0, CD_COLD_LBA=0, CD_COLD_PAGES=0;
 const unsigned CD_SNAPST_LBA=0, CD_SF3W_LBA=0, CD_SF3W_SECS=0;
 const unsigned CD_SF3A_LBA=0, CD_SNAP_LBA=0, CD_SNAP_N=0;
 const unsigned LIM_RA_ENTRY=0, LIM_RA_ELAPSED=0, LIM_RA_WAIT=0, LIM_RA_TLAST=0;
+const unsigned CD_PZ_LBA=0;
 const unsigned char bootimg[4] __attribute__((section(".bootimg")))={0};
 const unsigned coldtab[1] __attribute__((section(".coldtab")))={0};
 const unsigned rompack[1] __attribute__((section(".rompack")))={0};
@@ -70,13 +71,19 @@ def main() -> int:
         clock = ["-DRTC64", "-DRTC_TIMERS", "-DRTC_PRESENT", "-DRTC_PMAX=100", "-DRTC_GFRAMES", "-DRTC_QUANT", "-DRTC_DT"]
         dispatch = ["-DDISP_D3", "-DDISP_D1", "-DDISP_D4", "-DDISP_D2"]
         runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", *clock, *dispatch, "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-DPADSPLIT", "-Iinterp"]
-        test_runtime = [*runtime, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
+        # rc9: the release adds the pause block (PZF: PZBLOCK, its page list as a placeholder header) and the menu pool switch (POOLF);
+        # the TEST_assist build has no room for the pause block (tools12/build_test_assist.sh: PZF=); the other test layouts keep the base flags
+        pool = ["-DPOOL_THRASH=32"]
+        release_runtime = [*runtime, "-DPZBLOCK", *pool, "-Inative-check"]
+        test_runtime = [*runtime, *pool, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]
         ragdoll = ("-O3 -mllvm -inline-threshold=500 -fomit-frame-pointer -mno-check-zero-division "
                    "-DRP_LEVEL=2 -DRP_NS_BASE=3 -DRP_NS_DIV=10 -DRP_NSMAX=6 -DRP_HINGE_LAST=1 "
                    "-DRP_FAST=1 -Ird").split()
-        modules = [compile_source("ps1rt/rt.c", "runtime", runtime),
+        (objects / "pz_pages.h").write_text("/* layout fixture: placeholder page numbers, no game data */\n"
+                                            "#define PZ_N 2u\nstatic const u16 pz_pg[PZ_N]={1u,2u};\n")
+        modules = [compile_source("ps1rt/rt.c", "runtime", release_runtime),
                    compile_source("ps1rt/crt0.s", "startup", ["-Wa,-defsym,EXEPACK=1"]),
                    compile_source("interp/interp.c", "interpreter", ["-Os", "-Iinterp"]),
                    compile_source("interp/interp_asm.s", "interpreter_asm", []),
