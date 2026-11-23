@@ -150,7 +150,7 @@ class PageTests(unittest.TestCase):
                 load_counts(data)
 
     def test_simulator_rejects_wrong_rom_even_if_8mb_size_matches(self):
-        zeroed = b'\\0' * 0x800000
+        zeroed = bytes(0x800000)
         correct_for_synthetic = hashlib.sha1(zeroed).hexdigest()
         self.assertTrue(owner_rom_matches(zeroed, correct_for_synthetic))
         self.assertFalse(owner_rom_matches(zeroed,
