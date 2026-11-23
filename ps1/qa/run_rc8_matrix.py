@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""ONE COMMAND for rc8 PS1 regression after Claude supplies disc+matching ELF.
+"""ONE COMMAND for PS1 release-candidate QA with private disc+matching nm symbols.
 
 Use a fresh PRIVATE out directory. No private outputs, core, ROM, disc, card,
 movie, screenshot or game dialogue are ever committed or uploaded to GitHub.
 
   python3 ps1/qa/run_rc8_matrix.py --disc /private/rc8.cue \
-      --syms /private/rc8.elf --out /private/rc8-matrix \
+      --syms /private/payback_rc8.nm.txt --out /private/rc8-matrix \
       --cores /private/kit/cores --system /private/kit/system \
       [--gba-rom '/private/Payback (Europe) (En,Fr,De,Es,It).gba']
 
@@ -57,8 +57,12 @@ def session_command(script, disc, syms, result, *, core='swanstation', recommend
             + opts_argv(core,recommended) + list(extra))
 
 
-def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000,frames_per_map=1200):
+def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000,soak_game_seconds=None,frames_per_map=1200):
     """Pure job construction, safe to inspect/test without a disc or core."""
+    # Full acceptance: 108,000 console frames AND 600 guest seconds. Slices
+    # scale the clock target proportionally instead of inheriting ten minutes.
+    min_game_seconds = (600.0 * soak_frames / 108000.0
+                        if soak_game_seconds is None else soak_game_seconds)
     planned=[]
     def add(name,cmd,profile,variables=None):
         planned.append(dict(name=name,command=cmd,profile=profile,env=variables or {}))
@@ -68,7 +72,8 @@ def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000,frames_per_m
     add('swan_recommended_30min_console_soak',
         session_command(HERE/'console_soak.py',disc,syms,out/'recommended'/'console_soak',
                         core='swanstation',recommended=True,
-                        extra=('--console-frames',str(soak_frames),'--min-game-seconds','600')),
+                        extra=('--console-frames',str(soak_frames),
+                               '--min-game-seconds',str(min_game_seconds))),
         'recommended')
     add('swan_recommended_11map_flicker',
         session_command(HERE/'map_flicker.py',disc,syms,out/'recommended'/'map_flicker',
@@ -157,6 +162,8 @@ def main(argv=None):
     p.add_argument('--system',type=Path,help='private openboot scph55xx; defaults to RIG_SYSTEM')
     p.add_argument('--gba-rom',type=Path,help='private untouched European original; optional mGBA vehicle survey')
     p.add_argument('--soak-frames',type=int,default=108000,help='minimum emulated frames, default ~30m')
+    p.add_argument('--soak-game-seconds',type=float,default=None,
+                   help='override guest-clock target; default scales 600s at 108000 frames')
     p.add_argument('--frames-per-map',type=int,default=1200,help='per-map flicker scan length')
     p.add_argument('--only',action='append',default=[],help='run only this exact job name; may repeat')
     p.add_argument('--skip-stock',action='store_true',help='skip stock/Beetle comparisons (not release acceptance)')
@@ -164,10 +171,13 @@ def main(argv=None):
     args=normalize_private_paths(p.parse_args(argv))
     if args.soak_frames < 1 or args.frames_per_map < 1:
         p.error('--soak-frames and --frames-per-map must be positive')
+    if args.soak_game_seconds is not None and not (0 < args.soak_game_seconds < float('inf')):
+        p.error('--soak-game-seconds must be finite and positive')
     if not private_target(args.out):
         p.error('results MUST be outside the public repository')
     todo=jobs(args.disc,args.syms,args.out,stock=not args.skip_stock,
               gba_rom=args.gba_rom,soak_frames=args.soak_frames,
+              soak_game_seconds=args.soak_game_seconds,
               frames_per_map=args.frames_per_map)
     if args.only:
         valid={job['name'] for job in todo}
@@ -180,7 +190,7 @@ def main(argv=None):
                           'recommended_options':RECOMMENDED,'not_certified':GAPS},indent=2))
         return 0
     if not args.disc.is_file() or not args.syms.is_file():
-        p.error('private disc CUE/ISO or matching ELF is missing')
+        p.error('private disc CUE/ISO or matching symbol listing is missing')
     if args.out.exists():
         p.error('output directory must be fresh; refuse stale passing result.json or save states')
     run_all=RIG/'run_all.sh'
@@ -202,6 +212,8 @@ def main(argv=None):
         p.error('disc/symbol preflight failed BEFORE emulator launch: '+str(exc))
     args.out.mkdir(parents=True,exist_ok=False)
     outcomes=[]
+    # Keep test runs from leaving ignored Python bytecode in the checkout.
+    env['PYTHONDONTWRITEBYTECODE'] = '1'
     for job in todo:
         local=dict(env,**job['env'])
         logpath=args.out/(job['name']+'.log')
@@ -217,7 +229,7 @@ def main(argv=None):
     missing=list(GAPS)
     if args.gba_rom is None:
         missing.append('original_GBA_mGBA_vehicle_reference_not_run')
-    summary=dict(schema=1,disc_version='supplied_rc8_candidate_preflighted',
+    summary=dict(schema=1,disc_version='supplied_ps1_candidate_preflighted',
                  private_executable_preflight=preflight,
                  options={'recommended':list(RECOMMENDED),'stock':not args.skip_stock},
                  jobs=outcomes,has_failures=any(j['exit_code']!=0 for j in outcomes),
