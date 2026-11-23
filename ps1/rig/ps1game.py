@@ -123,11 +123,12 @@ def swanstation_events(state):
 
 
 def state_unloadable(core, state):
-    """Why the core would refuse to load this state again, or '' when nothing is known against it.  SwanStation writes states it
-    cannot read back: on a frame that ends while timing events carry a negative time since their last run (seen on the frames
-    where the runtime waits for a CD sector, at every CPU and CD setting), retro_unserialize of that state fails and the core resets
-    the machine (rc8: 6 of 1500 frames after the level start; the bytes of exactly those three fields decide it).  Such a state
-    is not taken: save_state_file steps on to another frame."""
+    """Why the core might refuse to load this state again, or '' when nothing is known against it.  SwanStation sometimes writes
+    states it cannot read back, and every such state seen had timing events with a negative time since their last run (frames
+    where the runtime waits for a CD sector, at every CPU and CD setting; rc8: 6 of 1500 frames after the level start; swapping
+    the bytes of exactly those fields with a good state's made it load).  The condition is necessary, not sufficient: the rc9
+    review loaded 137 of 138 such states (3.5 to 4.4 % of frames).  save_state_file does not take such a state (stepping one frame
+    on costs nothing); load_state_file tries the core first and names this only when the core refuses."""
     if core != 'swanstation':
         return ''
     ev = swanstation_events(state)
@@ -1613,7 +1614,7 @@ class Game(Emu):
             if why:
                 skipped += 1
                 if skipped == 1 or skipped % 20 == 0:
-                    self.log('  save_state_file: the core could not load a state of frame %d (%s): next frame (%d skipped)' % (self.nrun, why, skipped))
+                    self.log('  save_state_file: a state of frame %d has timing events behind (%s), which the core may not load: next frame (%d skipped)' % (self.nrun, why, skipped))
                 if skipped >= wait:
                     self.log('  save_state_file: no loadable state within %d frames, no state written' % skipped)
                     return None
@@ -1682,11 +1683,15 @@ class Game(Emu):
             C.memmove(C.addressof(self._card_buf), d, len(d))
         # the core's GPU keeps a transfer in flight outside the state: leave present() in THIS machine before replacing it
         st = open(path, 'rb').read()
-        why = state_unloadable(self.core_name, st)
-        if why:
-            raise RuntimeError('state %s cannot be loaded by %s (taken on a frame with timing events behind: %s); make it again' % (path, self.core_name, why))
         self._leave_present()
-        self.load_state(st)
+        try:
+            self.load_state(st)
+        except RuntimeError as e:
+            why = state_unloadable(self.core_name, st)
+            if why:
+                raise RuntimeError('state %s was not loaded by %s (%s); it was taken on a frame with timing events behind (%s), '
+                                   'which SwanStation sometimes cannot load: make it again' % (path, self.core_name, e, why)) from e
+            raise
         self._ring_reset()
         self.run(1)
         return meta
