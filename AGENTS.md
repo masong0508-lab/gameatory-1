@@ -124,16 +124,16 @@ finds.
 
 ## Handing work back
 
-Open now (2026-11-23 13:00 UTC): #4, #6, #7, #8, #9, #10 and #19 are merged.
-Waiting on fixes in their review comments: #11 (run_all.sh line 44 does not
-parse; escape the parens), #18 (the pale-city rule also labels the bridge menu
-as city; gate it on renderer evidence), #20 (helicopter checks use the wrong
-height sign; Payback's z gets smaller as you climb) and #21 (needs #11, a
-relative --out writes into the repo, abort when symbols do not match, sync
-check unvalidated). #5 needs the revision in its review. Known rig bug on the
-main line: `_syms_match` rejects the rc8 ELF because rc8's PSX.EXE is packed,
-so use `payback_rc8.nm.txt` as SYMS for rc8 until it is fixed. The rig, QA and
-page-profiler tests now run in CI through `tools/check.py`.
+Open now (2026-11-23 15:00 UTC): #4, #6-#11, #18 and #19 are merged.
+Waiting on fixes in their review comments: #20 (helicopter "L land" compares
+against the entry-point ground; it lands on higher ground), #21 (map_flicker.py
+cannot import flicker_evidence when started through ob_session; soak minimum
+hard-coded) and #23 (count linger from the press, not the clock restart). #5
+needs the revision in its review. Known rig bugs on the main line, Claude's:
+`_syms_match` rejects the rc8 ELF because rc8's PSX.EXE is packed (use
+`payback_rc8.nm.txt` as SYMS for rc8), and level save states made at 400% fail
+to reload ("unserialize failed"). The rig, QA and page-profiler tests run in
+CI through `tools/check.py`.
 
 Branch from a named commit of `claude/snes-mashup-umjsjp` and open a small
 pull request into it. Claude builds every pull request with the ROM, runs it
