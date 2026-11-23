@@ -31,7 +31,7 @@ SECTIONS{ . = 0x80010000;
  }
  ASSERT(. == 0x8017c000, "PPU scratch overlaps the draw ring")
  . = 0x80199000; .sf : { *(.sf.text*) *(.sf.rodata*) *(.sf.data*) *(.sf.sdata*) *(.sfro) }
- . = ALIGN(16); __sfbss_start = .; .sfbss : { *(.sf.bss*) *(.sf.sbss*) } __sfbss_end = .;
+ . = ALIGN(16); __sfbss_start = .; .sfbss (NOLOAD) : { *(.sf.bss*) *(.sf.sbss*) } __sfbss_end = .;
  ASSERT(. < 0x801b0000, "renderer overlaps guest EWRAM")
  /DISCARD/ : { *(.MIPS.abiflags) *(.reginfo) *(.gnu.attributes) *(.pdr) *(.comment) *(.mdebug*) }
 }

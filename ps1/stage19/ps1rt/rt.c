@@ -37,15 +37,13 @@ static void dec(u32 v){ char b[12]; int n=0; if(!v) b[n++]='0'; while(v){b[n++]=
 /* ---------------------------------------------------------------- ROM page store (resident pages shipped in the EXE) */
 static u32 rp_n; static const u32 *rp_idx; static const u8 *rp_data; static u32 rom_miss_count, rom_miss_last, cd_sectors, cd_time_rc;
 #include "clk.h"       /* PS1 speed plan: the 64-bit clock (RTC64) and the test-only speed stamps (SPEEDPROF); first part */
-#ifdef DISP_D3
 /* stage 20 D3: the page table is the translator's reserved ROMPG (t2m.py Cfg.ROMPG, 2048 x u32), so the blob's own RT_MEMRD fast path reads
    the same table as rom_page(): non-zero = resident, cleared on every eviction (cd_fetch).  Zeroed in main(); the absolute symbol keeps the
    name for the test rig (misses.csv). */
+/* rc8: the table lives in ROMPG in every build (without D3 the blob's fast path that reads it is off and nothing else uses the area), which
+   keeps 8 KB out of the runtime's BSS */
 #define rom_pg ((const u8**)0x8002a000)
 __asm__(".globl rom_pg\n.set rom_pg, 0x8002a000\n");
-#else
-static const u8 *rom_pg[2048];
-#endif
 static u32 g_pres, g_gframes;   /* presented pictures, guest (GBA) frames */
 u32 g_flips;                    /* display-start changes (flip_to, the CD error and fatal screens): g_pres counts present() STARTS, so a picture
                                    can reach the screen with no g_pres step between two looks (issue #15); count pictures with this one */
@@ -350,7 +348,7 @@ static void dsp_phase(u32 ra){
    access. */
 #define RP_MAX 64
 static u16 fr_pg[RP_MAX+NSLOT];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
-static u8 pg_fr[2048];                  /* frame+1 that holds each page (mapped or unmapped by the hand), 0 = not in RAM */
+static u8 pg_fr[2048] __attribute__((section(".sf.bss.pg_fr")));                  /* frame+1 that holds each page (mapped or unmapped by the hand), 0 = not in RAM */
 _Static_assert(RP_MAX+NSLOT<255, "pg_fr holds frame+1 in a byte");
 static u32 rom_pool, pool_rp, pool_hand, rom_soft;
 static u8 *pool_frame(u32 f){ return f<pool_rp?(u8*)rp_data+f*4096:PCACHE+(f-pool_rp)*4096; }
@@ -944,7 +942,7 @@ static inline u32 dsp_mslot(u32 addr){ return ((addr>>1)^(addr>>12))&511; }     
 #ifdef DISP_D2
 /* D2: rules of dispatch.md D2 for the call site at ra-8 and the target addr (as RT_MISS got it): ra word-aligned in the hot blob or in a loaded cold group;
    the site is `jal RT_MISS` (0x0c00c002); the `li $25` before it encodes addr exactly (lui+ori at ra-16/ra-12, or lui alone at ra-12 when the low half is 0) */
-static u32 dsp_lq[256];                     /* 64 x {site, target, host, 0}; rc8: BSS (wave 1: 0x80029400, now .rtcold) */
+static u32 dsp_lq[256] __attribute__((section(".sf.bss.dsp_lq")));                     /* 64 x {site, target, host, 0}; rc8: BSS (wave 1: 0x80029400, now .rtcold) */
 #define LQ ((volatile u32*)dsp_lq)
 #define LQ_N 64u
 u32 lq_n, d2_linked, d2_queued, d2_full, d2_stale, d2_batches;     /* read by the test rig: keep them external */
@@ -1762,6 +1760,9 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   /* stage 19: take the machine over before any device is used.  crt0.s has set SR (GTE on, interrupts and every interrupt mask bit off), so no
      interrupt can reach a kernel handler; here I_MASK = 0, every pending I_STAT bit and every CD-ROM controller interrupt is acknowledged. */
   IMASK=0; ISTAT=0;
+  /* the renderer's and the ragdoll's BSS: cleared first, the runtime keeps pg_fr and dsp_lq in .sfbss (rc8, room in the runtime) */
+  { extern u8 __sfbss_start[],__sfbss_end[]; for(u8*q=__sfbss_start;q<__sfbss_end;q++) *q=0; }
+  { extern u8 __dlbss_start[],__dlbss_end[]; for(u8*q=__dlbss_start;q<__dlbss_end;q++) *q=0; }
   RC1_MODE=0x0100;       /* root counter 1 counts hblank: the time base of every bounded wait of the CD driver */
 #ifdef RTC64
   clk_raw=RC1_VAL&0xffff; /* and of the guest's clock (clk.h): set once here, never reset */
@@ -1781,9 +1782,7 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   memcpy(EW,p,0x40000); p+=0x40000; memcpy(IW,p,0x8000); p+=0x8000; memcpy(PAL,p,0x400); p+=0x400; memcpy(VRAM,p,0x18000); p+=0x18000; memcpy(OAM,p,0x400); p+=0x400; memcpy(io,p,0x400);
   io_vc=b[32]; io_nread=b[33]; for(int i=0;i<4;i++) io_tm[i]=b[34+i]; io_nd=b[38]; io_keys=PAD[(io_nd/30)%6];
   const u32 *rp=(const u32*)rompack; rp_n=rp[0]; rp_idx=rp+1; rp_data=(const u8*)(rp+1+rp_n);
-#ifdef DISP_D3
   for(u32 i=0;i<2048;i++) rom_pg[i]=0;          /* ROMPG is outside the BSS: a real BIOS (and a packed EXE) leaves it undefined */
-#endif
   for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&2047]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted before the first level, see cd_fetch) */
 #ifdef PCACHE1
   pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++){ u32 pg=rp_idx[i]&2047; fr_pg[i]=pg+1; pg_fr[pg]=i+1; }
@@ -1798,8 +1797,6 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
 #endif
   last_rc=RC1_VAL;
   static u32 regs[32]; for(int i=0;i<32;i++) regs[i]=b[i];
-  { extern u8 __sfbss_start[],__sfbss_end[]; for(u8*q=__sfbss_start;q<__sfbss_end;q++) *q=0; }
-  { extern u8 __dlbss_start[],__dlbss_end[]; for(u8*q=__dlbss_start;q<__dlbss_end;q++) *q=0; }
   #ifdef NOSF3
   sf3_ok=0;    /* unicorn sim has no GTE */
 #else

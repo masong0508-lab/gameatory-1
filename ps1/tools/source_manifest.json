@@ -207,7 +207,7 @@
     {
       "source": "stage19/ps1rt/ps1.ld",
       "target": "ps1rt/ps1.ld",
-      "sha256": "31f7a03d22e743482a3095d1b5e1819beaee9d3d5135d4b42b7984a2362fb824"
+      "sha256": "b8c3556ee558ba0bbde3ddde22158a02470e2ac888289573b034f0a2abdf3c27"
     },
     {
       "source": "stage16/merge/ps1rt/ps1_f.ld",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "5f62090a1124d1ab2bbe11c7e805f9510345a8838019e0dc56507a0c8dc29477"
+      "sha256": "a515a9c5b1456f12bde080094d7bbb4d5dc8a0cbdc720cd8cbe7cb62ade2ddff"
     },
     {
       "source": "stage19/rd/doll.c",
