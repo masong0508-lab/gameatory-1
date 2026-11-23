@@ -91,8 +91,10 @@ def census(e):
 def delta(a,b):
     if not (a and b):
         return None
+    # Payback's z points DOWN: smaller z is higher above the street.
+    raw_dz = b['z'] - a['z']
     return dict(horizontal_units=round(math.hypot((b['x']-a['x']), (b['y']-a['y'])),1),
-                vertical_units=b['z']-a['z'],
+                vertical_units=raw_dz, climb_units=-raw_dz,
                 heading_units=((b['heading']-a['heading']+2880)%5760)-2880)
 
 
@@ -139,7 +141,13 @@ def ground_vehicle(e):
         elif label.startswith('A+'):  # heading should respond to each direction
             passed = bool(d and abs(d['heading_units']) > 0)
         else:
-            passed = bool(d and d['horizontal_units'] > 32)
+            # B can brake from a standstill. Arbitrary >32 unit movement is
+            # not a valid reverse-control oracle; report the measured response
+            # without grading movement as a defect until the route starts with
+            # a known speed and direction.
+            rows.append(dict(action=label, frames=frames, change=d,
+                             diagnostic_only=True, passed=None))
+            continue
         rows.append(dict(action=label, frames=frames, change=d, passed=passed))
     e.load_state(initial)
     a=actor(e)
@@ -160,9 +168,10 @@ def helicopter(e):
     """
     rows=[]
     a=actor(e)
+    ground_z = None if a is None else a['z']
     press(e,('L',),16,300)
     b=actor(e)
-    airborne=bool(a and b and abs(b['z']-a['z']) > 1000)
+    airborne=bool(a and b and a['z']-b['z'] > 1000)
     rows.append(dict(action='L takeoff',change=delta(a,b),
                      passed=airborne,airborne=airborne))
     before=actor(e)
@@ -180,12 +189,19 @@ def helicopter(e):
     press(e,('B',),180)
     after=actor(e)
     d=delta(before,after)
-    rows.append(dict(action='B descend',change=d,passed=bool(d and d['vertical_units'] < 0)))
+    rows.append(dict(action='B descend',change=d,passed=bool(d and d['vertical_units'] > 0)))
     before=actor(e)
     press(e,('L',),16,900)
     after=actor(e)
     d=delta(before,after)
-    rows.append(dict(action='L land',change=d,passed=bool(after and after['kind'] == HELICOPTER)))
+    near_street=(ground_z is not None and after is not None
+                 and abs(after['z']-ground_z)<=2048)
+    moving_down=(before is not None and after is not None
+                 and after['z'] >= before['z'])
+    rows.append(dict(action='L land',change=d,
+                     passed=bool(after and after['kind'] == HELICOPTER
+                                 and near_street and moving_down),
+                     near_entry_ground=bool(near_street)))
     press(e,('L',),16,300)
     p=actor(e)
     rows.append(dict(action='L exit after landing',passed=bool(p and p['kind'] is None),
@@ -217,7 +233,7 @@ def main(argv=None):
     from drive_lanes import BOOT
     report=dict(schema=1,source='original_gba_mgba',owner_rom_sha1=OWNER_EU_SHA1,
                 setup='Existing vehicles, player position adjustment only, real controller input',
-                matched={},unobserved=[],failed=[],status='INCOMPLETE')
+                matched={},not_entered=[],unobserved=[],failed=[],status='INCOMPLETE')
     with Emu('gba',a.rom,capture_video=False) as e:
         if a.from_state:
             if not a.from_state.is_file():
@@ -244,11 +260,11 @@ def main(argv=None):
             ok,reason=enter_existing(e,snap,kind,index)
             if not ok:
                 report['matched'][str(kind)]={'observed_at_frame':frame,'entered':False,'reason':reason}
-                report['failed'].append(kind)
+                report['not_entered'].append(kind)
                 continue
             entry=actor(e)
             actions=helicopter(e) if kind==HELICOPTER else ground_vehicle(e)
-            verified=all(row['passed'] for row in actions)
+            verified=all(row['passed'] for row in actions if not row.get('diagnostic_only'))
             if not verified:
                 report['failed'].append(kind)
             report['matched'][str(kind)]=dict(observed_at_frame=frame,entered=True,
@@ -256,14 +272,19 @@ def main(argv=None):
                                               controlled_index=entry['index'],
                                               plan=action_plan(kind),actions=actions)
         report['unobserved']=[i for i in range(MAX_VEHICLE_KIND+1) if str(i) not in report['matched']]
-        report['status']='PASS_OBSERVED' if not report['failed'] else 'OBSERVED_DEFECTS'
+        report['status']=('OBSERVED_DEFECTS' if report['failed'] else
+                          'INCOMPLETE_ENTRY' if report['not_entered'] else
+                          'PASS_OBSERVED')
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
     print(f"mGBA observed {len(report['matched'])} of 18 descriptor types; "
-          f"entered failed {len(report['failed'])}, unobserved {len(report['unobserved'])}")
-    if a.require_all and report['unobserved']:
+          f"not entered {len(report['not_entered'])}, verified control failures "
+          f"{len(report['failed'])}, unobserved {len(report['unobserved'])}")
+    if report['failed']:
+        return 1
+    if a.require_all and (report['unobserved'] or report['not_entered']):
         return 3
-    return 1 if report['failed'] else 0
+    return 0
 
 
 if __name__=='__main__':
