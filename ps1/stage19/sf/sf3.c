@@ -57,8 +57,11 @@ typedef struct { u8 x0, z0, x1, z1; s16 h; u8 mat; s8 base; } Box;
 typedef struct { u8 x0, z0, x1, z1; s16 h0, h1; u8 dir, mat; } Ramp;
 typedef struct { u16 x, z; u8 h, kind; s8 base; u8 r; } Tree;
 typedef struct { s16 lo, hi; u8 shape, mat; } Cell;
-typedef struct { u8 gmask[2048]; u16 slot_id[448]; u16 avg555[448]; u8 mesh[448]; u32 avgcol[448]; u32 flat[256]; u32 sky9[9]; u32 fog; } Side;   /* stage 7: the sin table (8 KB, the same in every map) lives in sint_tab, only the fields before it are per map (7144 bytes) */
-static s16 sint_tab[4096];
+typedef struct { u8 gmask[2048]; u16 slot_id[448]; u16 avg555[448]; u8 mesh[448]; u32 avgcol[448]; u32 flat[256]; u32 sky9[9]; u32 fog; } Side;   /* stage 7: the sin table (the same in every map; rc9: its first quarter wave) lives in sint_tab, only the fields before it are per map (7144 bytes) */
+/* rc9: the sin table of the map files (4096 entries, 1/4096 turn, the same in every map) is an exact quarter wave: t[2048+i] = -t[i] and
+   t[1024+k] = t[1024-k] for every entry (checked on all 11 copies in SF3M.BIN).  Only t[0..1024] is kept (2,050 bytes instead of 8,192:
+   6,142 bytes of renderer room); fsin returns the same value for every angle as the full table did. */
+static s16 sint_tab[1025];
 static const Side *side;
 static const Box *boxes; static const Ramp *ramps; static const u16 *sector, *items; static const u16 *cellidx; static const Cell *celldict;
 static const Tree *trees; static const u16 *ctex, *btex, *dtex; static const u8 *deckl; static int ndeck;
@@ -117,8 +120,8 @@ static s32 cpx6, cpy6, cpz6, cpx8, cpy8, cpz8;
 static s32 camx, camy, camz;        /* units */
 static V3 mr, mu, mf;               /* camera axes, 1.14 (r already mirrored) */
 static int yaw, pitch;              /* u16 turn, s16 */
-static inline int fsin(int a) { return sint_tab[(a >> 4) & 4095]; }
-static inline int fcos(int a) { return sint_tab[((a + 16384) >> 4) & 4095]; }
+static inline int fsin(int a) { u32 i = (u32)(a >> 4) & 4095u, j = i & 2047u; int v = sint_tab[j <= 1024u ? j : 2048u - j]; return (i & 2048u) ? -v : v; }
+static inline int fcos(int a) { return fsin(a + 16384); }
 static void gte_setup(void) {
   s32 m[9] = { mr.x >> 2, mr.y >> 2, mr.z >> 2, -(mu.x >> 2), -(mu.y >> 2), -(mu.z >> 2), mf.x >> 2, mf.y >> 2, mf.z >> 2 };
   gte_set_rot(m); gte_set_trans(0, 0, 0);
@@ -1116,7 +1119,7 @@ int sf3_map_load(u32 n) {
   u32 lba = CD_SF3W_LBA + first; sf3_w_lba = lba; sf3_w_len = wsec * 2048;
   sf3_cd_read(lba, wsec, (u8 *)SF_WORLD);
   if (*(const u32 *)SF_WORLD != 0x57334653) { dbg("SF3W bad magic\n"); return -1; }
-  sf3_cd_read(lba + wsec + asec, (sbytes + 2047) / 2048, sf_tmp); { u32 nf = sbytes - 8192; for (u32 i = 0; i < nf; i++) ((u8 *)SF_SIDE)[i] = sf_tmp[i]; if (!sf3_map_loads) for (u32 i = 0; i < 4096; i++) sint_tab[i] = ((const s16 *)(sf_tmp + nf))[i]; }
+  sf3_cd_read(lba + wsec + asec, (sbytes + 2047) / 2048, sf_tmp); { u32 nf = sbytes - 8192; for (u32 i = 0; i < nf; i++) ((u8 *)SF_SIDE)[i] = sf_tmp[i]; if (!sf3_map_loads) for (u32 i = 0; i < 1025; i++) sint_tab[i] = ((const s16 *)(sf_tmp + nf))[i]; }
   world_init(); upload_all(lba + wsec);
 #ifndef OLDMODELS
   models_upload();

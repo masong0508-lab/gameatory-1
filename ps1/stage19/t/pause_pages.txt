@@ -1,0 +1,10 @@
+# rc9 pause block (-DPZBLOCK, PAUSE.BIN): 59 page numbers (4 KiB pages of the 8 MiB ROM, hex).  The pages the game reads from the disc
+# after Start in a level (the pause menu's code and pictures, which it keeps reading while it is up) and after Return to game before the
+# first new 3D picture (the resume code, which runs in the interpreter, and the graphics it unpacks again); measured on rc8 and rc9 test
+# discs with tools/pdiag.py (SwanStation and Beetle; on foot at the level start, after walking, in the tank, on the second level).  The
+# build copies the pages out of the player's ROM into PAUSE.BIN (consecutive sectors), so the runtime reads them all with one seek.
+# Page numbers only: no ROM bytes.
+00d 017 024 025 026 02c 02d 02e 039 03d 03e 076 099 09b 0a0 0a2
+0a3 0bd 0be 0bf 0c0 0c1 0cd 193 1aa 1ab 1ac 1ad 1ae 1af 1b0 1b2
+1b4 1b5 1c0 1c1 1c6 1c7 1c9 1cc 1cd 1ce 1cf 30b 30c 326 327 34c
+359 63e 63f 640 650 65e 65f 668 66b 66d 6f7

@@ -226,6 +226,9 @@ static RTCOLD void cd_init(void){      /* rc7 .rtcold: at the first read and on 
 #define CD_TRIES 12u                /* failed passes in a row before the error screen; the read is retried for as long as it takes, never taken as good */
 #endif
 static u32 cd_map[CD_RUN/32];
+#ifdef PZBLOCK
+static u8 *const *cd_scat;          /* rc9 pause block: when set, sector s of the request goes to cd_scat[s/2] + (s&1)*2048 (one pool frame per page) */
+#endif
 /* One Setloc + ReadN pass from the first sector of the request that is still missing.  Every sector the drive delivers is identified by the
    MM:SS:FF address in its own header and stored if it belongs to the request and is still missing, so a sector that the drive skipped (buffer
    overrun with a read speed-up), delivered late or delivered twice can never be taken for another one.
@@ -247,7 +250,11 @@ static int cd_pass(u32 lba,u32 n,u8*dst,u32*left){
     u32 s=unbcd(h[0])*4500+unbcd(h[1])*75+unbcd(h[2])-150-lba;   /* this sector's index in the request (huge when it lies before it) */
     lim=HL_RESP;
     if(s<n&&!((cd_map[s>>5]>>(s&31))&1)){
+#ifdef PZBLOCK
+      u8*d=cd_scat?cd_scat[s>>1]+((s&1)<<11):dst+s*2048;
+#else
       u8*d=dst+s*2048;
+#endif
       if(h[3]==2){ for(int i=0;i<2048;i++) d[i]=CD2; }           /* mode 2 form 1: the data follows the sub-header */
       else { for(int i=0;i<8;i++) d[i]=h[4+i]; for(int i=8;i<2048;i++) d[i]=CD2; }   /* mode 1: the data follows the 4-byte header */
       cd_map[s>>5]|=1u<<(s&31); (*left)--; got++;
@@ -361,11 +368,117 @@ static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pai
 /* frame f gets page pg (data already in it): the maps both ways */
 static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1; }
 /* frame f is reused: its page (if any) leaves RAM */
-static void pool_drop(u32 f){ u32 o=fr_pg[f]; if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
+#ifdef POOL_THRASH
+/* rc9: the CLOCK pool also before the first level once the menus thrash the slots (the Credits: about 4 page fetches per guest frame over the
+   8 FIFO slots, 1.8 guest frames/s at stock on SwanStation and no end in 10 minutes).  The last 16 pages that left a slot are remembered;
+   a fetch of one of them is a refetch.  rc9 review: pool_refetch is a level, not a total: +1 for a refetch, -1 for any other fetch (-4 while
+   the menu pool is on: a new screen that reads new pages turns it off soon), so only a
+   stretch in which most fetches are refetches reaches POOL_THRASH (the Credits: every fetch of the thrash is a refetch); boot, the title, a tour
+   of the menus and the route to the level (13 to 15 refetches among 40 to 250 fetches) stay below it.  The menu pool (pool_menu) goes off
+   again before the first level when the fetches are no longer refetches (the level back at 0) or no page was fetched for POOL_QUIET pictures
+   (the title menu after the Credits): the FIFO over the slots and the page pairs come back, and a resident page that the CLOCK hand gave away
+   comes back into its own frame at its next miss (pool_back), so the route to the level runs as in rc8. */
+#ifndef POOL_QUIET
+#define POOL_QUIET 60u
+#endif
+static u16 ev_ring[16]; static u32 ev_i; u32 pool_refetch, pool_menu, pool_ons, pool_offs; static u32 pool_lmiss, pool_quiet;
+static void pool_menu_off(void){ rom_pool=0; pool_menu=0; pool_refetch=0; pool_offs++; dbg("ROM pool off before a level\n"); }
+#endif
+static void pool_drop(u32 f){ u32 o=fr_pg[f];
+#ifdef POOL_THRASH
+  if(o && (!rom_pool || pool_menu)){ ev_ring[ev_i&15]=o; ev_i++; }
+#endif
+  if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
+#ifdef PZBLOCK
+/* rc9 pause block.  After Start in a level and after Return to game the game reads about 40 ROM pages that the level itself does not use (the
+   pause menu's code and pictures; the resume code, which runs in the interpreter, and the graphics it unpacks again).  One by one from ROM.BIN
+   they cost a seek each: on SwanStation at 1x CD the pause menu took 1.6 s to come up and the level clock restarted 2.0-3.2 s after Cross,
+   with the paused picture on the screen all that time.  PAUSE.BIN holds copies of those pages (t/pause_pages.txt, sorted) in consecutive
+   sectors; once the level clock has stood still for PZ_STILL pictures and no page was missed for PZ_QUIET (or a page of the block is missed
+   after such a quiet stretch: Return to game before the block came in) all of them are
+   read in one request, each sector straight into a pool frame (cd_scat), and mapped.  The frames are taken by the same CLOCK hand as a miss
+   would take them, never one that holds a page of the block; pages of the block already in RAM keep their frame.  The block is read at most
+   once per stop of the clock (pz_done = the clock value it was read at), and not at all while every page of it is in RAM.  The pause menu
+   itself reads about 25 pages for as long as it is up (its code and the pictures of the pause effect): those of them that are in the block
+   stay referenced; the block plus that set plus the level's own pages are more than the 70 frames of the pool, so the list is a measured
+   compromise (TEST-ONLY variants: pz_start, and protecting every block page while paused, which made the menu thrash its other pages). */
+#include "pz_pages.h"     /* PZ_N, pz_pg[]: the sorted page list, written by build.sh from t/pause_pages.txt */
+#ifndef PZ_STILL
+#define PZ_STILL 2u
+#endif
+#ifndef PZ_QUIET
+#define PZ_QUIET 2u     /* ... and no page miss for this many pictures: the pause menu's own pages are in, the hand sees them referenced */
+#endif
+_Static_assert(PZ_N<=60u && PZ_N+8u<RP_MAX+NSLOT, "the pause block leaves frames for everything else");
+extern const u32 CD_PZ_LBA;
+static u32 pz_lclk, pz_still, pz_done=0xffffffffu, pz_loads, pz_lmiss, pz_quiet;
+/* rc9 review: the block is read only after Start was pressed in a running level (the pause menu; pz_arm, set in present()), never for a clock
+   that stands still for another reason (a heavy frame, a respawn, the menus with the menu pool on): on Beetle at 400 % a stand in play read the
+   block and gave 59 frames of the pool away to it (a 100-frame freeze and the level's pages read again).  Disarmed by the read, and when the
+   clock has run on PZ_ARM_TICKS since the press (Start without a pause) */
+#ifndef PZ_ARM_TICKS
+#define PZ_ARM_TICKS 30u
+#endif
+static u32 pz_arm, pz_arm_clk;
+static int pz_ok(u32 c){ return pz_arm && rom_pool && c && c==pz_lclk && c!=pz_done && pz_quiet>=PZ_QUIET && *(volatile s16*)(IW+0xc)>=0; }
+static __attribute__((noinline)) int pz_has(u32 pg){ u32 lo=0,hi=PZ_N; while(lo<hi){ u32 m=(lo+hi)>>1; if(pz_pg[m]<pg) lo=m+1; else if(pz_pg[m]>pg) hi=m; else return 1; } return 0; }
+static void cd_read(u32 lba,u32 nsec,u8*dst);
+static __attribute__((noinline)) void pz_load(void){
+  static u8 *dst[PZ_N];
+  u32 n=pool_rp+NSLOT;
+  pz_done=pz_lclk; pz_arm=0;
+  for(u32 i=0;i<PZ_N;i++){ u32 pg=pz_pg[i], f1=pg_fr[pg], f;
+    if(f1) f=f1-1;
+    else { for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o) break; if(pz_has(o-1)) continue; if(!rom_pg[o-1]) break; rom_pg[o-1]=0; }
+      pool_drop(f); }
+    pool_set(f,pg); dst[i]=pool_frame(f); }
+#ifdef CDSIM
+  for(u32 i=0;i<PZ_N;i++) cd_read(CD_PZ_LBA+2*i,2,dst[i]);
+#else
+  cd_scat=dst; cd_read(CD_PZ_LBA,2*PZ_N,0); cd_scat=0;
+#endif
+  pz_loads++;
+}
+#ifdef PZ_START
+/* TEST-ONLY (measured, not in the release): Start was pressed (raw pad bit 3) in a running level: read the block at once, before the pause
+   menu's own misses.  On SwanStation at 1x CD the menu then came up 160 frames after Start instead of 102: with 51 pages of the block coming in
+   while the level runs the hand takes level pages that the pause menu reads too (10 misses after the block); the resume was 43 frames either way. */
+static void pz_start(void){
+  u32 c=*(volatile u32*)(EW+0x1e00);
+  if(!rom_pool || !c || *(volatile s16*)(IW+0xc)<0) return;
+  for(u32 i=0;i<PZ_N;i++) if(!pg_fr[pz_pg[i]]){ pz_lclk=c; pz_still=0; pz_load(); return; }
+}
+#endif
+/* present(): count the pictures the level clock has stood still for; read the block once it stood still for PZ_STILL of them (in a level) */
+static void pz_present(void){
+  u32 c=*(volatile u32*)(EW+0x1e00);
+  if(rom_miss_count!=pz_lmiss){ pz_lmiss=rom_miss_count; pz_quiet=0; } else if(pz_quiet<PZ_QUIET) pz_quiet++;
+  if(pz_arm && c-pz_arm_clk>PZ_ARM_TICKS) pz_arm=0;
+  if(c!=pz_lclk){ pz_lclk=c; pz_still=0; return; }
+  if(pz_still<PZ_STILL) pz_still++;
+  if(pz_still>=PZ_STILL && pz_ok(c)){
+    for(u32 i=0;i<PZ_N;i++) if(!pg_fr[pz_pg[i]]){ pz_load(); return; }
+    pz_done=c; }
+}
+#endif
 /* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
    gread ... (or inline the whole miss path into them) */
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   { u32 f1=pg_fr[pg]; if(f1){ rom_pg[pg]=pool_frame(f1-1); rom_soft++; return rom_pg[pg]; } }   /* read again after the hand unmapped it: no disc read */
+#ifdef POOL_THRASH
+  if(!rom_pool || pool_menu){ u32 k=0; while(k<16 && ev_ring[k]!=pg+1) k++;
+    if(k<16){ if(pool_refetch<POOL_THRASH) pool_refetch++; } else { u32 d=rom_pool?4u:1u; pool_refetch=pool_refetch>d?pool_refetch-d:0; }
+    if(!rom_pool){ if(pool_refetch>=POOL_THRASH){ rom_pool=1; pool_menu=1; pool_ons++; dbg("ROM pool on before a level\n"); } }
+    else if(!pool_refetch) pool_menu_off(); }
+#endif
+  u32 f;
+#ifdef POOL_THRASH
+  /* pool_back: in the FIFO again after a menu pool, a resident page that is not in RAM is read into its own frame */
+  if(pool_offs && !rom_pool) for(f=0;f<pool_rp;f++) if((rp_idx[f]&2047u)==pg) goto rd;
+#endif
+#ifdef PZBLOCK
+  if(pz_still && pz_ok(*(volatile u32*)(EW+0x1e00)) && pz_has(pg)){ pz_load(); return rom_pg[pg]; }
+#endif
 #ifdef COLD1PASS
   /* speed item M5: the game's first data read comes in the boot's black screen (BG palette all zero, no OBJ shown): COLD.BIN first */
   if(!cold_m5 && !rom_miss_count && pal_bg_zero()) cold_all();
@@ -391,9 +504,11 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
     return rom_pg[pg];
   }
 #endif
-  u32 f;
   if(!rom_pool){ f=pool_rp+slot_next; slot_next=(slot_next+1)%NSLOT; }
   else { u32 n=pool_rp+NSLOT; for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; } }   /* second chance: unmap, keep the data */
+#ifdef POOL_THRASH
+rd:
+#endif
   pool_drop(f);
   u8 *d=pool_frame(f);
 #ifdef DISP_PROF
@@ -1532,6 +1647,12 @@ static void present(void){
     sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
 #endif
   g_pres++; SP_INC(SP_NPRES);
+#ifdef PZBLOCK
+  pz_present();
+#endif
+#ifdef POOL_THRASH
+  if(pool_menu){ if(rom_miss_count!=pool_lmiss){ pool_lmiss=rom_miss_count; pool_quiet=0; } else if(++pool_quiet>=POOL_QUIET) pool_menu_off(); }
+#endif
 #ifdef COLD1PASS
   if(!cold_m5 && disp_on && (rom_miss_count|cold_loads) && g_gframes-cd_rd_gf>=COLD1_QUIET && !pp_fade_w) cold_all();
 #endif
@@ -1577,7 +1698,14 @@ static void present(void){
 #ifdef TESTPOKE
     pad_new_extra|=(np&1)<<5;     /* TEST-ONLY: a fresh Select press pokes the controlled entity index to the nearest traffic car (see stage7_pre) */
 #endif
-    radio_poll(lat,np); }
+    radio_poll(lat,np);
+#ifdef PZBLOCK
+    if((np&8u) && sf3_ok){ u32 c=*(volatile u32*)(EW+0x1e00); if(c && *(volatile s16*)(IW+0xc)>=0){ pz_arm=1; pz_arm_clk=c; } }   /* Start in a running level */
+#endif
+#if defined(PZBLOCK)&&defined(PZ_START)
+    if((np&8u) && sf3_ok) pz_start();   /* TEST: Start in a level reads the block at once */
+#endif
+    }
 #ifdef PADDBG
   { static u32 lp=0xffffffff; if(pad_raw!=lp){ lp=pad_raw; dbg("PADRAW "); hex(pad_raw); dbg("\n"); } }
   gs_dump();
@@ -1586,6 +1714,9 @@ static void present(void){
   if(sf3_ok){ s32 px,py,pz; int hd,pk,ne; static s32 hpx,hpy,hpz; static int hhd,hpk,hne,hvalid;   /* stage 16: last gathered pose, drawn again while the guest's level state is not readable (Pause) */
 #ifdef PCACHE1
     rom_pool=1;                       /* stage 20: a level runs: resident pages and slots become one CLOCK pool (cd_fetch) */
+#ifdef POOL_THRASH
+    pool_menu=0;                      /* ... for good, also when the menus had turned it on */
+#endif
 #endif
 #ifdef SF3_DEFER
     /* rc7: the guest left the level (Quit to title, game over): its entity count at IWRAM 0x0300000c is -1 and the level clock stands still, three

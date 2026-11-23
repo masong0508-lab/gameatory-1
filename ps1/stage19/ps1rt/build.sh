@@ -51,6 +51,9 @@ if [ -n "$SNAPFILE" ] && [ ! -f "../out/$SNAPFILE" ]; then echo "Missing input: 
 # speed item M11 (-DEXEPACK in CFL): a packed PSX.EXE, rebuilt by crt0 before main (exepack.py)
 EXEPACK=0; case " $CFL " in *" -DEXEPACK "*) EXEPACK=1 ;; esac
 if [ "$EXEPACK" = 1 ] && [ ! -f exepack.py ]; then echo 'Missing input: exepack.py' >&2; missing=1; fi
+# rc9 (-DPZBLOCK in CFL): the pause block PAUSE.BIN, the ROM pages of t/pause_pages.txt in consecutive sectors (rt.c pz_load)
+PZ=0; case " $CFL " in *" -DPZBLOCK "*) PZ=1 ;; esac
+if [ "$PZ" = 1 ] && [ ! -f ../t/pause_pages.txt ]; then echo 'Missing input: ../t/pause_pages.txt' >&2; missing=1; fi
 [ "$missing" = 0 ] || fail 'assemble the source tree and generate its private translation/map inputs first; see ps1/STATUS.md'
 python3 - "$ROM" <<'PY'
 from pathlib import Path
@@ -110,12 +113,30 @@ with open(sys.argv[2], 'a') as f:
 print('limiter return addresses', ' '.join('%08x' % a for a in ra))
 PY
     esac
+    PZI=
+    if [ "$PZ" = 1 ]; then
+        # page list -> pz_pages.h (sorted, at most 60 pages: rt.c keeps a frame of the pool for anything else) and the block's disc
+        # sector -> syms.c (8th field of LBAS; 0 in the first pass, when the ISO does not exist yet)
+        run "pzpages-$PASS" python3 - ../t/pause_pages.txt "$WORK/pz_pages.h" "$WORK/syms.c" "${LBAS:-}" <<'PY'
+import sys
+pages = sorted({int(t, 16) for line in open(sys.argv[1]) for t in line.split('#')[0].split()})
+if not 0 < len(pages) <= 60 or pages[-1] >= 2048:
+    raise SystemExit('pause_pages.txt: 1..60 page numbers below 0x800 expected, got %d' % len(pages))
+with open(sys.argv[2], 'w') as f:
+    f.write('#define PZ_N %du\nstatic const u16 pz_pg[PZ_N]={%s};\n' % (len(pages), ','.join('0x%03x' % p for p in pages)))
+lb = sys.argv[4].split(',') if sys.argv[4] else []
+with open(sys.argv[3], 'a') as f:
+    f.write('const unsigned CD_PZ_LBA=%d;\n' % (int(lb[7]) if len(lb) > 7 else 0))
+print('pause block: %d pages' % len(pages))
+PY
+        PZI="-I$WORK"
+    fi
     if [ -z "$NO_INTERP" ]; then
         run "interp-$PASS" "$PS1_CC" $F -Os -I../interp -c ../interp/interp.c -o "$WORK/interp.o"
         run "interp-asm-$PASS" "$PS1_CC" $F -c ../interp/interp_asm.s -o "$WORK/interp_asm.o"
         IPO="$WORK/interp.o $WORK/interp_asm.o"; CFL_IP=-I../interp
     else IPO=; CFL_IP=-DNO_INTERP; fi
-    run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
+    run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP $PZI ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
     if [ "$EXEPACK" = 1 ]; then ASF=-Wa,-defsym,EXEPACK=1; else ASF=; fi
     run "startup-$PASS" "$PS1_CC" $F $ASF -c crt0.s -o "$WORK/crt0.o"
     run "symbols-$PASS" "$PS1_CC" $F -c "$WORK/syms.c" -o "$WORK/syms.o"
@@ -165,13 +186,21 @@ mkiso() {
     cp ../out/SF3M.BIN "$ISO_DIR/SF3M.BIN"
     if [ -n "$SNAPFILE" ]; then cp "../out/$SNAPFILE" "$ISO_DIR/SNAPST.BIN"; fi
     if [ "$SNAP" = 1 ]; then cp ../out/SNAP.BIN "$ISO_DIR/SNAP.BIN"; fi
+    if [ "$PZ" = 1 ]; then
+        run "pzfile-$PASS" python3 - "$ROM" ../t/pause_pages.txt "$ISO_DIR/PAUSE.BIN" <<'PY'
+import sys
+rom = open(sys.argv[1], 'rb').read()
+pages = sorted({int(t, 16) for line in open(sys.argv[2]) for t in line.split('#')[0].split()})
+open(sys.argv[3], 'wb').write(b''.join(rom[p * 4096:(p + 1) * 4096] for p in pages))
+PY
+    fi
     printf 'BOOT = cdrom:\\PSX.EXE;1\r\nTCB = 4\r\nEVENT = 10\r\nSTACK = 801FFF00\r\n' > "$ISO_DIR/SYSTEM.CNF"
     run "iso-$PASS" "$PS1_GENISOIMAGE" -quiet -V "${VOL:-PAYBACKSF3}" -sysid PLAYSTATION -o "$WORK/$NAME.iso" "$ISO_DIR"
 }
 
 lbas() {
     run "isoinfo-$PASS" "$PS1_ISOINFO" -l -i "$WORK/$NAME.iso" || return $?
-    python3 - "$WORK/logs/isoinfo-$PASS.log" "../out/$PRD/cold_P.bin" "$SNAP" "$SNAPFILE" <<'PY'
+    python3 - "$WORK/logs/isoinfo-$PASS.log" "../out/$PRD/cold_P.bin" "$SNAP" "$SNAPFILE" "$PZ" <<'PY'
 import re, sys
 from pathlib import Path
 entries = {}
@@ -184,13 +213,15 @@ required = ['ROM.BIN', 'SF3M.BIN', 'PSX.EXE']
 if cold.exists(): required.append('COLD.BIN')
 if sys.argv[3] == '1': required.append('SNAP.BIN')
 if sys.argv[4]: required.append('SNAPST.BIN')
+if sys.argv[5] == '1': required.append('PAUSE.BIN')
 for name in required:
     if name not in entries:
         raise SystemExit('missing ISO directory entry: ' + name)
 pages = (cold.stat().st_size + 4095) // 4096 if cold.exists() else 0
 print(','.join(map(str, (entries['ROM.BIN'], entries.get('COLD.BIN', 0), pages,
                        entries['SF3M.BIN'], entries['SF3M.BIN'],
-                       entries.get('SNAP.BIN', 0), entries.get('SNAPST.BIN', 0)))))
+                       entries.get('SNAP.BIN', 0), entries.get('SNAPST.BIN', 0))
+               + ((entries['PAUSE.BIN'],) if sys.argv[5] == '1' else ()))))
 PY
 }
 
