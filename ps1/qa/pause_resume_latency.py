@@ -3,7 +3,7 @@
 
 Usage with SwanStation (openboot setup from ps1/rig/README.md):
     python3 ps1/rig/tools/ob_session.py ps1/qa/pause_resume_latency.py \
-        --disc /private/rc8.cue --syms /private/rc8.elf \
+        --disc /private/rc8.cue --syms /private/rc8/payback_rc8.nm.txt \
         --core swanstation --out /private/pause_results \
         --opt swanstation_CPU_Overclock=400 \
         --opt swanstation_CDROM_ReadSpeedup=10 \
@@ -11,6 +11,8 @@ Usage with SwanStation (openboot setup from ps1/rig/README.md):
 
 Clock restart, image change, renderer refresh and physical GPU display flip
 are separate events. The script reports their frame numbers, not game text.
+Press-to-first-new-city-picture is the main linger. A post-return sampling
+window reports later freezes; the guest-clock delta is only diagnostic.
 A strict maximum visible-linger limit is OPT-IN; no performance promise is
 inferred from a compiling or bootable disc. Results and images stay private.
 """
@@ -38,15 +40,18 @@ def extra(ap):
     ap.add_argument('--prepause-frames', type=int, default=120)
     ap.add_argument('--pause-dwell-frames', type=int, default=120)
     ap.add_argument('--observe-frames', type=int, default=900)
+    ap.add_argument('--post-new-frame-observe-frames', type=int, default=120,
+                    help='keep sampling after first changed city image to catch short stalls')
     ap.add_argument('--allow-legacy-present-counter', action='store_true',
                     help='rc7 diagnostic only: g_pres is not GPU flip evidence')
     ap.add_argument('--max-visible-linger-frames', type=int, default=None,
-                    help='optional owner-agreed hard limit, from clock restart')
+                    help='optional owner-agreed hard limit, from resume press to new city picture')
 
 
 def main():
     a = std_args(__doc__, extra)  # noqa: F405
-    if min(a.prepause_frames, a.pause_dwell_frames, a.observe_frames) < 1:
+    if min(a.prepause_frames, a.pause_dwell_frames, a.observe_frames,
+           a.post_new_frame_observe_frames) < 1:
         raise SystemExit('frame sampling windows must be positive')
     if a.max_visible_linger_frames is not None and a.max_visible_linger_frames < 0:
         raise SystemExit('linger budget must be nonnegative')
@@ -104,8 +109,12 @@ def main():
         # temporarily disappears from the draw-ring between guest frames.
         accepted = g.tap('CROSS', until=lambda: g.level_clock() > c_pause,
                          wait=10000, what='resume guest level clock')
+        # Do not stop at the first new image: rc8 may show another short
+        # freeze a few frames later. observe_frames remains a hard safety cap.
         while (g.nrun - origin < a.observe_frames
-               and tracker.events['first_playable_picture'] is None):
+               and (tracker.events['first_new_picture'] is None
+                    or g.nrun - tracker.events['first_new_picture']
+                       < a.post_new_frame_observe_frames)):
             g.run(1, ())
     finally:
         g.run = original_run
@@ -115,17 +124,24 @@ def main():
             {'frames_until_clock': None if observed['clock_restarted'] is None
              else observed['clock_restarted'] - origin})
     g.check(observed['first_new_picture'] is not None,
-            'resuming changes the displayed image')
+            'a newly changed city image appears after the resume press')
+    post_complete = (observed['first_new_picture'] is not None
+                     and observed['post_new_frame_observed_frames']
+                         >= a.post_new_frame_observe_frames)
+    g.check(post_complete, 'post-return observation window completed',
+            {'requested_frames': a.post_new_frame_observe_frames,
+             'observed_frames': observed['post_new_frame_observed_frames'],
+             'max_still_frames': observed['post_new_frame_max_static_frames']})
     g.check(observed['first_gpu_flip'] is not None,
             'display counter advances after resuming', {'counter': flip_symbol})
     g.check(observed['first_3d_render'] is not None,
             'renderer presents a new frame after resume')
     g.check(observed['first_playable_picture'] is not None,
             '3D scene returns after restart, render and display flip')
-    lag = observed['visible_linger_after_clock_restart_frames']
+    lag = observed['visible_linger_after_resume_press_frames']
     if a.max_visible_linger_frames is not None:
         g.check(lag is not None and lag <= a.max_visible_linger_frames,
-                'pause overlay clears within optional frame budget',
+                'press-to-new-city-picture within optional frame budget',
                 {'budget': a.max_visible_linger_frames, 'observed': lag})
     g.check(not g.tty_faults(), 'no runtime fault lines during pause/resume',
             {'count': len(g.tty_faults())})
@@ -134,7 +150,8 @@ def main():
         'hardware_display_flip_counter_available': flip_symbol == 'g_flips',
         'display_counter_used': flip_symbol,
         'emulator_only': True,
-        'owner_approved_linger_budget': a.max_visible_linger_frames,
+        'owner_approved_press_to_picture_budget': a.max_visible_linger_frames,
+        'post_new_picture_observation_complete': post_complete,
         'duckstation_android_verified': False,
     })
 
