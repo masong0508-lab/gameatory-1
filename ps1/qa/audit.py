@@ -55,7 +55,7 @@ def read_json(path: Path):
 
 def one_result(path: Path, core: str):
     """Return a sanitized report and a set of the successfully exercised labels."""
-    row = {"id": path.parent.name, "ok": False, "errors": [],
+    row = {"id": path.parent.name, "ok": False, "errors": [], "warnings": [],
            "frames": None, "passed": None, "failed": None}
     try:
         o = read_json(path)
@@ -79,6 +79,10 @@ def one_result(path: Path, core: str):
         sha = sha.lower()
     if meta.get("syms_match_disc") is False:
         row["errors"].append("symbols_for_another_disc")
+    if meta.get("tty") is False:
+        row["warnings"].append("guest_fault_monitor_unavailable")
+    if not isinstance(meta.get("core_options"), dict):
+        row["warnings"].append("emulator_options_not_recorded")
     frames, passed, failed = o.get("frames"), o.get("pass"), o.get("fail")
     if not isinstance(frames, int) or isinstance(frames, bool) or frames <= 0:
         row["errors"].append("invalid_frame_count")
@@ -184,9 +188,39 @@ def audit(root: Path, core: str, profile: str, expected_sha: str | None = None,
     failures = []
     fingerprints = set()
     extras = {}
+    # The runner creates a new failures manifest for every batch. A broken
+    # emulator can die before producing a fresh result.json, leaving a stale
+    # *passing* JSON file from an earlier run in the same output directory.
+    # Never certify such a batch by trusting that old JSON alone.
+    marker = root / "session_failures.txt"
+    try:
+        if marker.is_file() and marker.stat().st_size:
+            failures.append("runner_reported_failures")
+    except OSError:
+        failures.append("runner_failure_manifest_inaccessible")
     for session in PROFILES[profile]:
         row, checks, sha = one_result(root / session / "result.json", core)
         row["id"] = session
+        # Session logs normally close just after result.json is written.
+        # Allow two seconds for this ordinary close/flush, but reject an
+        # older result when a new failed session overwrote only the log.
+        # Save/load's parent log continues during its fresh-process child;
+        # compare its timestamp with that child's final JSON instead.
+        result = root / session / "result.json"
+        latest = root / session / "reboot" / "result.json" if session == "e_save_load" else result
+        log = root / (session + ".log")
+        try:
+            if log.is_file() and latest.is_file() and log.stat().st_mtime_ns - latest.stat().st_mtime_ns > 2_000_000_000:
+                row["errors"].append("session_result_stale")
+        except OSError:
+            row["errors"].append("session_log_inaccessible")
+        if session == "e_save_load":
+            reboot = root / session / "reboot" / "result.json"
+            try:
+                if reboot.is_file() and result.is_file() and result.stat().st_mtime_ns - reboot.stat().st_mtime_ns > 2_000_000_000:
+                    row["errors"].append("reboot_result_stale")
+            except OSError:
+                row["errors"].append("reboot_result_inaccessible")
         if sha is not None:
             fingerprints.add(sha)
             if expected_sha and sha != expected_sha:
@@ -211,7 +245,10 @@ def audit(root: Path, core: str, profile: str, expected_sha: str | None = None,
         "schema": 1, "profile": profile, "core": core,
         "status": "PASS" if not failures else "FAIL",
         "session_count": len(rows), "passed_sessions": sum(r["ok"] for r in rows),
-        "failures": sorted(set(failures)), "disc_sha1": next(iter(fingerprints)) if len(fingerprints) == 1 else None,
+        "failures": sorted(set(failures)),
+        # Both names refer to the PSX.EXE, NOT a full-disc/data-track hash.
+        "exe_sha1": next(iter(fingerprints)) if len(fingerprints) == 1 else None,
+        "disc_sha1": next(iter(fingerprints)) if len(fingerprints) == 1 else None,
         "performance_thresholds_configured": min_guest_fps is not None and min_presented_fps is not None,
         "duckstation_android_verified": False,
         "unsupported_gates": ["all_vehicle_types", "radio_audio_listening", "flicker_scan", "duckstation_android_device"],
