@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "e5ac8f55505bd34de4d6f1b7840b43685e27e5bc9db7b15d58bd96e5d5605056"
+      "sha256": "c6188fedb36b2a1fbdee2beec52ee272d1290cd067463447cc17b3941d50c660"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -327,7 +327,7 @@
     {
       "source": "stage19/sf/sf3.c",
       "target": "sf/sf3.c",
-      "sha256": "0bffc6e6d04fa6b99a239035831e4d4408b616352e35f2a9e08c804367e32016"
+      "sha256": "b08c6f2e740c116284126788815cf8949e838af8e496a0baf9b7f12319ca9a49"
     },
     {
       "source": "stage7/integration/sf/sf3_head.c",
@@ -762,7 +762,7 @@
     {
       "source": "stage19/tools12/build_test_assist.sh",
       "target": "tools12/build_test_assist.sh",
-      "sha256": "f79a7f887e7ae5b2ff18b6789b6954c55ca8470ffc44424eaad7010faaff48fd"
+      "sha256": "7cb999dd4fd88eefd2065a578224b98c7cd53e2699aa29b97978509bf5564f76"
     },
     {
       "source": "tools/mips1_lint.py",

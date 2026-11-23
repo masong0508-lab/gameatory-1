@@ -371,13 +371,22 @@ static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=poo
 #ifdef POOL_THRASH
 /* rc9: the CLOCK pool also before the first level once the menus thrash the slots (the Credits: about 4 page fetches per guest frame over the
    8 FIFO slots, 1.8 guest frames/s at stock on SwanStation and no end in 10 minutes).  The last 16 pages that left a slot are remembered;
-   a fetch of one of them is a refetch, and POOL_THRASH refetches turn the pool on for good (as the first level does).  Boot, the title and
-   the route to the level refetch almost nothing, so they keep the stage 19 FIFO, page pairs and resident set. */
-static u16 ev_ring[16]; static u32 ev_i; u32 pool_refetch;
+   a fetch of one of them is a refetch.  rc9 review: pool_refetch is a level, not a total: +1 for a refetch, -1 for any other fetch (-4 while
+   the menu pool is on: a new screen that reads new pages turns it off soon), so only a
+   stretch in which most fetches are refetches reaches POOL_THRASH (the Credits: every fetch of the thrash is a refetch); boot, the title, a tour
+   of the menus and the route to the level (13 to 15 refetches among 40 to 250 fetches) stay below it.  The menu pool (pool_menu) goes off
+   again before the first level when the fetches are no longer refetches (the level back at 0) or no page was fetched for POOL_QUIET pictures
+   (the title menu after the Credits): the FIFO over the slots and the page pairs come back, and a resident page that the CLOCK hand gave away
+   comes back into its own frame at its next miss (pool_back), so the route to the level runs as in rc8. */
+#ifndef POOL_QUIET
+#define POOL_QUIET 60u
+#endif
+static u16 ev_ring[16]; static u32 ev_i; u32 pool_refetch, pool_menu, pool_ons, pool_offs; static u32 pool_lmiss, pool_quiet;
+static void pool_menu_off(void){ rom_pool=0; pool_menu=0; pool_refetch=0; pool_offs++; dbg("ROM pool off before a level\n"); }
 #endif
 static void pool_drop(u32 f){ u32 o=fr_pg[f];
 #ifdef POOL_THRASH
-  if(o && !rom_pool){ ev_ring[ev_i&15]=o; ev_i++; }
+  if(o && (!rom_pool || pool_menu)){ ev_ring[ev_i&15]=o; ev_i++; }
 #endif
   if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
 #ifdef PZBLOCK
@@ -403,12 +412,21 @@ static void pool_drop(u32 f){ u32 o=fr_pg[f];
 _Static_assert(PZ_N<=60u && PZ_N+8u<RP_MAX+NSLOT, "the pause block leaves frames for everything else");
 extern const u32 CD_PZ_LBA;
 static u32 pz_lclk, pz_still, pz_done=0xffffffffu, pz_loads, pz_lmiss, pz_quiet;
+/* rc9 review: the block is read only after Start was pressed in a running level (the pause menu; pz_arm, set in present()), never for a clock
+   that stands still for another reason (a heavy frame, a respawn, the menus with the menu pool on): on Beetle at 400 % a stand in play read the
+   block and gave 59 frames of the pool away to it (a 100-frame freeze and the level's pages read again).  Disarmed by the read, and when the
+   clock has run on PZ_ARM_TICKS since the press (Start without a pause) */
+#ifndef PZ_ARM_TICKS
+#define PZ_ARM_TICKS 30u
+#endif
+static u32 pz_arm, pz_arm_clk;
+static int pz_ok(u32 c){ return pz_arm && rom_pool && c && c==pz_lclk && c!=pz_done && pz_quiet>=PZ_QUIET && *(volatile s16*)(IW+0xc)>=0; }
 static __attribute__((noinline)) int pz_has(u32 pg){ u32 lo=0,hi=PZ_N; while(lo<hi){ u32 m=(lo+hi)>>1; if(pz_pg[m]<pg) lo=m+1; else if(pz_pg[m]>pg) hi=m; else return 1; } return 0; }
 static void cd_read(u32 lba,u32 nsec,u8*dst);
 static __attribute__((noinline)) void pz_load(void){
   static u8 *dst[PZ_N];
   u32 n=pool_rp+NSLOT;
-  pz_done=pz_lclk;
+  pz_done=pz_lclk; pz_arm=0;
   for(u32 i=0;i<PZ_N;i++){ u32 pg=pz_pg[i], f1=pg_fr[pg], f;
     if(f1) f=f1-1;
     else { for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o) break; if(pz_has(o-1)) continue; if(!rom_pg[o-1]) break; rom_pg[o-1]=0; }
@@ -435,9 +453,10 @@ static void pz_start(void){
 static void pz_present(void){
   u32 c=*(volatile u32*)(EW+0x1e00);
   if(rom_miss_count!=pz_lmiss){ pz_lmiss=rom_miss_count; pz_quiet=0; } else if(pz_quiet<PZ_QUIET) pz_quiet++;
+  if(pz_arm && c-pz_arm_clk>PZ_ARM_TICKS) pz_arm=0;
   if(c!=pz_lclk){ pz_lclk=c; pz_still=0; return; }
   if(pz_still<PZ_STILL) pz_still++;
-  if(rom_pool && c && pz_still>=PZ_STILL && pz_quiet>=PZ_QUIET && c!=pz_done && *(volatile s16*)(IW+0xc)>=0){
+  if(pz_still>=PZ_STILL && pz_ok(c)){
     for(u32 i=0;i<PZ_N;i++) if(!pg_fr[pz_pg[i]]){ pz_load(); return; }
     pz_done=c; }
 }
@@ -447,10 +466,18 @@ static void pz_present(void){
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   { u32 f1=pg_fr[pg]; if(f1){ rom_pg[pg]=pool_frame(f1-1); rom_soft++; return rom_pg[pg]; } }   /* read again after the hand unmapped it: no disc read */
 #ifdef POOL_THRASH
-  if(!rom_pool){ for(u32 k=0;k<16;k++) if(ev_ring[k]==pg+1){ if(++pool_refetch>=POOL_THRASH){ rom_pool=1; dbg("ROM pool on before a level: refetches "); dec(pool_refetch); dbg("\n"); } break; } }
+  if(!rom_pool || pool_menu){ u32 k=0; while(k<16 && ev_ring[k]!=pg+1) k++;
+    if(k<16){ if(pool_refetch<POOL_THRASH) pool_refetch++; } else { u32 d=rom_pool?4u:1u; pool_refetch=pool_refetch>d?pool_refetch-d:0; }
+    if(!rom_pool){ if(pool_refetch>=POOL_THRASH){ rom_pool=1; pool_menu=1; pool_ons++; dbg("ROM pool on before a level\n"); } }
+    else if(!pool_refetch) pool_menu_off(); }
+#endif
+  u32 f;
+#ifdef POOL_THRASH
+  /* pool_back: in the FIFO again after a menu pool, a resident page that is not in RAM is read into its own frame */
+  if(pool_offs && !rom_pool) for(f=0;f<pool_rp;f++) if((rp_idx[f]&2047u)==pg) goto rd;
 #endif
 #ifdef PZBLOCK
-  if(rom_pool && pz_still && pz_quiet>=PZ_QUIET && pz_lclk!=pz_done && *(volatile u32*)(EW+0x1e00)==pz_lclk && pz_has(pg)){ pz_load(); return rom_pg[pg]; }
+  if(pz_still && pz_ok(*(volatile u32*)(EW+0x1e00)) && pz_has(pg)){ pz_load(); return rom_pg[pg]; }
 #endif
 #ifdef COLD1PASS
   /* speed item M5: the game's first data read comes in the boot's black screen (BG palette all zero, no OBJ shown): COLD.BIN first */
@@ -477,9 +504,11 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
     return rom_pg[pg];
   }
 #endif
-  u32 f;
   if(!rom_pool){ f=pool_rp+slot_next; slot_next=(slot_next+1)%NSLOT; }
   else { u32 n=pool_rp+NSLOT; for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; } }   /* second chance: unmap, keep the data */
+#ifdef POOL_THRASH
+rd:
+#endif
   pool_drop(f);
   u8 *d=pool_frame(f);
 #ifdef DISP_PROF
@@ -1621,6 +1650,9 @@ static void present(void){
 #ifdef PZBLOCK
   pz_present();
 #endif
+#ifdef POOL_THRASH
+  if(pool_menu){ if(rom_miss_count!=pool_lmiss){ pool_lmiss=rom_miss_count; pool_quiet=0; } else if(++pool_quiet>=POOL_QUIET) pool_menu_off(); }
+#endif
 #ifdef COLD1PASS
   if(!cold_m5 && disp_on && (rom_miss_count|cold_loads) && g_gframes-cd_rd_gf>=COLD1_QUIET && !pp_fade_w) cold_all();
 #endif
@@ -1667,6 +1699,9 @@ static void present(void){
     pad_new_extra|=(np&1)<<5;     /* TEST-ONLY: a fresh Select press pokes the controlled entity index to the nearest traffic car (see stage7_pre) */
 #endif
     radio_poll(lat,np);
+#ifdef PZBLOCK
+    if((np&8u) && sf3_ok){ u32 c=*(volatile u32*)(EW+0x1e00); if(c && *(volatile s16*)(IW+0xc)>=0){ pz_arm=1; pz_arm_clk=c; } }   /* Start in a running level */
+#endif
 #if defined(PZBLOCK)&&defined(PZ_START)
     if((np&8u) && sf3_ok) pz_start();   /* TEST: Start in a level reads the block at once */
 #endif
@@ -1679,6 +1714,9 @@ static void present(void){
   if(sf3_ok){ s32 px,py,pz; int hd,pk,ne; static s32 hpx,hpy,hpz; static int hhd,hpk,hne,hvalid;   /* stage 16: last gathered pose, drawn again while the guest's level state is not readable (Pause) */
 #ifdef PCACHE1
     rom_pool=1;                       /* stage 20: a level runs: resident pages and slots become one CLOCK pool (cd_fetch) */
+#ifdef POOL_THRASH
+    pool_menu=0;                      /* ... for good, also when the menus had turned it on */
+#endif
 #endif
 #ifdef SF3_DEFER
     /* rc7: the guest left the level (Quit to title, game over): its entity count at IWRAM 0x0300000c is -1 and the level clock stands still, three
