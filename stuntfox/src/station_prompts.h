@@ -10,7 +10,7 @@ static inline const char *st_city_board_prompt(int campaign_on, int ncity,
     if (!ncity)
         return "B: BACK";
     if (!campaign_on)
-        return "HANGAR L: START CAMPAIGN  B: BACK";
+        return "HANGAR L: CAMPAIGN  B: BACK";
     if (can_claim)
         return "A: CLAIM   < >: THIS CITY   B: BACK";
     if (other_city)
@@ -25,9 +25,9 @@ static inline const char *st_eva_board_prompt(int campaign_on, int pack,
         return active_job ? "A: CANCEL WALK  <: MAP  B: BACK"
                           : "A: CLOSE  <: MAP  B: BACK";
     if (!campaign_on)
-        return "HANGAR L: START CAMPAIGN  B: BACK";
+        return "HANGAR L: CAMPAIGN  <: MAP  B: BACK";
     if (!pack)
-        return "JET PACK: BUY AT SHOP  B: BACK";
+        return "JET PACK: SHOP  <: MAP  B: BACK";
     return "A: TAKE + LAUNCH  <: MAP  B: BACK";
 }
 
