@@ -368,7 +368,18 @@ static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pai
 /* frame f gets page pg (data already in it): the maps both ways */
 static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1; }
 /* frame f is reused: its page (if any) leaves RAM */
-static void pool_drop(u32 f){ u32 o=fr_pg[f]; if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
+#ifdef POOL_THRASH
+/* rc9: the CLOCK pool also before the first level once the menus thrash the slots (the Credits: about 4 page fetches per guest frame over the
+   8 FIFO slots, 1.8 guest frames/s at stock on SwanStation and no end in 10 minutes).  The last 16 pages that left a slot are remembered;
+   a fetch of one of them is a refetch, and POOL_THRASH refetches turn the pool on for good (as the first level does).  Boot, the title and
+   the route to the level refetch almost nothing, so they keep the stage 19 FIFO, page pairs and resident set. */
+static u16 ev_ring[16]; static u32 ev_i; u32 pool_refetch;
+#endif
+static void pool_drop(u32 f){ u32 o=fr_pg[f];
+#ifdef POOL_THRASH
+  if(o && !rom_pool){ ev_ring[ev_i&15]=o; ev_i++; }
+#endif
+  if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
 #ifdef PZBLOCK
 /* rc9 pause block.  After Start in a level and after Return to game the game reads about 40 ROM pages that the level itself does not use (the
    pause menu's code and pictures; the resume code, which runs in the interpreter, and the graphics it unpacks again).  One by one from ROM.BIN
@@ -435,6 +446,9 @@ static void pz_present(void){
    gread ... (or inline the whole miss path into them) */
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   { u32 f1=pg_fr[pg]; if(f1){ rom_pg[pg]=pool_frame(f1-1); rom_soft++; return rom_pg[pg]; } }   /* read again after the hand unmapped it: no disc read */
+#ifdef POOL_THRASH
+  if(!rom_pool){ for(u32 k=0;k<16;k++) if(ev_ring[k]==pg+1){ if(++pool_refetch>=POOL_THRASH){ rom_pool=1; dbg("ROM pool on before a level: refetches "); dec(pool_refetch); dbg("\n"); } break; } }
+#endif
 #ifdef PZBLOCK
   if(rom_pool && pz_still && pz_quiet>=PZ_QUIET && pz_lclk!=pz_done && *(volatile u32*)(EW+0x1e00)==pz_lclk && pz_has(pg)){ pz_load(); return rom_pg[pg]; }
 #endif

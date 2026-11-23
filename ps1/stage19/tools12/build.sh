@@ -24,5 +24,8 @@ BOOTF=${BOOTF-"-DEXEPACK -DCOLD1PASS -DPCPAIR -DCDPADPOLL -DPADSPLIT"}
 # rc9: -DPZBLOCK the pause block (rt.c pz_load, t/pause_pages.txt -> PAUSE.BIN): the pages read after Start and after Return to game in a
 # level come in with one seek.  PZF= (set empty) builds without it.
 PZF=${PZF-"-DPZBLOCK"}
+# rc9: -DPOOL_THRASH=32 turns the ROM page CLOCK pool on before the first level once the menus have fetched again 32 pages that had just left
+# the 8 FIFO slots (the Credits); boot, the title and the route to the level refetch 15 at most and keep the FIFO.  POOLF= turns it off.
+POOLF=${POOLF-"-DPOOL_THRASH=32"}
 NPAGES=${NPAGES:-62} PRD=pr_lb WORLDPRD=pr_l RPG=${RPG:-t/resident62.txt} VOL=PAYBACK KPLAN=$KP \
-    bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG ${CLOCKF} ${DISP} ${BOOTF} ${PZF} ${2:-}" 0
+    bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG ${CLOCKF} ${DISP} ${BOOTF} ${PZF} ${POOLF} ${2:-}" 0
