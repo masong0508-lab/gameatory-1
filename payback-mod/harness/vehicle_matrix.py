@@ -36,6 +36,7 @@ LAST_ENTITY = 0x0300000C
 PTRS = 0x03000C60
 CONTROLLED = 0x02001DB8
 CLOCK = 0x02001E00
+MAP_ID = 0x02001D40
 PLAYER_POS = (0x02008DF8, 0x02009398, 0x02009478, 0x02009484)
 
 
@@ -197,6 +198,7 @@ def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('rom', type=Path, help='original SHA-1 verified 8 MiB European GBA ROM')
     ap.add_argument('--out', required=True, type=Path, help='PRIVATE numeric JSON report; do not commit')
+    ap.add_argument('--from-state', type=Path, help='PRIVATE mGBA savestate at another original guest map; omit for normal Rampage boot')
     ap.add_argument('--survey-frames', type=int, default=2400, help='observe traffic for N emulated frames, minimum 1')
     ap.add_argument('--step', type=int, default=120, help='survey snapshot interval')
     ap.add_argument('--require-all', action='store_true', help='exit 3 if any of 18 descriptors unobserved')
@@ -217,10 +219,17 @@ def main(argv=None):
                 setup='Existing vehicles, player position adjustment only, real controller input',
                 matched={},unobserved=[],failed=[],status='INCOMPLETE')
     with Emu('gba',a.rom,capture_video=False) as e:
-        for n,b in BOOT:
-            e.run(n,[b] if b else [])
+        if a.from_state:
+            if not a.from_state.is_file():
+                ap.error('private mGBA state file does not exist')
+            e.load_state(a.from_state.read_bytes())
+            e.run(1)
+        else:
+            for n,b in BOOT:
+                e.run(n,[b] if b else [])
         if e.r32(CLOCK)==0 or actor(e) is None:
             raise RuntimeError('boot did not reach live Rampage level; no gameplay claims can be made')
+        report['guest_map_id']=e.s16(MAP_ID)
         seen={}
         # Take a *new* save state for each naturally present descriptor type,
         # then restore it before testing; no model swapping and no screens.
