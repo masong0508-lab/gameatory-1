@@ -33,8 +33,12 @@ def main():
     g.check(ok, 'level is running', g.level_report() if ok else g.text()[:100])
     if not ok:
         return g.finish('maps')
+    m0_before = g.v('st3_render')
+    if m0_before is not None:
+        g.wait_until(lambda: g.v('st3_render') > m0_before, 14000, step=4)
     im_prev = g.snap('map 0 (level start)')
-    g.check(view_state(im_prev) == 'city', 'map 0: 3D city on screen', 'sf3_map_cur %s' % g.v('sf3_map_cur'))
+    g.check(rendered_view_state(g, im_prev, m0_before) == 'city',
+            'map 0: 3D city on screen', 'sf3_map_cur %s' % g.v('sf3_map_cur'))
     c_start = g.level_clock()
     rows = []
     seq = [('R2', (i + 1) % MAPS) for i in range(MAPS)] + [('L2', MAPS - 1), ('R2', 0)]
@@ -51,7 +55,7 @@ def main():
         got, rc, sectors = int(m.group(1)), int(m.group(2)), int(m.group(3))
         okv, det = level_view(g, r0)          # two 3D frames of the new map rendered and presented
         im = g.snap('map %d start (%s)' % (got, button))
-        vs = view_state(im)
+        vs = rendered_view_state(g, im, r0)
         d = diff(im, im_prev)
         rows.append({'button': button, 'map': got, 'rc': rc, 'cd_sectors': sectors, 'frames_to_line': used, 'view': vs, 'diff_prev': round(d, 1), 'line': line})
         g.check(got == want and rc == 0, '%s changes to map %d' % (button, want), '%s  (%d frames after the press)' % (line[:110], used))
