@@ -875,8 +875,11 @@ void cp_hud(void)
         msg = C.sv == 2 ? "SAVED" : "SAVE FAILED";   /* ("SAVING..." says how the save went once it has: the header's words) */
     if (!C.q) {
         int news = news_draw(124);
-        if (!news && C.main_ok && s2f.docked && !st_active())
-            d_text(8, 127, "L: CAMPAIGN", HELP);
+        /* This is a station-only shortcut, not part of Payback's pause
+           screen. Its bright accent must remain legible in the hangar but
+           never draw through or underneath the native pause menu. */
+        if (!news && C.main_ok && s2f.docked && !st_active() && !s2f.menu)
+            d_text(8, 127, "L: CAMPAIGN", HI);
         return;
     }
     char b[48], *p;
