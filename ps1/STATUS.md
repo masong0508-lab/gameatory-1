@@ -305,6 +305,61 @@ does not show at row 159 (page row 159 is empty, the page quad and the CLUTs
 were ruled out with marker lines in a test build). The fix belongs in the
 edge rounding of affine tiles in `pp_obj` and was not made in this round.
 
+## Stage19 rc8: rc7 + speed wave 1
+
+rc8 merges speed wave 1 (`ps1speed` 81d4087: one clock, dispatch D1-D4,
+boot/CD changes) into rc7 (`ps1play` e9791f5) and fixes what the two together
+and the open issues showed. Speed is in emulated time (core frames / 59.94).
+
+| | Problem | rc8 |
+| --- | --- | --- |
+| M | rc7's `.rtcold` overlapped wave 1's D1 table and D2 queue; rc7's CLOCK pool and `io_hi` time base overlapped D3 and the Stage 1 clock | One 64-bit guest clock (`io_hi` carry feeds the Stage 1 clock and the timers). The D1 table (`dsp_mcache`) and the D2 queue (`dsp_lq`) are BSS/`.sfbss` arrays, not fixed addresses. D3 keeps the ROM page table in `ROMPG` (`0x8002a000`, every build) and the rc7 CLOCK pool marks a page unmapped there, so a D3 hit still sets the reference bit. `.sfbss` is NOLOAD and cleared first in `main`. `ps1.ld` asserts every region end (runtime, `.rtcold`, ROMPG, the cold table at `0x8011c000`, ragdoll, renderer). `check_native` links all eight layouts. |
+| C | Car hang at clock multiplier 5 (wave 1): entering a vehicle overwrote the renderer's code (6 words at `0x80199000`, frame 2694 in a helicopter, a traffic car froze the run at 28 ticks/s) | This is rc7's L1 (`height << 23` folded into a host address); rc8 carries rc7's `ip_km` / VRAM-fold fix over wave 1's dispatch. Renderer code unchanged in every rc8 vehicle run (tank, car k9/k14, helicopter). |
+| #14 | Vehicle `k17` unknown | `k17` is the helicopter: on the GBA (mGBA) ground inputs do not move it, L takes off, A flies (85k units), L lands; the PS1 does the same. No fix needed. Parked: `k11` tank, `k17` helicopter, `k9` sports car; `k3..k7`, `k14` are traffic. |
+| #15 | Map 3 at 400 % showed more picture changes than presents | A counter artifact: `g_pres` counts at the start of `present()`; every extra change is a real display flip. New `g_flips` counts display-start changes. 11 maps x 1200 frames at 400 %: 6,604 changes, 54 extra, all flips, 0 changes without a flip, 0 black. |
+| B | Junk on the last picture line (231) in the pause menu, game menu and View replay | The pause effect's 2x affine sprites (OAM 8/12) put texture row 16 on line 231: the PS1 GPU rounds an interpolated texture coordinate to the nearest texel, the GBA truncates. `pp_obj` places each affine texture corner half a texel further on. The 224-line area is not cropped. Line 231 clean on SwanStation and Beetle in the pause menu, the game menu and the View replay screen. |
+| R | Long music gaps (rc7 level 51 % sound, silences to 16.6 s) | `CDDA_HMAX` (= `CDDA_QMAX/2`): after a hold of 4 s or more the radio resumes after the short quiet interval (1 s) and the back-off resets; ROM page reads are never blocked. |
+
+Memory of the release (rc7 in brackets): runtime ends `0x80026e90`, 4,464
+bytes free (4,768); `.rtcold` ends `0x80029fb4`, 76 free (968); ROMPG
+`0x8002a000`; page cache `0x8015e000..0x80166000`, 62 resident pages;
+ragdoll 2,140 free (2,140); renderer ends `0x801afe2c`, 468 free (3,524).
+`check_native` runtime free: Release 4,556, KPLAN test 1,260, SPEEDPROF 812,
+virtual clock 6,380, D1CHK 2,796, D3 only 10,268, D2 only 9,116, D1 D4 5,708.
+TEST_assist 1,168.
+
+Speed, SwanStation, emulated time; stock = 100 % CPU and 1x CD,
+recommended = `CPU_Overclock=400`, `CDROM_ReadSpeedup=10`,
+`CDROM_SeekSpeedup=0`. Driving rows are level ticks/s / 3D pictures/s
+(the GBA: 30 / 30).
+
+| build | settings | language s | title s | power-on to level s | on foot | idle | tank | car | menus pictures/s (language/title/game menu) |
+|---|---|---|---|---|---|---|---|---|---|
+| rc7 | stock | 13.05 | 26.21 | 43.86 | 3.83 / 0.48 | 3.50 / 0.43 | 2.18 / 0.28 | 2.06 / 0.26 | 19.2 / 5.0 / 19.5 |
+| rc7 | rec | 2.07 | 6.57 | 11.08 | 15.94 / 1.98 | 15.32 / 1.92 | 14.79 / 1.84 | 13.73 / 1.72 | 59.9 / 20.0 / 59.9 |
+| wave 1 | stock | 10.88 | 18.30 | 27.58 | 6.12 / 1.47 | 3.70 / 0.77 | renderer overwritten | no car reached | 19.2 / 12.0 / 19.9 |
+| wave 1 | rec | 1.94 | 6.27 | 9.58 | 28.62 / 16.15 | 28.52 / 15.75 | renderer overwritten | hang after entering | 59.9 / 30.0 / 59.9 |
+| rc8 | stock | 11.18 | 18.67 | 27.98 | 27.74 / 10.88 | 29.02 / 12.08 | 28.97 / 13.05 | 26.63 / 8.67 | 19.9 / 12.0 / 19.9 |
+| rc8 | rec | 1.94 | 6.29 | 9.66 | 29.80 / 29.62 | 29.87 / 29.80 | 29.81 / 29.61 | 29.23 / 28.29 | 59.9 / 30.0 / 59.9 |
+
+Music, full US disc, SwanStation stock: level 91.4 % of the time with sound,
+longest silence 3.3 s; menus 97.5 % (rc7: 51 % / 95 %, longest 16.6 s). With
+a teleport every 10 s (71 ROM fetches a minute): 29 % sound, silences
+2.5-10.7 s; the same build without `CDDA_HMAX`: 6 %, silences 39 s and 70 s.
+
+Verified on the release discs (SwanStation and Beetle unless noted): the
+static gates (`mips1_lint`, gpuwait, loaddelay, `prepare --check`, 71 unit
+tests, `check_native`, `check_intro_site`, `disp_patch_check`,
+`verify_inputs` 40/40, `rtcold_proof`); pad route to the level 13/13 at stock
+and recommended; tank (both cores), car and helicopter (SwanStation); quit
+from foot and from the tank and car, GAME OVER, a second level; flicker in
+menus (0 extra, 0 black), level and vehicles (0 changes without a flip);
+memory card save and cold-boot load; a 30-minute soak at recommended settings
+(SwanStation, 1,800 s of game time, no fault); the Europe disc to the title
+(PAL). Open: the intro film still does not play (rc7 I2 design), the pause
+picture still lingers 2-4 s after the pause menu, and the rig's in_level
+vehicle poke did not take.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
