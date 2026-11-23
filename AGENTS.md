@@ -124,7 +124,7 @@ finds.
 
 ## Handing work back
 
-Open now (2026-11-23 15:00 UTC): #4, #6-#11, #18 and #19 are merged.
+Open now (2026-11-23 14:37 UTC): #4, #6-#11, #18 and #19 are merged.
 Waiting on fixes in their review comments: #20 (helicopter "L land" compares
 against the entry-point ground; it lands on higher ground), #21 (map_flicker.py
 cannot import flicker_evidence when started through ob_session; soak minimum
