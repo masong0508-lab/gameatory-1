@@ -22,9 +22,16 @@ def cold_boot_command(a, card_path, outdir):
     In particular CPU overclock and CD speed/seek flags cannot silently
     revert to stock during cold-boot memory-card acceptance.
     """
-    cmd = [sys.executable, os.path.abspath(__file__), '--phase', 'load',
-           '--disc', a.disc, '--core', a.core, '--out', outdir,
-           '--card', card_path, '--state-dir', a.state_dir]
+    script = os.path.abspath(__file__)
+    # SwanStation/Beetle must cold-boot through the same openboot wrapper
+    # as the first process, or the second core sees no BIOS and has no TTY.
+    launcher = [sys.executable]
+    if a.core in ('swanstation', 'beetle'):
+        rig = os.path.dirname(os.path.dirname(script))
+        launcher.append(os.path.join(rig, 'tools', 'ob_session.py'))
+    cmd = launcher + [script, '--phase', 'load',
+                      '--disc', a.disc, '--core', a.core, '--out', outdir,
+                      '--card', card_path, '--state-dir', a.state_dir]
     if a.syms:
         cmd += ['--syms', a.syms]
     for opt in a.opt:
