@@ -22,6 +22,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 HERE=Path(__file__).resolve().parent
 REPO=HERE.parents[1]
@@ -56,7 +57,7 @@ def session_command(script, disc, syms, result, *, core='swanstation', recommend
             + opts_argv(core,recommended) + list(extra))
 
 
-def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000):
+def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000,frames_per_map=1200):
     """Pure job construction, safe to inspect/test without a disc or core."""
     planned=[]
     def add(name,cmd,profile,variables=None):
@@ -71,14 +72,16 @@ def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000):
         'recommended')
     add('swan_recommended_11map_flicker',
         session_command(HERE/'map_flicker.py',disc,syms,out/'recommended'/'map_flicker',
-                        core='swanstation',recommended=True), 'recommended')
+                        core='swanstation',recommended=True,
+                        extra=('--frames-per-map',str(frames_per_map))), 'recommended')
     if stock:
         add('swan_stock_runner',
             ['sh',str(RIG/'run_all.sh'),str(disc),str(out/'stock'/'swan_runner'),str(syms),'swanstation'],
             'stock', {'RIG_OPTS':'','ONLY':'a b c d e h'})
         add('swan_stock_11map_flicker',
             session_command(HERE/'map_flicker.py',disc,syms,out/'stock'/'map_flicker',
-                            core='swanstation'), 'stock')
+                            core='swanstation',
+                            extra=('--frames-per-map',str(frames_per_map))), 'stock')
         add('beetle_stock_runner',
             ['sh',str(RIG/'run_all.sh'),str(disc),str(out/'stock'/'beetle_runner'),str(syms),'beetle'],
             'stock', {'RIG_OPTS':'','ONLY':'b c e'})
@@ -91,8 +94,58 @@ def jobs(disc,syms,out,*,stock=True,gba_rom=None,soak_frames=108000):
 
 
 def private_target(path):
-    target=path.resolve()
+    target=path.expanduser().resolve()
     return not target.is_relative_to(REPO)
+
+
+def normalize_private_paths(args):
+    """Make paths absolute *before* planning subprocesses with cwd=REPO.
+
+    A relative OUT that was safe against the user's current directory could
+    otherwise be reinterpreted under the public Git checkout by child jobs.
+    """
+    for key in ('disc', 'syms', 'out', 'cores', 'system', 'gba_rom'):
+        value = getattr(args, key, None)
+        if value is not None:
+            setattr(args, key, Path(value).expanduser().resolve())
+    return args
+
+
+SYMBOLS_REQUIRED = ('g_flips', 'g_pres', 'sf3_map_cur', 'st3_render')
+
+
+def symbol_preflight(exe_match, names):
+    """Reject a provably wrong ELF and missing named rc8 runtime counters.
+
+    A text .nm listing cannot prove the image hash matches the packed EXE;
+    retain that explicit caveat instead of silently claiming verification.
+    """
+    if exe_match is False:
+        raise ValueError('ELF symbol file does not match the packed disc PSX.EXE; '
+                         'use the matching rc8 nm.txt listing instead')
+    missing = sorted(set(SYMBOLS_REQUIRED) - set(names))
+    if missing:
+        raise ValueError('required rc8 symbols missing: ' + ', '.join(missing))
+
+
+def inspect_disc_symbols(disc, syms):
+    """Read the disc's PSX.EXE and test symbol provenance BEFORE any emulator job."""
+    if str(RIG) not in sys.path:
+        sys.path.insert(0, str(RIG))
+    from ps1game import Disc, Game, load_symbols
+    iso = Disc(str(disc))
+    try:
+        if 'PSX.EXE' not in iso.files:
+            raise ValueError('disc has no PSX.EXE')
+        symbols = load_symbols(str(syms))
+        match = Game._syms_match(SimpleNamespace(disc=iso, syms_path=str(syms)))
+        symbol_preflight(match, symbols)
+        return dict(exe_sha1=iso.sha1('PSX.EXE'),
+                    elf_matches_disc=match,
+                    symbol_list_fingerprint_verified=match is True,
+                    symbol_format='ELF' if syms.read_bytes()[:4] == b'\\x7fELF' else 'text')
+    finally:
+        iso.f.close()
 
 
 def main(argv=None):
@@ -104,15 +157,24 @@ def main(argv=None):
     p.add_argument('--system',type=Path,help='private openboot scph55xx; defaults to RIG_SYSTEM')
     p.add_argument('--gba-rom',type=Path,help='private untouched European original; optional mGBA vehicle survey')
     p.add_argument('--soak-frames',type=int,default=108000,help='minimum emulated frames, default ~30m')
+    p.add_argument('--frames-per-map',type=int,default=1200,help='per-map flicker scan length')
+    p.add_argument('--only',action='append',default=[],help='run only this exact job name; may repeat')
     p.add_argument('--skip-stock',action='store_true',help='skip stock/Beetle comparisons (not release acceptance)')
     p.add_argument('--dry-run',action='store_true',help='print planned job NAMES only; no emulator or file writes')
-    args=p.parse_args(argv)
-    if args.soak_frames < 1:
-        p.error('--soak-frames must be positive')
+    args=normalize_private_paths(p.parse_args(argv))
+    if args.soak_frames < 1 or args.frames_per_map < 1:
+        p.error('--soak-frames and --frames-per-map must be positive')
     if not private_target(args.out):
         p.error('results MUST be outside the public repository')
     todo=jobs(args.disc,args.syms,args.out,stock=not args.skip_stock,
-              gba_rom=args.gba_rom,soak_frames=args.soak_frames)
+              gba_rom=args.gba_rom,soak_frames=args.soak_frames,
+              frames_per_map=args.frames_per_map)
+    if args.only:
+        valid={job['name'] for job in todo}
+        unknown=sorted(set(args.only)-valid)
+        if unknown:
+            p.error('unknown or disabled --only jobs: '+', '.join(unknown))
+        todo=[job for job in todo if job['name'] in set(args.only)]
     if args.dry_run:
         print(json.dumps({'status':'DRY_RUN_NO_EMULATION','job_names':[j['name'] for j in todo],
                           'recommended_options':RECOMMENDED,'not_certified':GAPS},indent=2))
@@ -134,6 +196,10 @@ def main(argv=None):
             p.error(f'{key} must name a private installed directory')
     if args.gba_rom is not None and (not env.get('MGBA_CORE') or not Path(env['MGBA_CORE']).is_file()):
         p.error('mGBA vehicle survey selected but MGBA_CORE is absent; cannot fake GBA play results')
+    try:
+        preflight = inspect_disc_symbols(args.disc, args.syms)
+    except (OSError, ValueError, RuntimeError) as exc:
+        p.error('disc/symbol preflight failed BEFORE emulator launch: '+str(exc))
     args.out.mkdir(parents=True,exist_ok=False)
     outcomes=[]
     for job in todo:
@@ -151,7 +217,8 @@ def main(argv=None):
     missing=list(GAPS)
     if args.gba_rom is None:
         missing.append('original_GBA_mGBA_vehicle_reference_not_run')
-    summary=dict(schema=1,disc_version='supplied_rc8_candidate_unverified_build_identity',
+    summary=dict(schema=1,disc_version='supplied_rc8_candidate_preflighted',
+                 private_executable_preflight=preflight,
                  options={'recommended':list(RECOMMENDED),'stock':not args.skip_stock},
                  jobs=outcomes,has_failures=any(j['exit_code']!=0 for j in outcomes),
                  coverage_qualifiers=missing,
