@@ -1,9 +1,13 @@
 """ROM-free and network-free orchestration regressions. No game data."""
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
+from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 
 SRC=Path(__file__).with_name('run_rc8_matrix.py')
@@ -52,6 +56,63 @@ class RetestTests(unittest.TestCase):
         plan=m.jobs(self.disc,self.syms,self.out,stock=False)
         self.assertEqual(len(plan),3)
         self.assertTrue(all(x['profile']=='recommended' for x in plan))
+
+    def test_rc8_preflight_rejects_packed_elf_and_missing_flip_counter(self):
+        names = set(m.SYMBOLS_REQUIRED)
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            m.symbol_preflight(False, names)
+        with self.assertRaisesRegex(ValueError, 'g_flips'):
+            m.symbol_preflight(None, names - {'g_flips'})
+        m.symbol_preflight(None, names)  # matching .nm text; cannot prove EXE digest
+        m.symbol_preflight(True, names)  # unpacked and byte-matching ELF
+
+    def test_private_relative_paths_are_canonical_before_subprocesses(self):
+        args = SimpleNamespace(disc=Path('private-input.cue'),
+                               syms=Path('private-symbols.nm.txt'),
+                               out=Path('ps1/qa/unsafe-results'),
+                               cores=None,system=None,gba_rom=None)
+        m.normalize_private_paths(args)
+        self.assertTrue(all(p.is_absolute() for p in (args.disc,args.syms,args.out)))
+        self.assertEqual(args.out, (m.REPO/'ps1/qa/unsafe-results').resolve())
+        self.assertFalse(m.private_target(args.out))
+
+    def test_flicker_slice_length_reaches_recommended_and_stock(self):
+        plan = m.jobs(self.disc,self.syms,self.out,frames_per_map=423)
+        for j in plan:
+            if '11map_flicker' in j['name']:
+                argv=j['command']
+                self.assertEqual(argv[argv.index('--frames-per-map')+1], '423')
+        self.assertEqual(len([j for j in plan if '11map_flicker' in j['name']]),2)
+
+    def test_only_slice_dry_run_lists_one_job_without_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            out=Path(td)/'test-rc8-once'
+            capture=io.StringIO()
+            with redirect_stdout(capture):
+                status=m.main(['--disc',str(self.disc),'--syms',str(self.syms),
+                               '--out',str(out),'--only','swan_recommended_11map_flicker',
+                               '--frames-per-map','423','--dry-run'])
+            self.assertEqual(status,0)
+            obj=json.loads(capture.getvalue())
+            self.assertEqual(obj['job_names'],['swan_recommended_11map_flicker'])
+            self.assertFalse(out.exists())
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    m.main(['--disc',str(self.disc),'--syms',str(self.syms),
+                            '--out',str(out),'--only','not_a_real_session','--dry-run'])
+            self.assertEqual(ctx.exception.code,2)
+
+    def test_reject_repo_relative_result_path_without_creating_files(self):
+        path=m.REPO/'ps1/qa/do_not_create_rc8_test_private'
+        self.assertFalse(path.exists())
+        with patch('os.getcwd', return_value=str(m.REPO)):
+            # The caller's cwd is already the repository in GitHub CI.
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    m.main(['--disc',str(self.disc),'--syms',str(self.syms),
+                            '--out',str(path),'--dry-run'])
+        self.assertEqual(ctx.exception.code,2)
+        self.assertFalse(path.exists())
 
     def test_private_guard_and_dry_run_no_files(self):
         self.assertFalse(m.private_target(m.REPO/'ps1'/'qa'/'results'))
