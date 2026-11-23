@@ -1,115 +1,90 @@
-# Milestone B design: merged Star-FlyBack on PlayStation 1
+# Milestone B: Star-FlyBack merged guest on PlayStation 1 — design handoff
 
-**Status: architecture proposal, not implementation or a playable-disc claim.**  
-**Authoring baseline:** `claude/snes-mashup-umjsjp` at `fa521590bbe9dffdf6afea8e66a69c63c8177c7e`, 2026-11-22.  
-**Ownership:** per [AGENTS.md](../../AGENTS.md) / [collaboration PR #2](https://github.com/masong0508-lab/gameatory-1/pull/2), Claude owns the original 8 MiB PS1 release (Milestone A) and all current PS1 runtime/speed branches. GPT-6 owns **design only** in this directory until Milestone A ships. No source, build manifest, linker, or protected asset should be changed on the strength of this document.
+**Status: DESIGN ONLY; implementation begins AFTER the rc9 Milestone A acceptance gate.**  
+**Source of truth:** [Stage 8 merged-ROM scout and M0–M6](../../ps1/stage8/merged_plan.md), with [PS1 status](../../ps1/STATUS.md) and later rc7/rc8/rc9 runtime evidence taking precedence over the historical November 15 scout estimates.  
+**Owners:** Claude owns Milestone A's PS1 runtime, speed, rig, ISO and the private rc9 disc; GPT-6 owns this review document, not any live PS1 runtime path. Coordinate via [AGENTS.md](../../AGENTS.md) and PR #2. No ROM, ISO, game text, screenshots, generated translation, BIOS, save state, memory-card image or private QA log belongs in GitHub.
 
-## Decision gate: what must be finished first
+## 0. Milestone A is a hard prerequisite, not an invitation to start coding
 
-The **original 8 MiB Payback PS1 port** must reach accepted playability on DuckStation for Android, with usable controls, normal-speed menus and gameplay, memory-card saves, radio/audio, level changes, recoverable CD errors and measured screenshot/frame performance. SwanStation/Beetle are development evidence, not a substitute for the owner's Android result. Claude's rc7 and speed branches handle this; avoid backporting Milestone B into them mid-flight.
+Claude's rc9 must first land with the packed-PSX.EXE/symbol-handling and SwanStation 400%-state reload rig fixes. Then the owner/private rig must run the [one-command matrix](../../ps1/qa/run_rc8_matrix.py) (#21) and [pause-picture probe](../../ps1/qa/pause_resume_latency.py) (#23) at both stock and CPU 400% / CD read 10x / instant seek. The matrix's 108,000 console frames, 600 guest seconds, 11 renderer-map scans, save/reload and Beetle-stock comparison are distinct gates; R2's renderer-map selector does **not** certify naturally playable maps. The rc8 stock freeze is a measured pre-rc9 baseline, not an rc9 result. Verify the intro films, whole credits, pause-picture return and true game-clock progress separately. The owner's DuckStation **Android** controls, playable experience and card/audio acceptance remain necessary; passing SwanStation/Beetle alone does not certify that target.
 
-Only after Milestone A passes should a new PS1 branch start the **merged Star-FlyBack guest**, preserving the last good original-game ISO as a rollback baseline. Keeping the two scopes separate makes regressions attributable.
+Keep the accepted original 8 MiB disc and its matching private symbols as a rollback artifact. Make a separate Milestone B branch **only after** rc9 acceptance; do not merge the two guest address spaces in the rc9/speed branches.
 
-## Inputs and address-space expansion (first blocking design question)
+## 1. One exact, reproducible guest image and map of its code versus data
 
-The present PS1 build expects the **8 MiB** original European Payback ROM and refuses larger guests, deliberately. The merged builder [`stuntfox/build.py`](../../stuntfox/build.py) patches that game and adds its own code, eleven world datasets, station/campaign content and optional radio streams. The GBA linker puts new hooks/code at `0x081b0000`, and the relocation moves map columns above the original ROM boundary. This is **a new guest to translate**, not just the old disc with an extra data file.
+For B's first PS1 disc, pin the original owner ROM and the merged Star-FlyBack source commit, options **--merge --no-remixes --amiga**, and a SHA-256 digest in the **private** ps1/rebuild input manifest. The [PaybackRom builder](../../stuntfox/rom.py) always emits exactly **16,777,216 bytes (16 MiB)** for this selected merged configuration: **4,096 distinct 4-KiB ROM pages**, GBA image range **0x08000000–0x08FFFFFF**. The original 8 MiB guest is 8,388,608 bytes, 2,048 pages, 0x08000000–0x087FFFFF. The 32 MiB image appears **only when** optional remix streams/title songs/radio edits are placed; it is not part of B and has no 8,192-page release row. The PS1 radio will use CD audio, so do not expand the window for those optional streams.
 
-| Guest cartridge image | Size | Distinct 4 KiB ROM pages | Nominal GBA address interval | Reason to support |
-| --- | ---: | ---: | --- | --- |
-| Original Payback (Milestone A) | 8,388,608 B | 2,048 | `0x08000000..0x087fffff` | Existing proven baseline |
-| Merged build without expanded radio content | Verify exact output; commonly 16 MiB | 4,096 at 16 MiB | `0x08000000..0x08ffffff` | First Milestone B target |
-| Merged build with optional remixes/edits | May be 32 MiB | 8,192 at 32 MiB | `0x08000000..0x09ffffff` | Later optional target, not assumed |
+**Code is NOT in the upper 8 MiB.** [stuntfox/src/merge.ld](../../stuntfox/src/merge.ld), [stuntfox/build.py](../../stuntfox/build.py) and [stuntfox/rom.py](../../stuntfox/rom.py) place Stunt Fox's new ROM-linked code at **0x081B0000–0x082F6000**, within the original first 8 MiB, reusing space formerly occupied by Payback's column table. That **data** table moves above **0x08800000**; the merged image then adds grids/worlds and mission/station blobs from approximately **0x089E0000**. Do not describe 0x08800000 as the beginning of new executable code. Do not reuse stale original-ROM translation, cold-code table, or resident page-list data: even first-8-MiB pages **0x1AA–0x1AC**, referenced by the old [t/resident62.txt](../../ps1/stage19/t/resident62.txt), have changed roles.
 
-The builder has `ROM_SIZE = 0x2000000` for radio packaging; therefore **do not hard-code 16 MiB as the only possible merged image**. Inspect the actual generated image, its SHA-256 and the selected audio options. The private ROM, extracted maps, game text, BIOS, disc, saves and translated/disassembled guest bytes must never be committed.
+**Nonnegotiable line-47 identity gate:** Every read in the merged 0x08800000+ span returns its correct upper-half byte, NEVER an aliased lower-half 0x08000000–0x087FFFFF byte. This includes direct byte/halfword/word loads, blob translated loads, interpreter fallback, DMA, paging and CD-backed readers, and region-9 mirror semantics. Pin disc layout and normalized guest-address range to the one private size/hash manifest; a synthetic ROM-free fixture should exercise page IDs **0, 2047, 2048 and 4095** plus loads crossing **2047/2048**, a cross-page DMA transfer, and a region-9 radio-table read. Include false-negative regression fixtures for the historic **pg &= 2047** behavior. Reject out-of-span pages instead of wrapping silently.
 
-### Known code-path limit
+### Places that must agree before this gate can pass
 
-The current source [`ps1/stage19/ps1rt/rt.c`](../../ps1/stage19/ps1rt/rt.c) declares `rom_pg[2048]` and applies `pg &= 2047` in `rom_page`. A merged address at or above `0x08800000` therefore **aliases an unrelated page of the first 8 MiB** if the 8 MiB preflight were merely bypassed. This is a correctness blocker independent of performance. The runtime's `rom_read`, translated load paths, DMA `g2h`/copy, cold/interpreter fallback, resident-page builder, CD image layout and tests must agree on the same address translation before any merged image boots.
-
-**Proposed safe interface, not code:** define the guest ROM span from a validated build manifest (8/16/32 MiB), compute a bounded 4 KiB page number with the documented GBA ROM mirror policy, and reject page indices outside the selected size. For the 16 MiB gate, prove page 0, page 2047, page 2048 and page 4095 each retrieve their *own* expected bytes, including a read that straddles pages 2047–2048. Check all load types and DMA source ranges. Extend to 8192 pages only after a 32 MiB audio build is available.
-
-### Do not simply double pointer tables
-
-The 8 MiB `rom_pg[2048]` pointer table is already **8 KiB on a 32-bit target**. A naive `rom_pg[4096]` would be **16 KiB (+8 KiB)**; extending it to 8,192 pages would be 32 KiB. The documented ROM-free native checks have had just a few KiB free in the runtime and renderer regions, and rc7/speed changes can alter those numbers. A table enlargement without a new measured RAM layout will overflow existing physical allocations.
-
-**Candidate to benchmark after Milestone A:** a bounded page-to-frame mapping (`u8` or `u16` index plus empty sentinel) with frame descriptors holding PS1 RAM pointers, page ID, and CLOCK-use bit. For example, a 16 MiB `u8[4096]` map occupies 4 KiB instead of 16 KiB, but only works if the cache can represent all resident/slot frames and invalid entries without collisions. The old runtime's 62 resident pages plus slot count are *not* a guarantee for every level; measure the new working set. Check read latency on cache hits, cold-miss behavior, duplicate page ownership and hot loop speed before choosing this design. Do not add a per-byte table walk in the translated hot path without measurements.
-
-## Guest translation and overlays
-
-[`ps1/STATUS.md`](../../ps1/STATUS.md) documents the current hybrid execution path: translated guest functions, cold code overlays and an interpreter fallback. The merged game adds Thumb/ARM hooks, assembly trampolines and data tables that do not exist in the original 8 MiB translation. They need their own provenance and coverage data.
-
-1. Freeze the owner's exact merged GBA ROM SHA-256 and build options (including GBA update commit and radio/Amiga options) in a **private** manifest. Regenerate the guest-function census, translation metadata, calls/veneer map, cold table, boot state, ROM pages, and source-side relocation manifest from that image. No stale original-ROM offsets are accepted as proof.
-2. Enumerate original functions affected by the Stunt Fox injection and all code reachable from `sf_frame`, `sf_keyhook`, `sf_phys`, game settings, station, mission interpreter and save interceptors. Explicitly cover translated interworking and Thumb return-state semantics.
-3. Treat new code and old Payback IWRAM overlays as separate lifetime classes. [`stuntfox/src/merge.ld`](../../stuntfox/src/merge.ld) documents `hot` through `hot11`, shared `keep`, `scr`/`scr2`, and music state; emulation must preserve their **guest-visible** read/write behavior, not just their addresses.
-4. Add lockstep traces for boot, city load, phone/menu, vehicle enter/exit, Arwing summon, docking, station entry, EVA, campaign save/reload, pause and restart. Track guest register, flag, mode and memory differences at checkpoints. Label any synthetic test assist as such.
-5. Only then determine which hook functions must be native PS1 code versus translated/emulated guest code. Do not shortcut the translation by silently omitting stations, physics or menus.
-
-**Gate:** a guest trace never resolves an injected code address to an original guest page, unresolved cold loads have a documented fallback, and all guest-address boundaries are fuzzed across the 8 MiB seam. Full chip images and translated game code stay private.
-
-## Physical PS1 RAM / VRAM / CD budgets
-
-The PlayStation has a constrained **2 MiB main RAM** budget for this port, and the source reserves additional native renderer, game-state, scratch, cache and translation regions; validate against the actual assembled rc7/speed `ps1.ld` and symbols, not this proposal. Previous documented ROM-free checks occupied about 96 KiB of a 98 KiB runtime allocation and about 92 KiB of a 94 KiB renderer allocation, so capacity is a **blocking measurement**.
-
-| Region/system | Required behavior | Acceptance check |
+| Owner/path | Existing risk | Milestone B change and assertion |
 | --- | --- | --- |
-| Guest EWRAM/IWRAM/palette/VRAM/OAM | Preserve Payback and Star-FlyBack guest address mappings and overlay lifetimes | Guest register/memory lockstep, no corruption after level and menu transitions |
-| Runtime + translated hot/cold code | Fit physical linker regions without runtime data overwrites | Strict linked symbol bounds; test that overflowing each region fails the build |
-| Page cache + renderer scratch | No overlap with guest heap, model data, decompression, PPU, and ragdoll regions | Reproduce release build's exact linker map and all conflict tests |
-| PS1 VRAM textures / 2D page / 3D models | Keep textures on and draw every necessary surface; preserve GPU uploads across pages | Nonoverlap map, 4bpp/8bpp upload checks, native-resolution screenshots |
-| World assets and stage/mission content | Load the correct world, mission tables and station content each time | Every one of eleven map slots plus station/space transitions |
-| CD data/audio | Page read and CD-DA sequencing must coexist with minimal seeks and no corrupt resume | Trace page misses, track location, retry episodes, audio gaps and FPS by scene |
+| Stage19 / rc7 [ps1rt/rt.c](../../ps1/stage19/ps1rt/rt.c) ROM page cache | rom_pg[2048] and pg &= 2047 wrap at 8 MiB | Size from validated 16 MiB manifest; all cached loads and eviction use full page identity |
+| [t/t2m.py](../../ps1/stage7/integration/t/t2m.py) blob translation fast path (speed D3 uses it) | A second 0x7FF mask; D3 path does not set the reference bit | Preserve high page IDs and cache CLOCK/reference semantics on hot loads |
+| rc7 [interp_glue.h](../../ps1/stage19/ps1rt/interp_glue.h) | Interpreter also masks 2047, and can accept region 9 | Interpreter and translated loads return identical guest bytes in 8/9 regions |
+| [t/mkrompages.py](../../ps1/stage19/t/mkrompages.py), [t/disc.py](../../ps1/stage19/t/disc.py) | Generated page catalogue and discovery cap at 8 MiB | Rebuild their output for the exact 4096-page guest; assert zero lower-page aliases |
+| [rt.c](../../ps1/stage19/ps1rt/rt.c) resolve()/gread() | ROM DMA uses resolve() and gread(), **not** a nonexistent ROM case in g2h() | Cross-page and region-9 DMA checks cover the *real* copy path |
+| [stuntfox/src/radio.c](../../stuntfox/src/radio.c) | Radio accesses region-9 tables, with semantics different across old readers | Verified region-9 lookup consistent in translator, interpreter and DMA |
 
-**Performance:** PS1 rc6's CD-bound normal route is documented at roughly 1.3 guest frames/s and ~0.1 presented pictures/s, with one 3D presentation per sixteen guest frames. Claude measured the virtual-clock polling, expensive cold dispatch and page misses and is solving them in **Milestone A**. Milestone B must reuse that faster engine and preserve responsiveness rather than layering more CD-bound guest calls on top. Always report **game-logic frames/s separately from presented pictures/s**. No strobing/flickering flashes; never hide textures, buildings or shorten draw range simply to inflate figures. Reduced-detail settings must be opt-in.
+Paths above refer to historical stage source where appropriate. Claude's **actual rc9 final prepared tree**, plus any uncombined speed branches, must be reviewed before implementation. A plan that merely disables the 8 MiB check is incorrect.
 
-## Rendering and controls: scope beyond the original guest
+## 2. 2 MiB RAM: distinguish actual bytes, source-only bounds and private release measurements
 
-Star-FlyBack adds presentation paths not covered by simply drawing Payback's streets:
+Source-only [ps1/tools/check_native.py](../../ps1/tools/check_native.py) reserves **98,304 B = 96 KiB** for runtime and **94,208 B = 92 KiB** for ragdoll/renderer. The old figures **96,320 B runtime** and **92,316 B renderer** were **private linker usage** in earlier builds; neither number is a source-only allocation size. Do not state "96 of 98 KiB" or "92 of 94 KiB": those mix units and reports. The rc7 release report instead has **93,504 B** of runtime in that 98,304-B region (**4,800 B free**), only **1,504 B free** in TEST_assist, and **1,192 B free** in .rtcold. All four measurements are historical; repeat the exact linked-symbol check on rc9 before designing B's cache.
 
-- **City/driving:** the patched 3D world renderer, buildings and roofs, stair/ramp and deck occlusion, vehicle models (including police), pedestrians/ragdolls, correct car suspension/physics, collision feedback and HUD.
-- **Arwing/space:** boarding/flight, rockets/lasers, particles, planet view, spacewalk EVA, the moon/rocks/beacons, shield, docking and the hangar's scene. Check the entire altitude transition, including bailout and reboarding.
-- **Fox Station:** room geometry and cameras, crew/dialogue, mission/contract boards, shop/paint/medals, full-screen menus and the three-card finale. Mixed 2D HUD and native 3D scene must not overwrite each other or leave stale overlays.
-- **Campaign:** 11 map slots, story missions/challenges, Ace/postgame, manual save, password fallback, purchases and spacewalk receipts. Check persistence through quit, power cycle, game over and partial save.
+The rc7 implementation already uses CLOCK frame descriptors **fr_pg** (62 resident + 8 replacement frames) and **rom_ref[2048]** alongside the 2,048-entry ROM map. Naively doubling to 4,096 entries costs about **+10 KiB total**, not just +8 KiB for rom_pg, before additional translation state. Speed D3 instead places rom_pg in the fixed **8 KiB ROMPG at 0x8002A000**: that region cannot grow in place; interpreter stacks start at **0x8002C000**, and dsp_boot checks blob stubs near **0x80030000**. **Never require 8 MiB PS1 RAM** to make this work.
 
-Map the 10-button GBA input semantics (A, B, D-pad, L, R, SELECT, START) explicitly onto PS1 digital and optional analog controls. Avoid collisions between Select-to-summon/dock, Payback phone playback, menu confirmation and pause; confirm what Cross/Circle do on the owner's DuckStation Android configuration. The final button sheet belongs to the actual build, not an untested proposed layout.
+Prototype a **4,096-byte u8 page→frame index map** with an invalid sentinel and a small separate frame/ref table, or an equivalently measured compact representation; first prove frame count fits in u8 and every slot and invalid page is representable. Ensure the translator fast path, frame replacement and cold loads all mark/use the same CLOCK reference bit. Measure the additional lookup per vehicle/Arwing/space/station scene, successful cache-hit time, CD misses, eviction, and worst-case link headroom. Reserve no new persistent framebuffer, and do not sacrifice native renderer RAM to a guessed page-table size.
 
-**Save format decision still required:** the GBA campaign has a versioned 260-byte `Prog` image and an extended 32-byte ship equipment image. The PS1 memory-card format for the original game is different from GBA EEPROM. Design a separate PS1-native container with checksum, version, slot handling and migration/power-loss recovery; **do not claim byte-compatible transfer or silently overwrite the original PS1 save**. Validate first save, update, reload, interrupted write and fallback before release.
+Stage 8's approximately **3.45 MiB translated code universe**, **0.5–0.85 MiB per-scene hot sets**, ~**1.15 MiB** possible translated-code arena, and projected CPU cost are **scout estimates**, not measurements on rc9. The old fixed-home **COLD1PASS** approach cannot hold all merged code. **Cold-overlay eviction, splittable or variable-sized groups, per-scene prefetch and interpreter fallback are Milestone B prerequisites**, not optional late polish. Keep the physical 2 MiB linker, both cache/scratch protections, PS1 VRAM atlas budgets and strict overflow-fails-link checks; any candidate scheme must be measured and reverted if it exceeds them.
 
-**Audio:** separate original cartridge song control, optional radio remixes/edits and CD-DA stream layout. Respect the owner's explicit prohibition on song 3 anywhere in a build. Do not force a constant seek/resume loop between ROM-page reads and CD audio; test with music enabled and disabled. No copyrighted assets or disc images are stored in Git.
+## 3. Translation/overlay correctness and B0 versus B1 graphics
 
-## Disc build pipeline (proposed Milestone B dependency chain)
+Build on [Stage 8's M1 translator scout](../../ps1/stage8/merged_plan.md), not a fresh translator plan. Its measured GBA-side work identified Thumb inline PC-relative TBH/TBB-style branch tables (48 sites), ARM veneers, new pointer-region hazards and IWRAM double occupancy; the stage-8 patches are prototypes, not proof that current rc9 safely executes them. Re-run ELF-guided census, native-to-guest call graph, data/code boundary scan and ARM-vs-MIPS lockstep on the *new exact merged* ROM and linker output. Intro-site and dsp_boot's original-ROM signature guards must be intentionally regenerated, never silently bypassed. Keep separate provenance for every translated cold entry, original resident list, GBA executable page and injected-code veneer.
 
-Use Claude's finished Milestone A pipeline as the authority and reuse the private-input/rebuild work in `ps1/rebuild/` rather than writing another disc packager in this documentation branch:
+Specifically extend rc7's overlay guard into **versioned IWRAM code**. The [merge.ld](../../stuntfox/src/merge.ld) banks **hot, hot2, hot3, hot5, hot6b and hot9** are installed/restored during frames, menus or replay and may share *addresses* with Payback code; the same address can carry two distinct code versions. Validate version transitions and copied words over pause, death, reload, Arwing launch and landing. The **keep** region is SF-private state (not a reusable generic PS1 cold table), and the sound interrupt's persistent music control lives in the **radio** region. Hot4/6/7/8/10/11 have their own different lifetime rules; do not blanket-version every bank or overwrite Payback's saved words.
 
-```text
-Owner's legal Payback source + selected Star-FlyBack source and optional Amiga data
-  -> SHA-verified private GBA merged image and content manifest
-  -> guest census/translation + boundary coverage + boot-state parity
-  -> validated ROM pages, code overlays, world/mission/asset partitions
-  -> MIPS-I runtime/native 2D/3D with strict 2 MiB allocation assertions
-  -> deterministic two-pass sector placement + PS1 EXE/ISO + hashes
-  -> SwanStation/Beetle regression -> DuckStation Android owner acceptance
-```
+**B0, bring-up:** translate the actual SF software rasterizer and upload its 240×160 Mode-4 8bpp page + palette to PS1, for title, city, Arwing, planet, hangar, station, settings, and phone/menu screens, until all reachable scenes render without RT_MISS. B0 is allowed to be slow and is a reference/fallback, not the final speed target.
 
-Source-only CI must reject a missing private input early, never publish stale objects/ISO after a failed command, and never upload licensed game data or user saves. The current public `prepare.py --check`, `ps1/tests`, `check_native.py` and `mips1_lint.py` are mandatory starting gates; add Milestone B-specific 16 MiB boundary and dynamic-content tests without weakening them.
+**B1, production:** preserve translated Star-FlyBack *scene traversal* (world, missions, models, planet, station). Replace only the explicit **r_*/d_** drawing APIs with a checked PS1 GPU/GTE backend, retaining **sf3** for the existing city path where appropriate. This is the Stage 8 preferred route; do NOT hand-write a second station/planet/gameplay engine, nor claim B0 page-upload alone meets acceptance. Cover clipped polygons (including 26-vertex planet limb), sky, stars, tile-ID texture atlas, PAL shadows, 2D panels/fonts, models and HUD; compare rendered frames with B0 and test GPU primitive/ordering-table limits. The original Payback BG/OBJ graphics still need PPU-lite. Preserve city roofs, buildings, pedestrians, ramps, Arwing geometry, hangar cameras and the station scene. Run independent flash, black-image, texture persistence and perspective tests without publishing any captured frame.
 
-## Proposed release gates and responsibility
+Per [AGENTS.md](../../AGENTS.md): **"Textures stay on. No shorter view distance or missing buildings to gain speed; a speed-up with a visible cost goes behind a Game options setting."** Never inflate FPS by deleting geometry or using obvious LOD pop-in. Profile **guest game ticks/s**, **visible picture changes/s**, GPU list load and CD seeks separately.
 
-| Gate | Evidence | Owner |
+## 4. Correct save premise: one 8 KiB guest EEPROM, not a second campaign image
+
+The merged GBA [campaign.h](../../stuntfox/src/campaign.h) has a **260-byte Prog** containing the **32-byte sg/SgProgress member**. This is **not a separate 32-byte ship-equipment image**. Campaign save blocks starting at EEPROM block 64 are already part of the guest's **whole 8,192-byte EEPROM**, and the existing PS1 [hw_card.h](../../ps1/stage19/ps1rt/hw_card.h) card file stores that entire image. Keep that container and all guest EEPROM bytes intact. Do not propose a second independent save file or assume the 260-byte structure is the entire PS1 card payload.
+
+Real gaps to address and regression-test:
+- **Collision:** the original and merged discs would otherwise select the same PS1 memory-card file name. Assign a unique merged-disc game/card filename and do not overwrite original progress.
+- **Torn writes:** the existing full-image CRC can invalidate everything after a partial write. Use verified **A/B atomic copies** or an equally recoverable journal with sequence, CRC, power-loss injection and rollback; coordinate with Milestone A if this is already being fixed there.
+- **Migration:** offer importing an original 8 KiB EEPROM **only with explicit player action**, preserving a backup, and validate the merged game's revised block ownership before accepting it; never silently auto-migrate incompatible states.
+- **Tests:** new save, update, aborted write, cold-boot reload, full story/ship/spacewalk/campaign progress, filename isolation, version changes, and back-compat behavior. Do not treat emulator execution savestates as save-file correctness.
+
+## 5. Controls, radio and CD behavior
+
+Preserve the release Milestone A PS1 [hw_pad.h](../../ps1/stage19/ps1rt/hw_pad.h) digital mapping as the base. The **existing PS1 radio** holds Select with R1/L1/Triangle/Square. The merged game uses **Select hold for Arwing**, **Select tap for phone** and a **Select+R radio chord**; these conflict, so drop the **PS1-only Select radio chord** and drive CD-DA from the game's own [radio.c](../../stuntfox/src/radio.c) hooks. Also drop the PS1-only **L2/R2 renderer-map switch and Triangle bailout extras** on the merged retail disc; the R2 map tour is a diagnostic of the old renderer, not a desired game control. Keep test-only routes behind TEST builds when needed. Document and test Arwing dock/summon, phone, car/helicopter, pause/retry, station menus, digital/analog and Android touch-pad mappings; final assignments require owner confirmation.
+
+Use **one 16 MiB ROM.BIN** loaded on demand by 4 KiB page via the existing CD-backed runtime, not a pile of per-station images or a new public game-data directory. Size the working cache using task-6 scene page counts measured on the *private merged image*. Prefetch at level load, climb/space transition, docking and station entry, not every frame. Exercise **radio on and off** during every scene and log *audible music-on time*, **CD page fetches/minute**, seek count and frame time. Never hide page misses by claiming the audio worked when the test disc carries silent tracks. Respect the permanent song-3 exclusion.
+
+## 6. Stage 8 M0–M6 implementation sequence (gated, not started here)
+
+| Stage | Work after accepted rc9 | Exit evidence |
 | --- | --- | --- |
-| A0: original 8 MiB PS1 accepted on DuckStation Android | Usable in-level play, verified controls, measured FPS, pause/restart/vehicle, audio and card saves | **Claude + owner**, Milestone A |
-| B1: merged input identity | Exact private merged ROM hash, size and options; all inputs documented; no protected Git content | New Milestone B branch after A |
-| B2: 16 MiB ROM/page identity | First/last and 8 MiB-seam pages and cross-page reads, CD fetch and cache eviction | Milestone B |
-| B3: translated guest coverage | New hooks reachable with correct ARM/Thumb semantics; stable menu/intro/level locksteps | Milestone B |
-| B4: memory and graphics | Physical 2 MiB linker/VRAM budgets, complete textured scene paths and no flash | Milestone B |
-| B5: campaign and save | Station, Arwing, spacewalk, missions and native card save/read including power-cycle | Milestone B |
-| B6: acceptance | All eleven maps, long soak, radio on/off, natural gameplay and DuckStation Android performance | **Claude + owner**, final signoff |
+| **M0 — archived scout** | Keep the original GBA-side measurements/patches in Stage 8 as hypotheses; pin new source options and baseline. | Source/provenance and no protected Git data |
+| **M1 — merged translation** | Exact 16 MiB page mapping, ELF/TBH/veneer discovery, versioned IWRAM, full region-9 and DMA reads, private guest/MIPS lockstep. | 400 city ticks and Arwing launch with matching IO/draw/memory checkpoints; no upper-half alias |
+| **M2 — B0 bring-up** | Software Mode-4 page/palette upload over the merged scene tour; isolate translation failures. | Title, driving, Arwing, planet, hangar, station, settings visible in emulator; no RT_MISS |
+| **M3 — B1 GPU path** | r_*/d_* native backend with unchanged SF scene traversal; sf3 city, tiles, models, clip/OT, HUD and correct fades. | Per-scene B0 parity, textures/geometry intact, no GPU buffer overflow |
+| **M4 — cache and coverage** | Measured compact ROM map, reference-bit semantics, cold eviction/splitting, mode prefetch and complete interpreter fallback. | 40,000-frame GBA input coverage, long PS1 scene tour, safe physical RAM/CD profile |
+| **M5 — save, audio, PPU** | Whole-EEPROM card container with unique name/A/B, CD-DA SF radio hooks, Payback HUD/phone PPU-lite. | Cold-boot save tests, radio-on time, correct original+merged card coexistence |
+| **M6 — performance and acceptance** | Stock/recommended SwanStation, Beetle-stock, private Android owner tour, long soak, flash and credit/ending checks. | Recorded logic FPS versus changed pictures/s, per-scene CD/memory budgets, no unsafe flashes, complete campaign and user acceptance |
 
-### Decisions to settle with Claude before code
+Stage 8 permits M1/M2 prototyping in parallel after the initial translator boundary and M3/M4 in parallel after M1, but neither is authorization to work in Claude's rc9 release branch. The old B0/B1 speed and RAM numbers remain **estimates** until compiled, linked and benchmarked on actual release hardware/emulators.
 
-1. Is the initial merged PS1 target exactly the **16 MiB no-remix ROM**, postponing optional 32 MiB audio? Confirm the SHA and whether Amiga map-derived data is supplied.
-2. Which memory budget and cache algorithm survive rc7/speed wave 2, and how much RAM is truly available for 4096-page addressing?
-3. How will the added Thumb code be translated or dispatched, and which Star-FlyBack renderer functions will be reimplemented as native PS1?
-4. Where do the merged world/mission and station resources live on disc, and how will prefetch avoid starving CD-DA?
-5. What save-container migration contract and controller layout should the user approve before implementation?
+### Source and release safety gates
 
-This document is a **handoff for future work**, not authorization to edit Claude-owned PS1 paths or to declare a playable merged PS1 build.
+Before every M1–M6 candidate: source-manifest/prepare check, Python and C native tests, [check_native.py](../../ps1/tools/check_native.py), [mips1_lint.py](../../ps1/tools/mips1_lint.py), PS1 cache/overlay memory guards, renderer+flicker tests, all applicable [AGENTS.md](../../AGENTS.md) rig tests and clean private level boots in **both** SwanStation and Beetle. GBA changes also need tools/check.py --rom and the **at least 900-byte memguard headroom** gate. Then repeat the owner's DuckStation Android checks; emulator-only results remain labeled as such. Keep all frame captures, game graphics, audio, text, ROMs, discs, exact executable symbols, raw private logs and card images out of the repository, PR descriptions and CI artifacts. Public PRs may contain only authored source/tests, numeric summaries and sanitized human reports.
+
+**Unresolved until rc9 is accepted:** exact frame-cache layout within the 2 MiB linker, verified 16 MiB image digest, source-commit pin, translator/cold-cache byte counts, scene-specific CD/audio measurements, finalized user control map and A/B card recovery design. Claude's rc9 performance/credits QA must settle first.
