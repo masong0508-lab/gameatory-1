@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "46db2071ca72a605d68bf3940f78321480f02b5fffd6ab91344728b188b9bddb"
+      "sha256": "4007d21a04fa26ed0740c8be978d5d126a6024e58a33106c5f2afd2cb45e3b8f"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "f2a57de0f7245f8aec1a1f945c96801bb7793da90f4dc14daa4f63851b48890c"
+      "sha256": "138243be19c106258967a1cb820a7ec5cef6e5ce99beb26f94f5521701cfc9cc"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -517,7 +517,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "73fec128f868687cfda9c8abd7678edf78b521c95035231cde2a3e7bcfa03c80"
+      "sha256": "053a9d09b92cb44333ddfe28eb5cd28d5e0a58223807960def47549fb391b92c"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -788,6 +788,11 @@
       "source": "SPEED_WAVE1.md",
       "target": "SPEED_WAVE1.md",
       "sha256": "ee45694ce6d65ad43ba13979c581e4b4beafbd291c1848d7d34325330c534640"
+    },
+    {
+      "source": "stage19/t/pause_pages.txt",
+      "target": "t/pause_pages.txt",
+      "sha256": "b2ee5b068bfce27827e428dbaf1c5877a11a8c1ae60167e33a074baf13c6f7ba"
     }
   ],
   "patches": [
