@@ -25,7 +25,7 @@ class StationPromptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             test = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
             self.assertEqual(test.returncode, 0, test.stdout + test.stderr)
-            self.assertIn("146 station prompt checks passed", test.stdout)
+            self.assertIn("178 station prompt checks passed", test.stdout)
 
     def test_production_station_compiles_for_arm7tdmi(self):
         clang = shutil.which("clang")
