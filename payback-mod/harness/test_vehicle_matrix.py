@@ -38,17 +38,42 @@ class VehicleMatrixTests(unittest.TestCase):
         b=dict(x=300,y=400,z=20904,heading=100)
         self.assertEqual(m.delta(a,b),dict(horizontal_units=500.0,vertical_units=1000,climb_units=-1000,heading_units=260))
 
-    def test_helicopter_climb_descent_and_ground_landing(self):
-        entry=dict(z=19904)
-        air=dict(z=11000)
-        falling=dict(z=23000)
+    def test_helicopter_climb_descent_and_stable_landing(self):
+        def heli(z,x=0,y=0,kind=m.HELICOPTER):
+            return dict(z=z,x=x,y=y,heading=0,kind=kind)
+        entry=heli(19904)
+        air=heli(11000)
+        falling=heli(23000)
         self.assertTrue(m.helicopter_climbed(entry, air))
         self.assertFalse(m.helicopter_climbed(entry, falling))
-        self.assertFalse(m.helicopter_climbed(entry, dict(z=19000)))
-        self.assertTrue(m.helicopter_landed(19904, air, dict(z=19900)))
-        self.assertFalse(m.helicopter_landed(19904, air, dict(z=13000)))
-        self.assertFalse(m.helicopter_landed(19904, air, dict(z=9000)))
-        self.assertFalse(m.helicopter_landed(19904, air, dict(z=23000)))
+        self.assertFalse(m.helicopter_climbed(entry, heli(19000)))
+        self.assertTrue(m.helicopter_landed(air, heli(19900), heli(19910,2)))
+        self.assertFalse(m.helicopter_landed(air, heli(13000),
+                                            heli(13000,x=1000)))
+        self.assertFalse(m.helicopter_landed(air, heli(9000), heli(9000)))
+        self.assertFalse(m.helicopter_landed(air, heli(19900),
+                                            heli(19900,kind=None)))
+
+    def test_lands_on_higher_ground_away_from_entry_point(self):
+        # The original k17 landed ~4096 z units above its entry point after
+        # flying elsewhere: landing must not require returning to entry z.
+        def heli(x,y,z,kind=m.HELICOPTER):
+            return dict(x=x,y=y,z=z,heading=0,kind=kind)
+        entry=heli(0,0,19904)
+        airborne=heli(9000,200,9000)
+        touchdown=heli(9000,200,15808)  # 4096 above entry z
+        after_1800=heli(9010,200,15816)
+        self.assertGreater(abs(touchdown['z']-entry['z']),2048)
+        self.assertTrue(m.helicopter_landed(airborne,touchdown,after_1800))
+        self.assertFalse(m.helicopter_landed(airborne,touchdown,
+                                            heli(10200,200,15808)))
+        self.assertFalse(m.helicopter_landed(airborne,touchdown,
+                                            heli(9000,200,14800)))
+        import inspect
+        src=inspect.getsource(m.helicopter)
+        self.assertIn('stable_frames=LANDING_SETTLE_FRAMES',src)
+        self.assertIn('passed=bool(landed and exited)',src)
+        self.assertEqual(m.LANDING_SETTLE_FRAMES,1800)
 
     def test_brake_from_standstill_is_diagnostic_not_movement_requirement(self):
         # Original ROM survey can record B movement without asserting an
