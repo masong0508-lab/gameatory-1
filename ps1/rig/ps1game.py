@@ -89,6 +89,52 @@ def h2g(h):
     return None
 
 
+# ------------------------------------------------------------------------------------------------ SwanStation save states
+SWAN_EVENTS_MARKER = b'\x06\x00\x00\x00Events'
+
+
+def swanstation_events(state):
+    """The timing-event table of a SwanStation save state: [(name, downcount, ticks since its last run, period, interval)], or
+    None when no table is found (another core, another state layout).  The table follows the marker string 'Events' (u32 length
+    6, then the bytes), a u32 and the event count; each event is its name (u32 length + bytes) and four s32.  Only a candidate
+    that parses completely with printable names counts (RAM can hold the word too); the last such one is the core's."""
+    found = None
+    i = state.find(SWAN_EVENTS_MARKER)
+    while i >= 0:
+        p = i + len(SWAN_EVENTS_MARKER) + 4
+        try:
+            n, = struct.unpack_from('<i', state, p); p += 4
+            if not 0 < n <= 64:
+                raise ValueError
+            ev = []
+            for _ in range(n):
+                ln, = struct.unpack_from('<I', state, p)
+                name = state[p + 4:p + 4 + ln]
+                if not 0 < ln <= 64 or not all(32 <= c < 127 for c in name):
+                    raise ValueError
+                p += 4 + ln
+                d, t, per, itv = struct.unpack_from('<4i', state, p); p += 16
+                ev.append((name.decode('ascii'), d, t, per, itv))
+            found = ev
+        except (ValueError, struct.error):
+            pass
+        i = state.find(SWAN_EVENTS_MARKER, i + 1)
+    return found
+
+
+def state_unloadable(core, state):
+    """Why the core would refuse to load this state again, or '' when nothing is known against it.  SwanStation writes states it
+    cannot read back: on a frame that ends while timing events carry a negative time since their last run (seen on the frames
+    where the runtime waits for a CD sector, at every CPU and CD setting), retro_unserialize of that state fails and the core resets
+    the machine (rc8: 6 of 1500 frames after the level start; the bytes of exactly those three fields decide it).  Such a state
+    is not taken: save_state_file steps on to another frame."""
+    if core != 'swanstation':
+        return ''
+    ev = swanstation_events(state)
+    neg = [(e[0], e[2]) for e in ev or () if e[2] < 0]
+    return ', '.join('%s %d' % x for x in neg)
+
+
 # ------------------------------------------------------------------------------------------------ the game's own text
 class Mark:
     """A piece of the game's own text that a check looks for, kept as its length in characters and the sha256 (hex) of its
@@ -1551,7 +1597,7 @@ class Game(Emu):
         PATH.json, so that a fresh process can repeat the proof (sessions/state_check.py).  Returns the metadata, or None
         when no good state could be made (nothing is written then).  The session continues from the saved point."""
         self.release()
-        tried = 0
+        tried = skipped = 0
         while True:
             n = 0
             ip = self.in_present()
@@ -1563,6 +1609,16 @@ class Game(Emu):
                 self.log('  save_state_file: present() never idle at a frame boundary within %d frames, no state written' % wait)
                 return None
             s = self.save_state()
+            why = state_unloadable(self.core_name, s)
+            if why:
+                skipped += 1
+                if skipped == 1 or skipped % 20 == 0:
+                    self.log('  save_state_file: the core could not load a state of frame %d (%s): next frame (%d skipped)' % (self.nrun, why, skipped))
+                if skipped >= wait:
+                    self.log('  save_state_file: no loadable state within %d frames, no state written' % skipped)
+                    return None
+                self.run(1)
+                continue
             card = bytes(self._card_buf) if self.card_mode != 'none' else None
             f0 = self.nrun
             if verify:
@@ -1625,8 +1681,12 @@ class Game(Emu):
             d = open(path + '.mcd', 'rb').read()
             C.memmove(C.addressof(self._card_buf), d, len(d))
         # the core's GPU keeps a transfer in flight outside the state: leave present() in THIS machine before replacing it
+        st = open(path, 'rb').read()
+        why = state_unloadable(self.core_name, st)
+        if why:
+            raise RuntimeError('state %s cannot be loaded by %s (taken on a frame with timing events behind: %s); make it again' % (path, self.core_name, why))
         self._leave_present()
-        self.load_state(open(path, 'rb').read())
+        self.load_state(st)
         self._ring_reset()
         self.run(1)
         return meta
