@@ -64,11 +64,11 @@ class RetestTests(unittest.TestCase):
         # Isolated Python removes any accidental unittest/checkout path that masks it.
         source=m.HERE/'map_flicker.py'
         code=(
-            "import runpy,sys,types\\n"
-            "sys.modules['payback']=types.ModuleType('payback')\\n"
-            "assert not any(p.endswith('/ps1/qa') for p in sys.path)\\n"
-            "ns=runpy.run_path(sys.argv[1],run_name='ob_session_import_probe')\\n"
-            "assert callable(ns['display_step'])\\n"
+            "import runpy,sys,types\n"
+            "sys.modules['payback']=types.ModuleType('payback')\n"
+            "assert not any(p.endswith('/ps1/qa') for p in sys.path)\n"
+            "ns=runpy.run_path(sys.argv[1],run_name='ob_session_import_probe')\n"
+            "assert callable(ns['display_step'])\n"
         )
         done=subprocess.run([sys.executable,'-I','-B','-c',code,str(source)],
                             cwd=m.REPO,text=True,capture_output=True,check=False)
