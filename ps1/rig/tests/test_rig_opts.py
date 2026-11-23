@@ -15,7 +15,7 @@ SAVE_LOAD = ROOT / 'sessions' / 'save_load.py'
 
 
 class RigOptionsTests(unittest.TestCase):
-    def mock_run(self, rig_opts=None, core='swanstation', only='b', case='pass', env_updates=None):
+    def mock_run(self, rig_opts=None, core='swanstation', only='b', case='pass', env_updates=None, assist=False):
         with tempfile.TemporaryDirectory(prefix='ps1 rig options ') as tmp:
             tmp = pathlib.Path(tmp)
             script = tmp / 'bin' / 'python3'
@@ -31,6 +31,8 @@ exit 22
             script.chmod(0o755)
             disc = tmp / 'disc with spaces.cue'
             symbols = tmp / 'my game.elf'
+            if assist:
+                symbols.write_text('KPLB synthetic test assist\n')
             out = tmp / 'run results'
             cap = tmp / 'arguments.txt'
             env = dict(os.environ, PATH=str(script.parent) + os.pathsep + os.environ['PATH'],
@@ -52,14 +54,21 @@ exit 22
     def test_three_recommended_options_reach_all_selected_sessions(self):
         settings = ('swanstation_CPU_Overclock=400 swanstation_CDROM_ReadSpeedup=10 '
                     'swanstation_CDROM_SeekSpeedup=0')
-        p, chunks, disc, symbols = self.mock_run(settings, only='b')
+        p, chunks, disc, symbols = self.mock_run(settings, only='b', assist=True)
         self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
-        self.assertEqual(len(chunks), 2)  # b runs pad and assist separately
+        self.assertEqual(len(chunks), 2)  # TEST builds have KPL assist symbols
         for argv in chunks:
             self.assertEqual(self.options(argv), settings.split())
             self.assertEqual(argv[argv.index('--disc') + 1], disc)
             self.assertEqual(argv[argv.index('--syms') + 1], symbols)
             self.assertTrue(argv[0].endswith('tools/ob_session.py'))
+
+    def test_release_disc_skips_assist_even_with_options(self):
+        p, chunks, *_ = self.mock_run('swanstation_CPU_Overclock=400', only='b')
+        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        self.assertEqual(len(chunks), 1)
+        self.assertIn('SKIP b_assist_path', p.stdout)
+        self.assertEqual(chunks[0][chunks[0].index('--path') + 1], 'pad')
 
     def test_explicit_opt_tokens_are_accepted(self):
         p, chunks, *_ = self.mock_run('--opt swanstation_CPU_Overclock=400 --opt swanstation_CDROM_ReadSpeedup=10', only='a')
@@ -111,10 +120,30 @@ exit 22
                 self.assertFalse(chunks, bad)
                 self.assertIn('RIG_OPTS:', p.stderr)
 
-    def test_values_are_never_shell_evaluated(self):
-        p, chunks, *_ = self.mock_run('swanstation_CDROM_ReadSpeedup=10;echo_BAD', only='a')
-        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
-        self.assertEqual(self.options(chunks[0]), ['swanstation_CDROM_ReadSpeedup=10;echo_BAD'])
+    def test_shell_metacharacters_are_rejected_before_any_session(self):
+        for bad in ('swanstation_CDROM_ReadSpeedup=10;echo_BAD',
+                    'swanstation_CPU_Overclock=$HOME',
+                    'swanstation_CDROM_ReadSpeedup=10*',
+                    'swanstation_CPU_Overclock=400|bad'):
+            with self.subTest(value=bad):
+                p, chunks, *_ = self.mock_run(bad, only='a')
+                self.assertEqual(p.returncode, 2, p.stderr + p.stdout)
+                self.assertFalse(chunks)
+                self.assertIn('invalid option value', p.stderr)
+
+    def test_zero_or_malformed_soak_is_rejected(self):
+        for name, bad in (('SOAK_GAME_SECONDS', '0'), ('SOAK_GAME_SECONDS', '-2'),
+                          ('SOAK_FRAMES', '0'), ('SOAK_FRAMES', '4.5')):
+            with self.subTest(setting=name, value=bad):
+                p, chunks, *_ = self.mock_run(None, only='f', env_updates={name: bad})
+                self.assertEqual(p.returncode, 2, p.stderr + p.stdout)
+                self.assertFalse(chunks)
+
+    def test_result_schema_records_core_options(self):
+        # Source-level check: every session goes through Game.finish's meta.
+        core = ROOT / 'ps1game.py'
+        tree = ast.parse(core.read_text())
+        self.assertIn("'core_options':", core.read_text())
 
     def test_save_load_cold_boot_preserves_options(self):
         # Test the actual helper AST without importing the emulator dependencies.
