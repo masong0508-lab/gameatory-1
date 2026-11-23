@@ -21,11 +21,14 @@ export PYTHONDONTWRITEBYTECODE=1
 [ -d "$SURV" ] || { echo "SURV: no such directory: $SURV" >&2; exit 2; }
 [ -d "$TREE" ] || { echo "no such tree: $TREE (make it with: python3 ps1/tools/prepare.py --output $TREE)" >&2; exit 2; }
 ROM="$(cd "$(dirname "$ROM")" && pwd)/$(basename "$ROM")"; SURV="$(cd "$SURV" && pwd)"     # relative paths keep working after the cd
-cd "$TREE"
+cd "$TREE"; TREE="$(pwd)"                              # absolute for accurate output paths and logs
 [ -f SOURCE_MANIFEST.json ] && [ -f tools12/build.sh ] || { echo "not a prepared tree: $TREE" >&2; exit 2; }
 [ "$(stat -c %s "$ROM")" = 8388608 ] || { echo "ROM is not 8 MiB" >&2; exit 2; }
 step() { echo "=== $(date +%H:%M:%S) $*"; }
 want() { local got; got=$(sha256sum "$1" | cut -c1-${#2}); if [ "$got" = "$2" ]; then echo "ok    $1  sha256 $2"; else echo "FAIL  $1  sha256 $got..., expected $2" >&2; exit 3; fi; }
+
+step "A0 independently verify the owner's ROM and all 14 release inputs against full SHA-256 hashes"
+python3 -B "$HERE/check_owner_inputs.py" "$HERE/private_inputs.sha256" "$SURV" --release --rom "$ROM"
 
 step "A1 stage the surviving private inputs (copies)"
 mkdir -p out/s2 out/pr_l out/pr_lb
@@ -78,3 +81,4 @@ assert rt <= 0x80028000 and doll1 <= ppu == 0x8017a000 and s['__veneer_scratch']
 P
 isoinfo -l -i "out/$NAME.iso" | grep -E "COLD.BIN|PSX.EXE|ROM.BIN|SF3M.BIN|SYSTEM.CNF" | awk '{print "iso: " $NF, "sector", $(NF-2), "size", $5}' || true
 echo "Track A done: $TREE/out/$NAME.exe and $TREE/out/$NAME.iso (data track only; CD audio and the licence area are added by tools7/mkdisc2.py, README.md)"
+
