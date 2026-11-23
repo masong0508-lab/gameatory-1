@@ -59,7 +59,7 @@ typedef struct { u16 x, z; u8 h, kind; s8 base; u8 r; } Tree;
 typedef struct { s16 lo, hi; u8 shape, mat; } Cell;
 typedef struct { u8 gmask[2048]; u16 slot_id[448]; u16 avg555[448]; u8 mesh[448]; u32 avgcol[448]; u32 flat[256]; u32 sky9[9]; u32 fog; } Side;   /* stage 7: the sin table (the same in every map; rc9: its first quarter wave) lives in sint_tab, only the fields before it are per map (7144 bytes) */
 /* rc9: the sin table of the map files (4096 entries, 1/4096 turn, the same in every map) is an exact quarter wave: t[2048+i] = -t[i] and
-   t[1024+k] = t[1024-k] for every entry (checked on all 13 copies in SF3M.BIN).  Only t[0..1024] is kept (2,050 bytes instead of 8,192:
+   t[1024+k] = t[1024-k] for every entry (checked on all 11 copies in SF3M.BIN).  Only t[0..1024] is kept (2,050 bytes instead of 8,192:
    6,142 bytes of renderer room); fsin returns the same value for every angle as the full table did. */
 static s16 sint_tab[1025];
 static const Side *side;

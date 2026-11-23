@@ -72,17 +72,19 @@ def main() -> int:
         dispatch = ["-DDISP_D3", "-DDISP_D1", "-DDISP_D4", "-DDISP_D2"]
         runtime = ["-Os", "-DSF3_DEFER", "-DPCACHE1", *clock, *dispatch, "-DCOLD1PASS", "-DPCPAIR", "-DCDPADPOLL", "-DPADSPLIT", "-Iinterp"]
         # rc9: the release adds the pause block (PZF: PZBLOCK, its page list as a placeholder header) and the menu pool switch (POOLF);
-        # the TEST_assist build has no room for the pause block (tools12/build_test_assist.sh: PZF=); the other test layouts keep the base flags
+        # the TEST_assist build has no room for the pause block and the menu pool (tools12/build_test_assist.sh: PZF= POOLF=); the other test layouts keep the base flags
         pool = ["-DPOOL_THRASH=32"]
         release_runtime = [*runtime, "-DPZBLOCK", *pool, "-Inative-check"]
-        test_runtime = [*runtime, *pool, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
+        test_runtime = [*runtime, "-DKPLAN", "-DPADDBG", "-Iout/kp"]
         cluster_runtime = ["-Os", "-DSF3_DEFER", "-DPADDBG", "-Iinterp"]
         renderer = ["-Os", "-DSF_NOLIBC", "-fomit-frame-pointer", "-mno-check-zero-division", "-Isf"]
         ragdoll = ("-O3 -mllvm -inline-threshold=500 -fomit-frame-pointer -mno-check-zero-division "
                    "-DRP_LEVEL=2 -DRP_NS_BASE=3 -DRP_NS_DIV=10 -DRP_NSMAX=6 -DRP_HINGE_LAST=1 "
                    "-DRP_FAST=1 -Ird").split()
+        # the release size of the table (t/pause_pages.txt has 59 pages; 60 is the most rt.c allows), placeholder numbers, no game data
         (objects / "pz_pages.h").write_text("/* layout fixture: placeholder page numbers, no game data */\n"
-                                            "#define PZ_N 2u\nstatic const u16 pz_pg[PZ_N]={1u,2u};\n")
+                                            "#define PZ_N 60u\nstatic const u16 pz_pg[PZ_N]={%s};\n"
+                                            % ",".join("%du" % (2 * i + 1) for i in range(60)))
         modules = [compile_source("ps1rt/rt.c", "runtime", release_runtime),
                    compile_source("ps1rt/crt0.s", "startup", ["-Wa,-defsym,EXEPACK=1"]),
                    compile_source("interp/interp.c", "interpreter", ["-Os", "-Iinterp"]),
