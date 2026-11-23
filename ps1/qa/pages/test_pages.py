@@ -37,8 +37,8 @@ class PageTests(unittest.TestCase):
         with self.assertRaises(ValueError): validate(capture(0,'foot','play',{1:0},source='synthetic'))
 
     def test_each_scene_equal_weight_versus_raw_hit_dominance(self):
-        samples=[capture(0,'foot','play',{2:1000000},source='synthetic'),
-                 capture(1,'foot','play',{5:100},source='synthetic')]
+        samples=[live(0,'foot','play',{2:1000000}),
+                 live(1,'foot','play',{5:100})]
         rep=summarize(samples, budget4k=2)
         self.assertEqual(rep['candidate_4k_pages'],[2,5])
         self.assertEqual(rep['missing_map_ids'], list(range(2,11)))
