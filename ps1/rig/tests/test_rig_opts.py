@@ -130,8 +130,17 @@ exit 22
         self.assertEqual(self.options(cmd), args.opt)
         self.assertEqual(cmd[cmd.index('--disc') + 1], args.disc)
         self.assertEqual(cmd[cmd.index('--card') + 1], '/tmp/card with space.mcd')
+        self.assertTrue(cmd[1].endswith('ps1/rig/tools/ob_session.py'), cmd)
+        self.assertEqual(cmd[2], str(SAVE_LOAD))
+        # Every accurate core needs openboot in the second process too.
+        args.core = 'beetle'
+        self.assertTrue(ns['cold_boot_command'](args, 'card', 'out')[1].endswith('/tools/ob_session.py'))
+        # PCSX-ReARMed does not need the accurate-core BIOS setup wrapper.
+        args.core = 'pcsx_rearmed'
         args.opt = []
-        self.assertEqual(self.options(ns['cold_boot_command'](args, 'card', 'out')), [])
+        direct = ns['cold_boot_command'](args, 'card', 'out')
+        self.assertEqual(direct[1], str(SAVE_LOAD))
+        self.assertEqual(self.options(direct), [])
 
 
 if __name__ == '__main__':
