@@ -103,11 +103,26 @@ def helicopter_climbed(before, after, min_units=1000):
     return bool(before and after and before['z'] - after['z'] > min_units)
 
 
-def helicopter_landed(ground_z, before, after, tolerance=2048):
-    """Returning to the entry-ground altitude is evidence of landing."""
-    return (ground_z is not None and before is not None and after is not None
-            and abs(after['z'] - ground_z) <= tolerance
-            and after['z'] >= before['z'])
+LANDING_SETTLE_FRAMES = 1800
+
+
+def helicopter_landed(before_descent, touchdown, after_wait,
+                      min_descent_units=32, horizontal_tolerance=512,
+                      vertical_tolerance=256):
+    """Descending then holding position while still in k17 proves touchdown.
+
+    Ground elevation varies across Payback's map: the height at L-entry is
+    diagnostic, NOT a touchdown target. World z increases when descending.
+    """
+    if not (before_descent and touchdown and after_wait
+            and touchdown.get('kind') == HELICOPTER
+            and after_wait.get('kind') == HELICOPTER):
+        return False
+    if touchdown['z'] - before_descent['z'] < min_descent_units:
+        return False
+    still = delta(touchdown, after_wait)
+    return bool(still and still['horizontal_units'] <= horizontal_tolerance
+                and abs(still['vertical_units']) <= vertical_tolerance)
 
 
 def press(e, keys, frames, after=20):
@@ -197,23 +212,40 @@ def helicopter(e):
         after=actor(e)
         d=delta(before,after)
         rows.append(dict(action=label,change=d,passed=bool(d and abs(d['heading_units']) > 0)))
-    before=actor(e)
+    pre_descent=actor(e)
     press(e,('B',),180)
-    after=actor(e)
-    d=delta(before,after)
-    rows.append(dict(action='B descend',change=d,passed=bool(d and d['vertical_units'] > 0)))
-    before=actor(e)
+    after_descent=actor(e)
+    d=delta(pre_descent,after_descent)
+    descent_ok=bool(d and d['vertical_units'] > 0)
+    rows.append(dict(action='B descend',change=d,passed=descent_ok))
+    before_land=actor(e)
     press(e,('L',),16,900)
-    after=actor(e)
-    d=delta(before,after)
-    landed=helicopter_landed(ground_z, before, after)
+    touchdown=actor(e)
+    # Landings may be a whole block away and at a different ground height.
+    # Observe sustained position stability with real controller input released.
+    e.run(LANDING_SETTLE_FRAMES, [])
+    after_wait=actor(e)
+    d=delta(before_land,touchdown)
+    stable_d=delta(touchdown,after_wait)
+    landed=descent_ok and helicopter_landed(pre_descent,touchdown,after_wait)
+    near_entry=(ground_z is not None and touchdown is not None
+                and abs(touchdown['z']-ground_z) <= 2048)
     rows.append(dict(action='L land',change=d,
-                     passed=bool(after and after['kind'] == HELICOPTER and landed),
-                     near_entry_ground=landed))
+                     passed=landed,descended=descent_ok,
+                     stable_frames=LANDING_SETTLE_FRAMES,
+                     stability_change=stable_d,
+                     remained_in_helicopter=bool(touchdown and after_wait
+                         and touchdown['kind']==HELICOPTER
+                         and after_wait['kind']==HELICOPTER),
+                     near_entry_ground=near_entry,
+                     entry_ground_delta_z=None if ground_z is None or touchdown is None
+                                          else touchdown['z']-ground_z,
+                     entry_ground_is_diagnostic_only=True))
     press(e,('L',),16,300)
     p=actor(e)
-    rows.append(dict(action='L exit after landing',passed=bool(p and p['kind'] is None),
-                     exited=bool(p and p['kind'] is None),
+    exited=bool(p and p['kind'] is None)
+    rows.append(dict(action='L exit after landing',passed=bool(landed and exited),
+                     landed_before_exit=landed,exited=exited,
                      controlled_after=None if p is None else p['index']))
     return rows
 
