@@ -10,7 +10,7 @@ RUNNER = Path(__file__).resolve().parents[1] / "run_all.sh"
 
 
 class RunAllTests(unittest.TestCase):
-    def run_mock(self, case, core="pcsx_rearmed", only="a"):
+    def run_mock(self, case, core="pcsx_rearmed", only="a", assist=False):
         with tempfile.TemporaryDirectory() as td:
             temp = Path(td)
             mockbin = temp / "bin"
@@ -32,6 +32,8 @@ exit 99
             # single argv entries through the runner and the accurate-core shim.
             disc = temp / "disc with spaces.cue"
             symbols = temp / "game symbols.elf"
+            if assist:
+                symbols.write_text("symbol: KPLB synthetic test assist\n")
             out = temp / "run output"
             result = subprocess.run(
                 ["sh", str(RUNNER), str(disc), str(out), str(symbols), core],
@@ -78,6 +80,20 @@ exit 99
         r, args, logs, _, _ = self.run_mock("pass", core="duckstation")
         self.assertEqual(r.returncode, 2)
         self.assertFalse(args)
+
+    def test_release_disc_skips_assist_path_without_KPL(self):
+        r, args, logs, _, _ = self.run_mock("pass", only="b")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SKIP b_assist_path", r.stdout)
+        self.assertIn("1 sessions", r.stdout)
+        self.assertEqual(args[args.index("--path") + 1], "pad")
+
+    def test_assist_build_executes_extra_path_with_KPL(self):
+        r, args, logs, _, _ = self.run_mock("pass", only="b", assist=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("SKIP b_assist_path", r.stdout)
+        self.assertIn("2 sessions", r.stdout)
+        self.assertEqual(args[args.index("--path") + 1], "assist")
 
     def test_empty_session_selection_is_error(self):
         r, args, logs, _, _ = self.run_mock("pass", only="z")
