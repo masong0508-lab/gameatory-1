@@ -3,6 +3,8 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 from contextlib import redirect_stdout, redirect_stderr
@@ -45,6 +47,32 @@ class RetestTests(unittest.TestCase):
     def test_console_soak_frames_are_explicit(self):
         j=m.jobs(self.disc,self.syms,self.out,soak_frames=111111)[1]
         self.assertEqual(j['command'][j['command'].index('--console-frames')+1],'111111')
+
+    def test_soak_slice_scales_game_clock_without_weakening_default(self):
+        full=m.jobs(self.disc,self.syms,self.out)[1]['command']
+        short=m.jobs(self.disc,self.syms,self.out,soak_frames=540)[1]['command']
+        custom=m.jobs(self.disc,self.syms,self.out,soak_frames=540,
+                      soak_game_seconds=1.25)[1]['command']
+        def clock_arg(cmd):
+            return float(cmd[cmd.index('--min-game-seconds')+1])
+        self.assertEqual(clock_arg(full),600.0)
+        self.assertEqual(clock_arg(short),3.0)
+        self.assertEqual(clock_arg(custom),1.25)
+
+    def test_map_flicker_runpy_from_ob_session_style_path(self):
+        # ob_session runs a script via runpy, without adding script's dir to sys.path.
+        # Isolated Python removes any accidental unittest/checkout path that masks it.
+        source=m.HERE/'map_flicker.py'
+        code=(
+            "import runpy,sys,types\\n"
+            "sys.modules['payback']=types.ModuleType('payback')\\n"
+            "assert not any(p.endswith('/ps1/qa') for p in sys.path)\\n"
+            "ns=runpy.run_path(sys.argv[1],run_name='ob_session_import_probe')\\n"
+            "assert callable(ns['display_step'])\\n"
+        )
+        done=subprocess.run([sys.executable,'-I','-B','-c',code,str(source)],
+                            cwd=m.REPO,text=True,capture_output=True,check=False)
+        self.assertEqual(done.returncode,0,done.stderr)
 
     def test_mgba_addition_is_optional_but_not_a_fake_pass(self):
         plan=m.jobs(self.disc,self.syms,self.out,gba_rom=Path('/private/original.gba'))
