@@ -22,6 +22,8 @@ tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tool)
 
 TEXT = 0x80010000
+MCACHE = 0x80022000                  # rc8: the D1 table is the BSS array dsp_mcache (wave 1 had it at 0x80028400)
+LQ = MCACHE + 4096                   # the D2 queue dsp_lq behind it
 NOP = 0
 
 
@@ -87,7 +89,7 @@ def sltiu(rt, rs, imm):
     return 0x2c000000 | rs << 21 | rt << 16 | imm
 
 
-def rt_mcache(table=0x80028400, cc=tool.RT_CC):
+def rt_mcache(table=MCACHE, cc=tool.RT_CC):
     hi, lo = (table + 0x8000) >> 16, (table - (((table + 0x8000) >> 16) << 16)) & 0xffff
     return [lui(25, hi), addu(2, 2, 25), lw(25, lo, 2), lw(2, lo + 4, 2), bne(25, 1, 2), lui(25, 0x8002),
             jr(2), NOP,                                                      # hit
@@ -142,6 +144,7 @@ def program(mc=True, d4=True, d3=True, d2=True, patch=None, edit=None):
     functions = [('dsp_new', 0, 4 * len(new))] + [(name, where[name], 4 * len(blocks[name])) for name in blocks]
     if d2:
         functions.append(('d2_linked', offset, 0))
+    functions += [('dsp_mcache', MCACHE - TEXT, 4096), ('dsp_lq', LQ - TEXT, 1024)]
     return elf_fixture.mips_elf(words, functions, text_address=TEXT)
 
 
@@ -169,7 +172,7 @@ class PatchCheckTests(unittest.TestCase):
         self.assertIn('dispatch boot patches D3 D1 D4 D2: 4 words', text)
         self.assertIn('0x80030008 <- %08x  j rt_mcache' % j(TEXT + 16), text)
         self.assertIn('0x8003000c <- 0320c021  addu $24,$25,$0', text)
-        self.assertIn('rt_mcache: D1 table 0x80028400..0x80029400', text)
+        self.assertIn('rt_mcache: D1 table 0x80022000..0x80023000', text)
 
     def test_single_items_decode(self):
         for kwargs, label in (({'mc': False, 'd4': False, 'd2': False}, 'D3: 1 words'),
@@ -204,10 +207,15 @@ class PatchCheckTests(unittest.TestCase):
             blocks['rt_mcache'][13] = ori(28, 28, 0x002c)
         self.assert_fails(program(edit=edit), 'rt_miss_ret')
 
-    def test_d1_table_clear_of_the_d2_queue(self):
+    def test_d1_table_is_dsp_mcache(self):
         def edit(blocks):
             blocks['rt_mcache'] = rt_mcache(table=0x80029000)
-        self.assert_fails(program(edit=edit), 'clear of the D2 queue')
+        self.assert_fails(program(edit=edit), 'is not dsp_mcache')
+
+    def test_d1_table_clear_of_the_d2_queue(self):
+        def edit(blocks):
+            blocks['rt_mcache'] = rt_mcache(table=LQ - 8)
+        self.assert_fails(program(edit=edit), 'clear of dsp_lq')
 
     def test_memwr_fallback_rebuilds_help4(self):
         def edit(blocks):
@@ -282,8 +290,8 @@ class RuntimeSourceTests(unittest.TestCase):
         self.assertIn(tool.RT_CC, kept)
 
     def test_reserved_tables(self):
-        self.assertIn('#define MCACHE ((volatile u32*)0x80028400)', self.source)
-        self.assertIn('#define LQ ((volatile u32*)0x80029400)', self.source)
+        self.assertIn('#define MCACHE ((volatile u32*)dsp_mcache)', self.source)
+        self.assertIn('#define LQ ((volatile u32*)dsp_lq)', self.source)
         self.assertIn('.set rom_pg, 0x8002a000', self.source)
 
 

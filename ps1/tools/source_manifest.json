@@ -202,7 +202,7 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "d91ccbeac97e7f6f6e0e214627b47c8ad1830a7fec5af99f7dfdee077316b8da"
+      "sha256": "a2c10db33f98e852515d8928847f8b07f24aaf2f02f0ac5289788a274f3648b0"
     },
     {
       "source": "stage19/ps1rt/ps1.ld",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "e904421329cc4e7bd2e82631e837b09b212fd3d1e7f996ccba15613c638d1515"
+      "sha256": "5f62090a1124d1ab2bbe11c7e805f9510345a8838019e0dc56507a0c8dc29477"
     },
     {
       "source": "stage19/rd/doll.c",

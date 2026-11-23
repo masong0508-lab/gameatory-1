@@ -47,6 +47,8 @@ __asm__(".globl rom_pg\n.set rom_pg, 0x8002a000\n");
 static const u8 *rom_pg[2048];
 #endif
 static u32 g_pres, g_gframes;   /* presented pictures, guest (GBA) frames */
+u32 g_flips;                    /* display-start changes (flip_to, the CD error and fatal screens): g_pres counts present() STARTS, so a picture
+                                   can reach the screen with no g_pres step between two looks (issue #15); count pictures with this one */
 static u32 cd_rd_gf;            /* the guest frame in which the last data read ended (hw_cdda.h resumes the music after a quiet interval) */
 #ifdef CDSTAT
 static u32 cd_nreq, cd_npass;   /* test counters (speed stage 3): data requests (one Setloc+ReadN each, retries not counted), passes (retries counted) */
@@ -1294,7 +1296,7 @@ static RTCOLD void gpu_region(void){
 #endif
 static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; CLK_POLL(); }
 /* show the buffer at (0,o) once everything drawn into it is finished, at the next vertical blank; the display comes on with the first one */
-static void flip_to(int o){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); GP1=0x05000000|((u32)o<<10); if(!disp_on){ disp_on=1; GP1=0x03000000; }
+static void flip_to(int o){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); GP1=0x05000000|((u32)o<<10); g_flips++; if(!disp_on){ disp_on=1; GP1=0x03000000; }
 #if defined(RTC64)||defined(SPEEDPROF)
   pic_flipped();
 #endif
@@ -1309,7 +1311,7 @@ static RTCOLD void fatal_screen(const char*m,u32 a){
     gp0_2(0x02600000,XY(0,cur_oy),XY(320,240)); gpu_idle();
     gp0c(0xE1000000|(1<<10)); gp0e(0xE3000000|((u32)cur_oy<<10)); gp0e(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e(0xE5000000);
     text(64,72,"PORT ERROR",4,0xffffff); text(4,124,m,2,0xc0c0ff); text(128,152,h,2,0xffffff); }
-  gpu_idle(); GP1=0x05000000; GP1=0x03000000; disp_on=1;
+  gpu_idle(); GP1=0x05000000; GP1=0x03000000; disp_on=1; g_flips++;
   for(;;){}
 }
 #ifndef CDSIM
@@ -1324,7 +1326,7 @@ static RTCOLD void cd_error_screen(u32 lba){
     gp0_2(0x02000060,XY(0,cur_oy),XY(320,240)); gpu_idle();
     gp0c(0xE1000000|(1<<10)); gp0e(0xE3000000|((u32)cur_oy<<10)); gp0e(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e(0xE5000000);
     text(64,96,"CD READ ERROR",4,0xffffff); text(88,136,"CHECK THE DISC",2,0xc0c0ff); }
-  gpu_idle(); GP1=0x05000000|((u32)(buf?0:240)<<10); GP1=0x03000000; disp_on=1; cur_oy=buf?240:0;
+  gpu_idle(); GP1=0x05000000|((u32)(buf?0:240)<<10); GP1=0x03000000; disp_on=1; cur_oy=buf?240:0; g_flips++;
 }
 static void cd_error_gone(void){ cd_err_on=0; dbg("CD reads again\n"); }
 #endif

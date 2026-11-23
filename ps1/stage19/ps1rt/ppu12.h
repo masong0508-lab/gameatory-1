@@ -228,9 +228,12 @@ static void pp_obj(void){
       } else {
         /* texture corner -> screen: S = M^-1 (T - c_t), c_t = (w/2,h/2); computed in 1/16 pixel, plus half a pixel (the GBA samples at integer positions) */
         int vx[4],vy[4]; int cx16=x*16+bw*8+8, cy16=y*16+bh*8+8;
-        for(int k=0;k<4;k++){ int du=tx*8+((k&1)?8:0)-w/2, dv=ty*8+((k&2)?8:0)-h/2;
-          s32 nx=pd*du-pb*dv, ny=-pc*du+pa*dv;       /* adj(P) * (du,dv) */
-          s32 sx16=(s32)((nx*4096)/det)*1, sy16=(s32)((ny*4096)/det)*1;   /* (256*nx/det) px = nx*4096/det in 1/16 px */
+        /* the PS1 GPU rounds an interpolated texture coordinate to the NEAREST texel, the GBA truncates: each texture corner is placed half a texel
+           further on (du, dv in half texels, +1), so a pixel samples floor() of the GBA coordinate.  Without it a magnified sprite's last line or
+           column showed the texel beyond its edge (the pause effect's 2x sprites put texture row 16 on the picture's last line, 231). */
+        for(int k=0;k<4;k++){ int du=2*(tx*8+((k&1)?8:0)-w/2)+1, dv=2*(ty*8+((k&2)?8:0)-h/2)+1;
+          s32 nx=pd*du-pb*dv, ny=-pc*du+pa*dv;       /* adj(P) * (du,dv), in half texels */
+          s32 sx16=(s32)((nx*2048)/det), sy16=(s32)((ny*2048)/det);   /* (256*nx/det) px = nx*4096/det in 1/16 px; half texels: 2048 */
           int Vx=cx16+sx16, Vy=cy16+sy16;
           vx[k]=PP_FDIV(Vx*4,48); vy[k]=PP_Y0+PP_FDIV(Vy*7-16,80); }   /* 1/16 px -> PS1: x 4/3; y 7/5 rounded like PP_SY (identity: PP_SY(y)) */
         pp_q4(vx,vy,u,v,ue,ve,cl,tpb,cmd);
