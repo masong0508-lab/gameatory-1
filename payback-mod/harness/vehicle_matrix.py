@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""mGBA libretro census of REAL original-Payback vehicle descriptors.
+
+No model/descriptor swaps. Only the player's temporary coordinate/height copies
+are adjusted to reach a *naturally existing* vehicle. All entry, movement and
+exit actions use the game's real buttons. Never publish outputs or game data.
+
+    MGBA_CORE=/private/mgba_libretro.so python3 payback-mod/harness/vehicle_matrix.py \
+        '/private/Payback (Europe) (En,Fr,De,Es,It).gba' \
+        --out /private/gba-vehicles.json --survey-frames 2400
+
+The original game may not spawn all 18 descriptor indices in one map/route.
+Unobserved types remain UNOBSERVED, never implicitly PASS.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import sys
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+OWNER_EU_SHA1 = '08df2c6f1b932b8c6e5e1bc9c6ccbe738832d2b7'
+DESC_BASE = 0x08354AF4
+DESC_STRIDE = 0x3C
+HELIDESC = 0x08354EF0
+HELICOPTER = (HELIDESC - DESC_BASE) // DESC_STRIDE
+FIRST, END = DESC_BASE, HELIDESC
+MAX_VEHICLE_KIND = HELICOPTER
+LAST_ENTITY = 0x0300000C
+PTRS = 0x03000C60
+CONTROLLED = 0x02001DB8
+CLOCK = 0x02001E00
+PLAYER_POS = (0x02008DF8, 0x02009398, 0x02009478, 0x02009484)
+
+
+def kind_from_descriptor(desc):
+    """The original ROM's 0x3c-byte descriptor records, 0..17."""
+    if type(desc) is not int or not FIRST <= desc <= HELIDESC:
+        return None
+    delta = desc - FIRST
+    return delta // DESC_STRIDE if delta % DESC_STRIDE == 0 else None
+
+
+def action_plan(kind):
+    if kind == HELICOPTER:
+        return ('L enter', 'L takeoff', 'A fly', 'LEFT steer', 'RIGHT steer',
+                'B descend', 'L land', 'L exit')
+    return ('L enter', 'A accelerate', 'A+LEFT steer', 'A+RIGHT steer',
+            'B brake/reverse', 'L exit')
+
+
+def actor(e):
+    last, index = e.s16(LAST_ENTITY), e.s16(CONTROLLED)
+    if not 0 <= index <= last < 64:
+        return None
+    return entity(e, index)
+
+
+def entity(e, index):
+    last = e.s16(LAST_ENTITY)
+    if not 0 <= index <= last < 64:
+        return None
+    ptr = e.u32(PTRS + 4*index)
+    if not (0x02000000 <= ptr < 0x0203FE98) or (ptr & 3):
+        return None
+    desc = e.u32(ptr + 0x1C)
+    return dict(index=index, ptr=ptr, kind=kind_from_descriptor(desc),
+                x=e.r32(ptr + 4), y=e.r32(ptr + 8), z=e.s16(ptr + 0x0C),
+                heading=e.s16(ptr + 0x12), state=e.read(ptr+0x10F,1)[0])
+
+
+def census(e):
+    player = e.s16(CONTROLLED)
+    found = {}
+    for i in range(min(max(0, e.s16(LAST_ENTITY)+1), 64)):
+        if i == player:
+            continue
+        ent = entity(e,i)
+        if ent and ent['kind'] is not None and 0 <= ent['x'] < 128*2048 and 0 <= ent['y'] < 128*2048:
+            found.setdefault(ent['kind'], []).append(ent)
+    return found
+
+
+def delta(a,b):
+    if not (a and b):
+        return None
+    return dict(horizontal_units=round(math.hypot((b['x']-a['x']), (b['y']-a['y'])),1),
+                vertical_units=b['z']-a['z'],
+                heading_units=((b['heading']-a['heading']+2880)%5760)-2880)
+
+
+def press(e, keys, frames, after=20):
+    e.run(frames, list(keys))
+    e.run(after, [])
+
+
+def enter_existing(e, snapshot, target_kind, target_index):
+    """Return a real L-entered vehicle or reason; no descriptor mutation."""
+    for dx,dy in ((1200,0),(-1200,0),(0,1200),(0,-1200)):
+        e.load_state(snapshot)
+        v = entity(e,target_index)
+        p = actor(e)
+        if not v or v['kind'] != target_kind or not p:
+            return False, 'vehicle_vanished'
+        for ptr in PLAYER_POS:
+            e.write32(ptr, v['x']+dx)
+            e.write32(ptr+4, v['y']+dy)
+        e.write16(p['ptr']+0x0C, v['z'] & 0xffff)
+        e.run(3)
+        press(e, ('L',), 16, 260)
+        current = actor(e)
+        if current and current['kind'] == target_kind and current['index'] == target_index:
+            return True, None
+    return False, 'L_entry_not_observed'
+
+
+def ground_vehicle(e):
+    initial=e.save_state()
+    scenarios=(('A accelerate', ('A',), 180),
+               ('A+LEFT steer', ('A','LEFT'), 80),
+               ('A+RIGHT steer', ('A','RIGHT'), 80),
+               ('B brake/reverse', ('B',), 160))
+    rows=[]
+    for label,buttons,frames in scenarios:
+        e.load_state(initial)
+        a=actor(e)
+        press(e,buttons,frames)
+        b=actor(e)
+        d = delta(a,b)
+        if label == 'A accelerate':
+            passed = bool(d and d['horizontal_units'] > 32)
+        elif label.startswith('A+'):  # heading should respond to each direction
+            passed = bool(d and abs(d['heading_units']) > 0)
+        else:
+            passed = bool(d and d['horizontal_units'] > 32)
+        rows.append(dict(action=label, frames=frames, change=d, passed=passed))
+    e.load_state(initial)
+    a=actor(e)
+    press(e,('L',),16,240)
+    b=actor(e)
+    rows.append(dict(action='L exit',frames=256,
+                     passed=bool(b and b['kind'] is None),
+                     exited=bool(b and b['kind'] is None),
+                     controlled_after=None if b is None else b['index']))
+    return rows
+
+
+def helicopter(e):
+    """mGBA test pattern used in the existing private modded-GBA suite.
+
+    A stationary helicopter should not be graded as a broken road car.
+    Takeoff/flight/landing are checked separately from entry/exit.
+    """
+    rows=[]
+    a=actor(e)
+    press(e,('L',),16,300)
+    b=actor(e)
+    airborne=bool(a and b and abs(b['z']-a['z']) > 1000)
+    rows.append(dict(action='L takeoff',change=delta(a,b),
+                     passed=airborne,airborne=airborne))
+    before=actor(e)
+    press(e,('A',),120)
+    after=actor(e)
+    d=delta(before,after)
+    rows.append(dict(action='A fly',change=d,passed=bool(d and d['horizontal_units'] > 100)))
+    for label,btn in (('LEFT steer','LEFT'),('RIGHT steer','RIGHT')):
+        before=actor(e)
+        press(e,(btn,'A'),90)
+        after=actor(e)
+        d=delta(before,after)
+        rows.append(dict(action=label,change=d,passed=bool(d and abs(d['heading_units']) > 0)))
+    before=actor(e)
+    press(e,('B',),180)
+    after=actor(e)
+    d=delta(before,after)
+    rows.append(dict(action='B descend',change=d,passed=bool(d and d['vertical_units'] < 0)))
+    before=actor(e)
+    press(e,('L',),16,900)
+    after=actor(e)
+    d=delta(before,after)
+    rows.append(dict(action='L land',change=d,passed=bool(after and after['kind'] == HELICOPTER)))
+    press(e,('L',),16,300)
+    p=actor(e)
+    rows.append(dict(action='L exit after landing',passed=bool(p and p['kind'] is None),
+                     exited=bool(p and p['kind'] is None),
+                     controlled_after=None if p is None else p['index']))
+    return rows
+
+
+def main(argv=None):
+    ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('rom', type=Path, help='original SHA-1 verified 8 MiB European GBA ROM')
+    ap.add_argument('--out', required=True, type=Path, help='PRIVATE numeric JSON report; do not commit')
+    ap.add_argument('--survey-frames', type=int, default=2400, help='observe traffic for N emulated frames, minimum 1')
+    ap.add_argument('--step', type=int, default=120, help='survey snapshot interval')
+    ap.add_argument('--require-all', action='store_true', help='exit 3 if any of 18 descriptors unobserved')
+    ap.add_argument('--max-tests', type=int, default=18, help='maximum types to attempt')
+    a=ap.parse_args(argv)
+    if a.survey_frames < 1 or a.step < 1 or not 1 <= a.max_tests <= 18:
+        ap.error('survey-frames, step and max-tests must be positive')
+    if a.out.resolve().is_relative_to(HERE.parent.parent):
+        ap.error('private report must be outside the public Git repository')
+    data=a.rom.read_bytes()
+    if len(data)!=0x800000 or hashlib.sha1(data).hexdigest()!=OWNER_EU_SHA1:
+        ap.error('original 8 MiB European Payback ROM SHA-1 does not match')
+    if not os.environ.get('MGBA_CORE') or not Path(os.environ['MGBA_CORE']).is_file():
+        ap.error('mGBA libretro core unavailable: privately set MGBA_CORE to libretro-mgba shared library')
+    from retro import Emu
+    from drive_lanes import BOOT
+    report=dict(schema=1,source='original_gba_mgba',owner_rom_sha1=OWNER_EU_SHA1,
+                setup='Existing vehicles, player position adjustment only, real controller input',
+                matched={},unobserved=[],failed=[],status='INCOMPLETE')
+    with Emu('gba',a.rom,capture_video=False) as e:
+        for n,b in BOOT:
+            e.run(n,[b] if b else [])
+        if e.r32(CLOCK)==0 or actor(e) is None:
+            raise RuntimeError('boot did not reach live Rampage level; no gameplay claims can be made')
+        seen={}
+        # Take a *new* save state for each naturally present descriptor type,
+        # then restore it before testing; no model swapping and no screens.
+        for t in range(0,a.survey_frames,a.step):
+            snapshot=e.save_state()
+            for kind,instances in census(e).items():
+                if kind not in seen:
+                    seen[kind]=(snapshot,instances[0]['index'],e.frames)
+            e.run(min(a.step,a.survey_frames-t),[])
+        for kind in sorted(seen)[:a.max_tests]:
+            snap,index,frame=seen[kind]
+            ok,reason=enter_existing(e,snap,kind,index)
+            if not ok:
+                report['matched'][str(kind)]={'observed_at_frame':frame,'entered':False,'reason':reason}
+                report['failed'].append(kind)
+                continue
+            entry=actor(e)
+            actions=helicopter(e) if kind==HELICOPTER else ground_vehicle(e)
+            verified=all(row['passed'] for row in actions)
+            if not verified:
+                report['failed'].append(kind)
+            report['matched'][str(kind)]=dict(observed_at_frame=frame,entered=True,
+                                              controls_passed=verified,
+                                              controlled_index=entry['index'],
+                                              plan=action_plan(kind),actions=actions)
+        report['unobserved']=[i for i in range(MAX_VEHICLE_KIND+1) if str(i) not in report['matched']]
+        report['status']='PASS_OBSERVED' if not report['failed'] else 'OBSERVED_DEFECTS'
+    a.out.parent.mkdir(parents=True, exist_ok=True)
+    a.out.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+    print(f"mGBA observed {len(report['matched'])} of 18 descriptor types; "
+          f"entered failed {len(report['failed'])}, unobserved {len(report['unobserved'])}")
+    if a.require_all and report['unobserved']:
+        return 3
+    return 1 if report['failed'] else 0
+
+
+if __name__=='__main__':
+    sys.exit(main())
