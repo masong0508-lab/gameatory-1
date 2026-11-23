@@ -36,7 +36,27 @@ class VehicleMatrixTests(unittest.TestCase):
     def test_delta_tracks_rotation_and_height_separately(self):
         a=dict(x=0,y=0,z=19904,heading=5600)
         b=dict(x=300,y=400,z=20904,heading=100)
-        self.assertEqual(m.delta(a,b),dict(horizontal_units=500.0,vertical_units=1000,heading_units=260))
+        self.assertEqual(m.delta(a,b),dict(horizontal_units=500.0,vertical_units=1000,climb_units=-1000,heading_units=260))
+
+    def test_helicopter_climb_descent_and_ground_landing(self):
+        entry=dict(z=19904)
+        air=dict(z=11000)
+        falling=dict(z=23000)
+        self.assertTrue(m.helicopter_climbed(entry, air))
+        self.assertFalse(m.helicopter_climbed(entry, falling))
+        self.assertFalse(m.helicopter_climbed(entry, dict(z=19000)))
+        self.assertTrue(m.helicopter_landed(19904, air, dict(z=19900)))
+        self.assertFalse(m.helicopter_landed(19904, air, dict(z=13000)))
+        self.assertFalse(m.helicopter_landed(19904, air, dict(z=9000)))
+        self.assertFalse(m.helicopter_landed(19904, air, dict(z=23000)))
+
+    def test_brake_from_standstill_is_diagnostic_not_movement_requirement(self):
+        # Original ROM survey can record B movement without asserting an
+        # arbitrary 32-unit reverse threshold from a standing start.
+        import inspect
+        src=inspect.getsource(m.ground_vehicle)
+        self.assertIn('diagnostic_only=True',src)
+        self.assertIn('passed=None',src)
 
     def test_wrong_rom_hash_never_starts_mgba_or_claims_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
