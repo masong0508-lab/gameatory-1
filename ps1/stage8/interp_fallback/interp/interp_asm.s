@@ -41,10 +41,10 @@ interp_enter:
   nop
   sw $2,68($24)                  # pc (state bit fixed in interp_top)
   sw $0,72($24)
-  la $2,ip_stacks                # C stack for this depth: ip_stacks + (depth+1)*4096
-  sll $3,$1,10
-  addu $29,$2,$3
-  addiu $29,$29,-16
+  la $2,ip_stacks+0x4400         # C stack for this depth, 1 KiB each, handed out from the TOP of the 16 KiB area down: depth d starts at
+  sll $3,$1,10                   # ip_stacks + 0x4000 - d*1024 ($1 = d+1).  Depth 0 (nearly every call) thus has the unused deeper slots
+  subu $29,$2,$3                 # below it instead of the ROM page table (ROMPG 0x8002a000..0x8002c000): a depth-0 stack deeper than
+  addiu $29,$29,-16              # 1 KiB used to overwrite the top of ROMPG, which -DDISP_D3 makes the live page table (wave-1 integration)
   jal interp_top
   move $4,$24
   move $25,$2                    # host address to continue at

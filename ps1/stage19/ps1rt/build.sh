@@ -30,7 +30,7 @@ for tool in python3 "$PS1_CC" "$PS1_LD" "$PS1_OBJCOPY" "$PS1_GENISOIMAGE" "$PS1_
     if ! command -v "$tool" >/dev/null 2>&1; then echo "Missing tool: $tool" >&2; missing=1; fi
 done
 for file in "$ROM" ../mkps1.py rt.c crt0.s font.h hw_pad.h hw_card.h hw_cdda.h hw_radio.h hw_stub.h \
-    ppu12.h "$LINK_SCRIPT" "$SF3SRC" ../sf/ps1.h ../sf/sfmem.h ../sf/sfdata.s ../tools/mips1_lint.py \
+    ppu12.h "$LINK_SCRIPT" "$SF3SRC" ../sf/ps1.h ../sf/sfmem.h ../sf/sfdata.s ../tools/mips1_lint.py ../tools/disp_patch_check.py \
     ../rd/doll.c ../rd/ragdoll_ps1.c ../rd/ragdoll_ps1.h ../rd/gte_rp.h ../rd/ps1.h \
     "../out/$BOOT" ../out/SF3M.BIN "../out/$PRD/payback_P.map" "../out/$PRD/payback_P.bin" \
     "../out/$PRD/meta_P.pkl" "../out/$PRD/coldtab_P.bin" "../out/$PRD/rompages_P.pkl" "$PROGPKL"; do
@@ -48,6 +48,9 @@ if [ -z "$NO_INTERP" ]; then
 fi
 if [ "$SNAP" = 1 ] && [ ! -f ../out/SNAP.BIN ]; then echo 'Missing input: ../out/SNAP.BIN' >&2; missing=1; fi
 if [ -n "$SNAPFILE" ] && [ ! -f "../out/$SNAPFILE" ]; then echo "Missing input: ../out/$SNAPFILE" >&2; missing=1; fi
+# speed item M11 (-DEXEPACK in CFL): a packed PSX.EXE, rebuilt by crt0 before main (exepack.py)
+EXEPACK=0; case " $CFL " in *" -DEXEPACK "*) EXEPACK=1 ;; esac
+if [ "$EXEPACK" = 1 ] && [ ! -f exepack.py ]; then echo 'Missing input: exepack.py' >&2; missing=1; fi
 [ "$missing" = 0 ] || fail 'assemble the source tree and generate its private translation/map inputs first; see ps1/STATUS.md'
 python3 - "$ROM" <<'PY'
 from pathlib import Path
@@ -91,13 +94,30 @@ RDF="--target=mipsel-none-elf -march=mips1 -mno-abicalls -mfp32 -msoft-float -fn
 
 mkexe() {
     run "package-$PASS" python3 ../mkps1.py "$ROM" "../out/$PRD" P "../out/$BOOT" "../out/$PRD/rompages_P.pkl" "$WORK"
+    # PS1 speed plan (ps1rt/clk.h): the host return addresses of the level loop's get_time calls, for builds that use them
+    case " $CFL " in *" -DRTC_PRESENT "*|*" -DSPEEDPROF "*)
+        run "limsyms-$PASS" python3 - "../out/$PRD/payback_P.map" "$WORK/syms.c" <<'PY' ;;
+import sys
+m = {}
+for line in open(sys.argv[1]):
+    f = line.split()
+    if len(f) == 2:
+        m[int(f[0], 16)] = int(f[1], 16)
+# get_time (0x08077c84) is called from 0x08023d54 (loop entry) and from the limiter at 0x0802471c (elapsed), 0x08024728 (wait), 0x08024758 (t_last)
+ra = [m[0x08023d58], m[0x08024720], m[0x0802472c], m[0x0802475c]]
+with open(sys.argv[2], 'a') as f:
+    f.write('const unsigned LIM_RA_ENTRY=0x%08x, LIM_RA_ELAPSED=0x%08x, LIM_RA_WAIT=0x%08x, LIM_RA_TLAST=0x%08x;\n' % tuple(ra))
+print('limiter return addresses', ' '.join('%08x' % a for a in ra))
+PY
+    esac
     if [ -z "$NO_INTERP" ]; then
         run "interp-$PASS" "$PS1_CC" $F -Os -I../interp -c ../interp/interp.c -o "$WORK/interp.o"
         run "interp-asm-$PASS" "$PS1_CC" $F -c ../interp/interp_asm.s -o "$WORK/interp_asm.o"
         IPO="$WORK/interp.o $WORK/interp_asm.o"; CFL_IP=-I../interp
     else IPO=; CFL_IP=-DNO_INTERP; fi
     run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
-    run "startup-$PASS" "$PS1_CC" $F -c crt0.s -o "$WORK/crt0.o"
+    if [ "$EXEPACK" = 1 ]; then ASF=-Wa,-defsym,EXEPACK=1; else ASF=; fi
+    run "startup-$PASS" "$PS1_CC" $F $ASF -c crt0.s -o "$WORK/crt0.o"
     run "symbols-$PASS" "$PS1_CC" $F -c "$WORK/syms.c" -o "$WORK/syms.o"
     run "blobs-$PASS" "$PS1_CC" $F -c "$WORK/blobs.s" -o "$WORK/blobs.o"
     run "renderer-$PASS" "$PS1_CC" $SFF -c "$SF3SRC" -o "$WORK/sf3.o"
@@ -113,7 +133,14 @@ mkexe() {
     # rc7: the intro fix patches the ZOO-logo stub site and the overlay hash slots at boot (interp_glue.h): the same words are checked here, so a
     # translation of another shape fails the build instead of booting into the old loop
     if [ -z "$NO_INTERP" ]; then run "intro-site-$PASS" python3 ../tools/check_intro_site.py "$WORK/payback.elf"; fi
+    # the dispatch boot patch words (rt.c dsp_new, PLAN.md Stage 2) decode to the blob stubs they assume; without dispatch code nothing is checked
+    run "disp-patch-check-$PASS" python3 ../tools/disp_patch_check.py "$WORK/payback.elf"
     run "binary-$PASS" "$PS1_OBJCOPY" -O binary "$WORK/payback.elf" "$WORK/payback.bin"
+    if [ "$EXEPACK" = 1 ]; then
+        # the packer checks its own result (an unpack model from garbage RAM must give the image back) and fails the build otherwise
+        run "exe-$PASS" python3 exepack.py "$WORK/payback.bin" "$WORK/payback.elf" "$WORK/$NAME.exe"
+        return
+    fi
     run "exe-$PASS" python3 - "$WORK/payback.bin" "$WORK/$NAME.exe" <<'PY'
 import struct, sys
 from pathlib import Path

@@ -39,7 +39,7 @@ static inline const u8 *ip_direct(u32 ea){
 }
 u32 ip_rd(u32 ea,u32 size){
   const u8*p; u32 r=ea>>24;
-  if(r==8||r==9){ u32 pg=(ea>>12)&2047; p=rom_pg[pg]; if(p){ ROM_REF(pg); p+=ea&4095; } }
+  if(r==8||r==9){ u32 pg=(ea>>12)&2047; p=rom_pg[pg]; if(p) p+=ea&4095; }
   else p=ip_direct(ea);
   if(p) return size==4?*(const u32*)p:size==2?(u32)*(const u16*)p:(u32)*p;
   return h_memrd(ea,size==1?0:size==2?2:4);

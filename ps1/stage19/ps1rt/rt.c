@@ -36,9 +36,60 @@ static void dec(u32 v){ char b[12]; int n=0; if(!v) b[n++]='0'; while(v){b[n++]=
 
 /* ---------------------------------------------------------------- ROM page store (resident pages shipped in the EXE) */
 static u32 rp_n; static const u32 *rp_idx; static const u8 *rp_data; static u32 rom_miss_count, rom_miss_last, cd_sectors, cd_time_rc;
+#include "clk.h"       /* PS1 speed plan: the 64-bit clock (RTC64) and the test-only speed stamps (SPEEDPROF); first part */
+#ifdef DISP_D3
+/* stage 20 D3: the page table is the translator's reserved ROMPG (t2m.py Cfg.ROMPG, 2048 x u32), so the blob's own RT_MEMRD fast path reads
+   the same table as rom_page(): non-zero = resident, cleared on every eviction (cd_fetch).  Zeroed in main(); the absolute symbol keeps the
+   name for the test rig (misses.csv). */
+#define rom_pg ((const u8**)0x8002a000)
+__asm__(".globl rom_pg\n.set rom_pg, 0x8002a000\n");
+#else
 static const u8 *rom_pg[2048];
+#endif
 static u32 g_pres, g_gframes;   /* presented pictures, guest (GBA) frames */
 static u32 cd_rd_gf;            /* the guest frame in which the last data read ended (hw_cdda.h resumes the music after a quiet interval) */
+#ifdef CDSTAT
+static u32 cd_nreq, cd_npass;   /* test counters (speed stage 3): data requests (one Setloc+ReadN each, retries not counted), passes (retries counted) */
+#define CDSTAT_INC(v) ((v)++)
+#else
+#define CDSTAT_INC(v) ((void)0)
+#endif
+#if defined(CDPADPOLL) && !defined(CDSIM)
+/* speed item P6: the pad is also polled inside the CD driver's waits, at most once per PS1 field (263 hblank lines: the CPU only waits there),
+   and on cold calls, at most once per 2 fields (cold_find: the level load runs one guest frame of several seconds that calls cold code
+   thousands of times a second and reads no disc for up to 4 s; a poll costs about 0.4 ms of CPU there; 2 fields, 33 ms, still fall inside
+   the shortest press tested, 3 frames = 50 ms: 3 fields did not), and every 1024th guest store on the slow raw-address path (h_memwr:
+   right after 'Play game' the guest fills guest memory that way for about 0.2 s with no cold call and no I/O read), so a press made while
+   the guest stands still for a read or a long load is not lost: pad_cdlat keeps the buttons seen there (GBA KEYINPUT bits, 1 = pressed)
+   until the guest's next KEYINPUT read, which sees them pressed once; pad_latch (defined with the pad path below) gets them too (radio,
+   map keys).
+   Coverage with the dispatch items on (wave 1 review): DISP_D1 / DISP_D2 send repeated cold calls past cold_find (rt_mcache hit or a
+   linked jal), and DISP_D4's wr_front stores to EWRAM / IWRAM without h_memwr, so the cold-call and raw-store polls fire only on a D1
+   miss and on raw stores to regions 5-7.  What still covers a long stall is the poll in the CD waits (the level is CD-bound: most of an
+   iteration is CD wait) and the real-frame pad read at every KEYINPUT read and present (RTC_GFRAMES); the level-start taps of 3, 6 and 12
+   frames lose none on the combined build (taps_level_vf). */
+/* pad_cddn: the buttons down at the last look (the guest's last KEYINPUT read, or the last poll here).  Only a button that goes down after
+   that is latched: a press the guest has already seen (a cursor key still held at a CD wait right after the read that moved the cursor)
+   is not delivered again at the next read.  Without this edge rule the title menu got that stale DOWN together with the next Cross, many
+   frames after DOWN was released (Down+A in one read), and did not open the entry (wave 1 fixup: boot_to_title, title_trace 8/8). */
+static u32 pad_cdt, pad_cdlat, pad_cddn, pad_rawn; static u32 pad_latch;
+#ifdef CDSTAT
+static u32 pad_cdpolls, pad_cddeliv;   /* test counters: polls made here; KEYINPUT reads that a latched press changed */
+#endif
+static void cd_padpoll(u32 lines);
+#ifdef CDPADPOLL_AB
+u32 pad_cd_off;   /* TEST ONLY: P6 on and off from one level state.  The session writes a mask here: 1 no polls in the CD waits, 2 none on cold calls,
+                     4 none on raw stores (7: P6 off) */
+#define CD_PADPOLL(lines) do{ if(!(pad_cd_off&((lines)==263u?1u:2u))) cd_padpoll(lines); }while(0)
+#define RAW_PADPOLL() do{ if(!(++pad_rawn&1023u)&&!(pad_cd_off&4u)) cd_padpoll(526u); }while(0)
+#else
+#define CD_PADPOLL(lines) cd_padpoll(lines)
+#define RAW_PADPOLL() do{ if(!(++pad_rawn&1023u)) cd_padpoll(526u); }while(0)
+#endif
+#else
+#define CD_PADPOLL(lines) ((void)0)
+#define RAW_PADPOLL() ((void)0)
+#endif
 /* ---------------------------------------------------------------- CD-ROM (polling driver, no IRQ): whole sectors, every one identified by its own header
    ROM data pages (4 KiB = 2 sectors) are fetched on demand from ROM.BIN on the disc into a FIFO-replaced page cache. */
 #define CD0 (*(volatile u8*)0x1F801800)
@@ -87,14 +138,14 @@ static u8 cd_stat;
    Every wait is bounded in TIME by root counter 1 (horizontal blanks, 15734 per second), whatever the CPU, the drive or an emulator's speed-up do. */
 static u32 hl_t, hl_acc;
 static void hl_start(void){ hl_t=RC1_VAL&0xffff; hl_acc=0; }
-static u32 hl_past(void){ u32 t=RC1_VAL&0xffff; hl_acc+=(t-hl_t)&0xffff; hl_t=t; return hl_acc; }
+static u32 hl_past(void){ u32 t=RC1_VAL&0xffff; hl_acc+=(t-hl_t)&0xffff; hl_t=t; CLK_POLL(); return hl_acc; }
 #define HL_RESP 16000u      /* about 1 s: the first response of a command, a further sector of a running read */
 #define HL_LONG 80000u      /* about 5 s: a second response (Pause, Init), the first sector after a seek or a spin-up */
 static void cd_ack(void){ CD0=1; CD3=0x1f; }
 static u32 cd_flags(void){ CD0=1; u32 f=CD3&7; if(f) f=CD3&7; return f; }        /* psx-spx: the first non-zero read may be unstable: read again */
 static void cd_result(u8*r){ for(u32 n=0;(CD0&0x20)&&n<16;n++){ u8 b=CD1; if(!n) cd_stat=b; if(r&&n<8) r[n]=b; } }
 static u32 cd_waitint(u32 lim){
-  hl_start(); for(;;){ u32 f=cd_flags(); if(f) return f; if(hl_past()>lim) break; }
+  hl_start(); for(;;){ u32 f=cd_flags(); if(f) return f; if(hl_past()>lim) break; CD_PADPOLL(263u); }
   cd_timeouts++; if(cd_dbg<40){ cd_dbg++; dbg("CD timeout\n"); } return 0; }
 /* acknowledge whatever is pending (a sector of a read that is still running, a late second response, the end of a track) before a new command:
    psx-spx: responses queue up behind an unacknowledged one, so a command must never be sent with an interrupt pending */
@@ -128,8 +179,26 @@ static void cd_error_screen(u32 lba); static void cd_error_gone(void);
 int sv_load(u8*ee,u32 n) RTCOLD;          /* rc7: once, at the first save-chip access */
 #include "hw_card.h"    /* memory card + EEPROM save layer */
 #endif
+#if defined(CDPADPOLL) && !defined(CDSIM)
+__attribute__((noinline)) static void cd_padpoll(u32 lines){ u32 t=RC1_VAL&0xffff; if(((t-pad_cdt)&0xffff)<lines) return; pad_cdt=t;
+  u32 dn=0x3ffu&~pad_poll(); pad_cdlat|=dn&~pad_cddn; pad_cddn=dn; pad_latch|=pad_raw; CDSTAT_INC(pad_cdpolls); }
+#endif
 #ifndef CDSIM
 void cdda_init(void) RTCOLD;              /* rc7: once, at boot */
+#ifdef RTC_GFRAMES
+/* PS1 speed Stage 1, item 1e (PLAN.md; critique K6): with the real-time clock g_gframes counts real GBA frames, 59.7 a second.  The radio's
+   quiet interval, its back-off limit and its play check were set in virtual frames, which ran at 1.5-7 a second in rc6: in real frames they
+   become 60 / 480 / 240 (1 s, 8 s, 4 s), the same real time as before.  A build may still set its own values. */
+#ifndef CDDA_QUIET
+#define CDDA_QUIET 60u
+#endif
+#ifndef CDDA_QMAX
+#define CDDA_QMAX 480u
+#endif
+#ifndef CDDA_WD
+#define CDDA_WD 240u
+#endif
+#endif
 #include "hw_cdda.h"    /* CD-DA playback */
 #else
 #include "hw_stub.h"
@@ -162,6 +231,7 @@ static u32 cd_map[CD_RUN/32];
    overrun with a read speed-up), delivered late or delivered twice can never be taken for another one.
    Returns 0 when the request is complete, -1 on an error answer or a timeout, -2 when the drive went past the request with sectors missing. */
 static int cd_pass(u32 lba,u32 n,u8*dst,u32*left){
+  CDSTAT_INC(cd_npass);
   u32 first=0; while(first<n&&((cd_map[first>>5]>>(first&31))&1)) first++;
   u32 a=lba+first+150; u8 p[3]={bcd(a/4500),bcd((a/75)%60),bcd(a%75)}, r[8];
   if(cd_cmd(0x02,p,3,r)!=3) return -1;                            /* Setloc */
@@ -189,11 +259,18 @@ static int cd_pass(u32 lba,u32 n,u8*dst,u32*left){
   }
   return 0;
 }
+#ifdef SPEEDPROF
+/* stamps: CD read time, and the part of it outside present() (map loads in present are already in the present's time) */
+static void cd_read0(u32 lba,u32 nsec,u8*dst);
+static void cd_read(u32 lba,u32 nsec,u8*dst){ u32 t=sp_now(); cd_read0(lba,nsec,dst); u32 l=sp_now()-t; sp_acc[SP_CDL]+=l; if(!sp_inpres) sp_acc[SP_CDX]+=l; }
+#define cd_read cd_read0
+#endif
 /* read nsec consecutive 2048-byte sectors starting at disc LBA into dst.  The drive is left reading: cd_idle() (once per presented picture)
    pauses it, so a read that follows at once costs no Pause and no seek back.  CD audio stays held until cd_resume() finds the disc quiet. */
 static void cd_read(u32 lba,u32 nsec,u8*dst){
   while(nsec>CD_RUN){ cd_read(lba,CD_RUN,dst); lba+=CD_RUN; nsec-=CD_RUN; dst+=CD_RUN*2048; }
   cdda_hold();                                                    /* a data seek ends CD-DA playback: remember the position, pause */
+  CDSTAT_INC(cd_nreq);
   if(!cd_ready) cd_init();
   for(u32 i=0;i<CD_RUN/32;i++) cd_map[i]=0;
   if(cd_dbg<12){ cd_dbg++; dbg("cd_read lba "); dec(lba); dec(nsec); dbg("\n"); }
@@ -217,44 +294,118 @@ static void cd_read(u32 lba,u32 nsec,u8*dst){
     if((fails&3)==0) cd_init();                                   /* every fourth failed pass in a row: reset the drive */
     if(fails>=CD_TRIES) cd_error_screen(lba);
   }
+#ifdef RTC_GFRAMES
+  clk_gba();             /* g_gframes counts real frames now (it is brought up to date at clock reads): the quiet interval starts at the end of this read */
+#endif
   cd_sectors+=nsec; cd_rd_gf=g_gframes;
   if(cd_err_on) cd_error_gone();                                  /* the disc reads again: the next picture replaces the message */
 }
+#ifdef SPEEDPROF
+#undef cd_read
+#endif
 /* at the start of present(): pause a data read left running since the last picture */
 static void cd_idle(void){ if(cd_reading) cd_pause(); }
 /* at the end of present(): CD audio held for data reads comes back once the disc has been quiet for a while (hw_cdda.h) */
 static void cd_resume(void){ cdda_idle(); }
 #endif
+#ifdef DISP_PROF
+/* TEST-ONLY (stage 20 dispatch measurements): where the time of a level-loop iteration goes, in hblank lines (RC1, 15734 per second).  RC1 is
+   extended to 32 bits by dsp_rc(), which runs at every timer read, CD page fetch and present (each well within its 4.1-s wrap).  The phases are
+   cut at the limiter's two timer reads, told apart by the caller's return address that RT_CC saved at 0x801fffc8 (get_time 0x08077c84 is a leaf
+   up to its TM3 read): game logic = t_last read (guest 0x08024758) -> the next elapsed read (0x0802471c); limiter spin = the rest.  Lines spent
+   in CD page fetches (dsp_cdl) and in present() (dsp_prl, without its own fetches) are taken out of both phases. */
+#ifndef PROF_RA_E
+#define PROF_RA_E 0x800a1424u     /* host return address of the elapsed read (guest 0x08024720) in this blob (payback_P.map) */
+#endif
+#ifndef PROF_RA_T
+#define PROF_RA_T 0x800a14d8u     /* host return address of the t_last read (guest 0x0802475c) */
+#endif
+static u32 dsp_rch, dsp_rcl;
+static u32 dsp_rc(void){ u32 t=RC1_VAL&0xffff; if(t<dsp_rcl) dsp_rch+=0x10000; dsp_rcl=t; return dsp_rch|t; }
+u32 dsp_cdl, dsp_prl, dsp_lgl, dsp_spl, dsp_lgn, dsp_spn;
+static u32 dsp_ph, dsp_ph0, dsp_cd0, dsp_pr0;
+static void dsp_phase(u32 ra){
+  u32 t=dsp_rc(), ph=ra==PROF_RA_T?1u:(ra==PROF_RA_E?2u:0u);
+  if(!ph||ph==dsp_ph) return;
+  u32 net=(t-dsp_ph0)-(dsp_cdl-dsp_cd0)-(dsp_prl-dsp_pr0);
+  if(dsp_ph==1){ dsp_lgl+=net; dsp_lgn++; } else if(dsp_ph==2){ dsp_spl+=net; dsp_spn++; }
+  dsp_ph=ph; dsp_ph0=t; dsp_cd0=dsp_cdl; dsp_pr0=dsp_prl; }
+#endif
 #ifdef PCACHE1
 /* stage 19: one 4 KiB page (2 sectors) per fetch into the next of NSLOT single-page slots (FIFO replacement).  With the measured resident set
    (t/resident62.txt) the rest of the working set is small, and a single page per seek reads 4 times less than a 16 KiB cluster.
-   stage 20: from the first level on (rom_pool, set by present() once the 3D renderer is up) the resident pages and the slots are one pool of
-   pool_rp+NSLOT frames with CLOCK replacement: rom_ref[page] is set by every read of a page in RAM and cleared when the hand passes its frame; the victim is
-   the first frame under the hand whose page was not read since the last pass.  In a vehicle the level reads 17 pages beyond the resident set in a cycle:
-   with 8 FIFO slots each of them came from the CD again about every second guest frame (5.5 fetches per second, 0.6 guest frames/s on SwanStation).
-   Boot and the menus before the first level keep the stage 19 behaviour (FIFO over the slots, resident pages kept).  Nothing holds a page pointer across a
-   fetch: rom_read resolves every byte, rom_copy and the DMA path one page at a time, ip_rd every access. */
+   stage 20 (rc7): from the first level on (rom_pool, set by present() once the 3D renderer is up) the resident pages and the slots are one pool of
+   pool_rp+NSLOT frames with CLOCK replacement.  In a vehicle the level reads 17 pages beyond the resident set in a cycle: with 8 FIFO slots each of
+   them came from the CD again about every second guest frame (5.5 fetches per second, 0.6 guest frames/s on SwanStation).
+   rc8: the reference bit is the page-table entry itself.  With -DDISP_D3 the blob's own RT_MEMRD fast path (and D4's rd_front) read resident ROM
+   pages straight from ROMPG without any C code, so a reference mark set in rom_page() never saw them: hot pages read only by translated code
+   looked unused and were evicted first.  So when the hand passes a frame whose page is mapped (read since the last pass, or never looked at
+   since it came in), it unmaps the page (rom_pg[pg] = 0) and keeps its data in the frame (pg_fr[pg] = frame+1); the next read of that page, by
+   any path (blob fast path, rd_front, rom_page, ip_rd, DMA), finds the entry 0, reaches cd_fetch through the slow path, and maps the frame
+   again without a disc read (rom_soft counts these).  The victim is the first frame under the hand whose page is unmapped: not read since the
+   hand last passed.  Boot and the menus before the first level keep the stage 19 behaviour (FIFO over the slots, resident pages kept, M3 page
+   pairs).  Nothing holds a page pointer across a fetch: rom_read resolves every byte, rom_copy and the DMA path one page at a time, ip_rd every
+   access. */
 #define RP_MAX 64
 static u16 fr_pg[RP_MAX+NSLOT];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
-static u8 rom_ref[2048];
-static u32 rom_pool, pool_rp, pool_hand;
-#define ROM_REF(pg) (rom_ref[pg]=1)
+static u8 pg_fr[2048];                  /* frame+1 that holds each page (mapped or unmapped by the hand), 0 = not in RAM */
+_Static_assert(RP_MAX+NSLOT<255, "pg_fr holds frame+1 in a byte");
+static u32 rom_pool, pool_rp, pool_hand, rom_soft;
 static u8 *pool_frame(u32 f){ return f<pool_rp?(u8*)rp_data+f*4096:PCACHE+(f-pool_rp)*4096; }
+#ifdef COLD1PASS
+static u32 cold_m5; static void cold_all(void); static int pal_bg_zero(void);
+#endif
+#ifdef PCPAIR
+static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pair */
+#endif
+/* frame f gets page pg (data already in it): the maps both ways */
+static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1; }
+/* frame f is reused: its page (if any) leaves RAM */
+static void pool_drop(u32 f){ u32 o=fr_pg[f]; if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
+/* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
+   gread ... (or inline the whole miss path into them) */
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
+  { u32 f1=pg_fr[pg]; if(f1){ rom_pg[pg]=pool_frame(f1-1); rom_soft++; return rom_pg[pg]; } }   /* read again after the hand unmapped it: no disc read */
+#ifdef COLD1PASS
+  /* speed item M5: the game's first data read comes in the boot's black screen (BG palette all zero, no OBJ shown): COLD.BIN first */
+  if(!cold_m5 && !rom_miss_count && pal_bg_zero()) cold_all();
+#endif
+#ifdef PCPAIR
+  /* speed item M3: the aligned 8 KiB pair (4 sectors, one seek) into two adjacent slots, unless the other page of the pair is already in
+     memory (resident or in a slot).  A pair never wraps round the slot ring: when only the last slot is left, the pair starts again at
+     slot 0 and the last slot keeps its page for one more round.  Only while no level clock runs (boot, menus, the level load) and before the
+     first level (rc8: the CLOCK pool owns the slots from then on): in a running level the misses are scattered and a pair halves the pages the
+     8 slots hold (measured from the same level state, both cores: misses per guest frame -10 to -20 %, sectors +5 to +39 %, ticks/s 0 to -5 %).
+     PCPAIR_LEVEL pairs in levels too (measurement only). */
+#ifdef PCPAIR_LEVEL
+  if(NSLOT>=2 && !rom_pool && !rom_pg[pg^1u] && !pg_fr[pg^1u]){
+#else
+  if(NSLOT>=2 && !rom_pool && !rom_pg[pg^1u] && !pg_fr[pg^1u] && !*(volatile u32*)(EW+0x1e00)){
+#endif
+    if(slot_next>=NSLOT-1) slot_next=0;
+    u32 s=slot_next, lo=pg&~1u; slot_next=(slot_next+2)%NSLOT;
+    for(u32 k=0;k<2;k++) pool_drop(pool_rp+s+k);
+    cd_read(CD_ROM_LBA+lo*2,4,PCACHE+s*4096);
+    for(u32 k=0;k<2;k++) pool_set(pool_rp+s+k,lo+k);
+    rom_miss_count++; rom_pairs++; rom_miss_last=pg<<12;
+    return rom_pg[pg];
+  }
+#endif
   u32 f;
   if(!rom_pool){ f=pool_rp+slot_next; slot_next=(slot_next+1)%NSLOT; }
-  else { u32 n=pool_rp+NSLOT; for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_ref[o-1]) break; rom_ref[o-1]=0; } }
-  if(fr_pg[f]) rom_pg[fr_pg[f]-1]=0;
-  fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0;
+  else { u32 n=pool_rp+NSLOT; for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; } }   /* second chance: unmap, keep the data */
+  pool_drop(f);
   u8 *d=pool_frame(f);
+#ifdef DISP_PROF
+  { u32 t0=dsp_rc(); cd_read(CD_ROM_LBA+pg*2,2,d); dsp_cdl+=dsp_rc()-t0; }
+#else
   cd_read(CD_ROM_LBA+pg*2,2,d);
-  fr_pg[f]=pg+1; rom_pg[pg]=d; rom_ref[pg]=1;
-  if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1;     /* nothing reads slot_owner in this mode, so the compiler drops it with its stores (no such symbol in rc7): the rig reads the pool from fr_pg and pool_rp (STATUS.md, rc7) */
+#endif
+  pool_set(f,pg);
   rom_miss_count++; rom_miss_last=pg<<12;
   return d;
 }
 #else
-#define ROM_REF(pg) ((void)0)
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   u32 base=pg&~3u;                                               /* fetch the aligned 16 KiB cluster (4 pages, 8 sectors) per seek */
   u32 s=slot_next; slot_next=(slot_next+4)%NSLOT;
@@ -265,7 +416,7 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   return rom_pg[pg];
 }
 #endif
-static inline const u8 *rom_page(u32 pg){ pg&=2047; const u8*p=rom_pg[pg]; if(p){ ROM_REF(pg); return p; } return cd_fetch(pg); }
+static inline const u8 *rom_page(u32 pg){ pg&=2047; const u8*p=rom_pg[pg]; return p?p:cd_fetch(pg); }
 static u32 rom_byte(u32 off){ return rom_page(off>>12)[off&4095]; }
 /* one page lookup (and one reference mark) per access that stays inside its page, and cd_fetch out of line: the hit path of rom_page is a load, a store
    and a test.  With the mark in rom_page, a lookup per byte through an out-of-line rom_page with a full register save made every ROM access of translated
@@ -357,11 +508,32 @@ static u32 kplan_keys(u32 f){
 /* rc7: io_cyc is the low word of a 64-bit GBA cycle count; io_hi takes its carry wherever io_cyc grows (IO_ADV: adv_lines, which adv_poll and the
    interpreter's raw timer use, and h_vbl), and the timers count from the 64-bit difference to their start (tm_t0h:tm_t0).  TM3:TM2 (TM2 at /1024,
    TM3 cascaded) is then the GBA's 32-bit pair and wraps after 72.8 hours instead of 256 s, when the old 32-bit difference wrapped and the time base the
-   game reads went back to 0 (its 1-s waits never ended).  TM0/TM1 at /1 still wrap their counts after 256 s (32-bit counts; Payback reads only TM2/TM3). */
+   game reads went back to 0 (its 1-s waits never ended).  TM0/TM1 at /1 still wrap their counts after 256 s (32-bit counts; Payback reads only TM2/TM3).
+   rc8: with the real-time clock (RTC_TIMERS, clk.h) the timers come from clk_gba(), the one 64-bit guest time base of that build (RC1 lines since
+   boot, 32 bits = 75.8 h, times 1066.285 GBA cycles in 64 bits); the virtual 64-bit timer state below is then not compiled, and io_cyc only counts
+   the virtual VCOUNT cycles that the debug lines and the test-only menu assist print. */
+#ifdef RTC_TIMERS
+static u32 io_cyc, io_acc, tm_rl[4], tm_ovb[4], tm_en[4];
+#define IO_ADV(c) (io_cyc+=(c))
+#else
 static u32 io_cyc, io_hi, io_acc, tm_t0[4], tm_t0h[4], tm_rl[4], tm_ovb[4], tm_en[4];
 #define IO_ADV(c) do{ u32 c_=(c); io_cyc+=c_; if(io_cyc<c_) io_hi++; }while(0)
-static void adv_lines(u32 n){ IO_ADV(n*1232); while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ g_gframes++; ppu_flush(); if((g_gframes&(sf3_ok?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0) present(); } } }
+#endif
+#include "clk.h"       /* second part: timers from the clock (RTC_TIMERS), presents at the limiter (RTC_PRESENT, RTC_PMAX) */
+#ifdef RTC_GFRAMES
+static u32 g_vf;       /* virtual frames (VCOUNT line 160, SWI 5): the menu present cadence; g_gframes counts real frames */
+#define VF g_vf
+#else
+#define VF g_gframes
+#endif
+#ifdef RTC_PRESENT
+#define VF_PRESENT() (!sf3_ok&&(VF&(PRESENT_MENU-1))==0)      /* the level presents at its limiter (C3) */
+#else
+#define VF_PRESENT() ((VF&(sf3_ok?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0)
+#endif
+static void adv_lines(u32 n){ IO_ADV(n*1232); while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ VF++; ppu_flush(); if(VF_PRESENT()){ SP_INC(SP_TRIG_ADV); present(); } } } }
 static void adv_poll(void){ io_acc+=96; if(io_acc>=1232){ io_acc-=1232; adv_lines(1); } }
+#ifndef RTC_TIMERS
 static u32 tm_cnt(u32 k,u32*ov){
   u32 ctrl=io[0x102+4*k]|(io[0x103+4*k]<<8); u32 counts;
   if(!(ctrl&0x80)){ *ov=0; return tm_rl[k]&0xffff; }
@@ -375,6 +547,7 @@ static void tm_write_check(void){
     if(en&&!tm_en[k]){ tm_rl[k]=io[0x100+4*k]|(io[0x101+4*k]<<8); tm_t0[k]=io_cyc; tm_t0h[k]=io_hi; if(k>0){ u32 o; tm_cnt(k-1,&o); tm_ovb[k]=o; } }
     tm_en[k]=en; }
 }
+#endif
 static u32 g_frames, g_dispcnt_writes, g_nvbl;
 static const u16 PAD[6]={0x3ff,0x3ff&~8,0x3ff,0x3ff&~1,0x3ff,0x3ff&~0x81};
 #ifdef AUTOKEYS
@@ -495,14 +668,60 @@ static u32 vc_n(u32 v){
   return 1;
 #endif
 }
+#ifdef DISP_FREEZE_GF
+/* TEST-ONLY (dispatch equivalence check, never a release): the guest stops for good at its first IO read of GBA frame DISP_FREEZE_GF.  Under the
+   virtual clock and the menu assist (KPLAN, no pad input) every build reaches that read through the same guest instructions, so the rig can
+   compare guest RAM (EWRAM, IWRAM, palette, OAM, VRAM shadow, io[]) between a build with the dispatch patches and one without. */
+u32 dsp_frozen;
+static void dsp_freeze(void){ dsp_frozen=1; dbg("DISP FREEZE at guest frame "); dec(g_gframes); dbg("\n"); for(;;){} }
+#endif
 u32 io_read(u32 off,u32 size){
+#ifdef DISP_FREEZE_GF
+  if(g_gframes>=DISP_FREEZE_GF) dsp_freeze();
+#endif
+#ifdef DISP_PROF
+  if(off==0x10c) dsp_phase(*(volatile u32*)0x801fffc8);   /* TEST-ONLY: a TM3 read (the limiter's get_time); 0x801fffc8 = the RT_CC-saved $31 of this read */
+#endif
   io_nread++;
+#ifdef SPEEDPROF
+  sp_now();
+#endif
+  ring_guard();
   if(off==0x130||off==0x131){
+#ifdef RTC_GFRAMES
+  clk_gba();            /* real frames: the pad is read at most once per GBA frame of real time */
+#endif
+#ifndef RTC_TIMERS
   adv_poll();
+#endif
 #ifdef SIMKEYS
  io_keys=sim_keys;          /* TEST-ONLY (unicorn sim): the host script writes sim_keys */
 #elif !defined(AUTOKEYS)
  if(pad_gf!=g_gframes){ pad_gf=g_gframes; pad_frame_poll(); io_keys=pad_gba; }
+#if defined(CDPADPOLL) && !defined(CDSIM)
+ if(pad_cdlat){
+#ifdef CDSTAT
+   if(io_keys&pad_cdlat) pad_cddeliv++;
+#endif
+   io_keys&=~pad_cdlat; pad_cdlat=0; }   /* P6: presses seen during a CD wait or a long load read as pressed once */
+#endif
+#ifdef PADSPLIT
+ /* wave 1 fixup, PADSPLIT: one pad change per guest frame.  The guest reads KEYINPUT once per frame of its own, and in the menus a
+    frame can now take 30-40 real frames when it waits for ROM pages; a player who lets go of DOWN and presses Cross within that time
+    gave the guest both changes in one read (DOWN up and A down together), and Payback's title menu then takes no A: the entry did
+    not open however long A was held (rig boot_to_title, title_trace 8/8).  When a read sees a button go up and another go down,
+    this read reports only the release; the new press is reported from the next guest frame on (kept in pad_split even if it was let
+    go meanwhile, so it reads as pressed once).  Only while the level clock stands still (menus, pause): in a running level a guest
+    frame is a whole level iteration and a held-back press would come one iteration late. */
+ { static u32 pad_seen, pad_split, pad_split_vf, pad_lvclk; u32 lc=*(volatile u32*)(EW+0x1e00), menu=(lc==pad_lvclk); pad_lvclk=lc;
+   if(pad_split){ if(VF!=pad_split_vf||!menu){ io_keys&=~pad_split; pad_split=0; } else io_keys|=pad_split; }
+   u32 dn=0x3ffu&~io_keys, rel=pad_seen&~dn, nw=dn&~pad_seen;
+   if(menu&&rel&&nw&&!pad_split){ io_keys|=nw; pad_split=nw; pad_split_vf=VF; }
+   pad_seen=0x3ffu&~io_keys; }
+#endif
+#if defined(CDPADPOLL) && !defined(CDSIM)
+ pad_cddn=0x3ffu&~io_keys;               /* what the guest has now seen down (the edge rule of cd_padpoll) */
+#endif
 #endif
 #ifdef KPLAN
  io_keys=pad_gba&kplan_keys(io_cyc/280896);   /* MENU ASSIST: the stock game's title -> rampage menu path (frames from power-on) OR-ed with the real pad (active low: AND); the in-level plan is TESTTOUR (test only) */
@@ -511,11 +730,20 @@ u32 io_read(u32 off,u32 size){
  io_keys=auto_keys(io_nd);
 #endif
  u32 v=io_keys; return size==2?v:(size==1?(v>>(8*(off-0x130)))&0xff:v); }
-  if(off==6||off==7){ adv_lines(vc_n(io_vc)); u32 v=io_vc; return size!=1?v:(v>>(8*(off-6)))&0xff; }
-  if(off==4||off==5){ adv_lines(vc_n(io_vc)); u32 ds=io16(4);
+  if(off==6||off==7){ on_vcount_read(); adv_lines(vc_n(io_vc)); u32 v=io_vc; return size!=1?v:(v>>(8*(off-6)))&0xff; }
+  if(off==4||off==5){ on_vcount_read(); adv_lines(vc_n(io_vc)); u32 ds=io16(4);
     u32 v=((io_vc>=160&&io_vc<227)?1:0)|(((io_nread&3)==0)?2:0)|((io_vc==((ds>>8)&0xff))?4:0)|(ds&0xff38);
     return size==2?(v&0xffff):(size==1?(v>>(8*(off-4)))&0xff:v); }
-  if(off==0x100||off==0x104||off==0x108||off==0x10c){ u32 k=(off-0x100)/4,o; adv_poll(); return tm_cnt(k,&o); }
+  if(off==0x100||off==0x104||off==0x108||off==0x10c){ u32 k=(off-0x100)/4,o;
+#if defined(SPEEDPROF)||defined(RTC_PRESENT)
+    on_timer_read(RT_CC_RA,k);
+#endif
+#ifdef RTC_TIMERS
+    (void)o; return tm_read_rt(k,RT_CC_RA);
+#else
+    adv_poll(); return tm_cnt(k,&o);
+#endif
+  }
   u32 v=0; for(u32 k=0;k<size;k++) v|=io[off+k]<<(8*k); return v;
 }
 void io_write(u32 off,u32 size,u32 val){
@@ -524,17 +752,38 @@ void io_write(u32 off,u32 size,u32 val){
   if(off==0x202&&size==2){ io16w(0x202,io16(0x202)&~val); return; }
   for(u32 k=0;k<size;k++) io[off+k]=val>>(8*k);
   for(u32 ch=0;ch<4;ch++){ u32 cnt=0xb0+12*ch+8; if(off<=cnt+2&&off+size>=cnt+4) dma_check(ch); }
+#ifdef RTC_TIMERS
+  if(off>=0x100&&off<0x110) tm_write_check_rt();
+#else
   if(off>=0x100&&off<0x110) tm_write_check();
-  if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick(); }
+#endif
+  if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick();
+#ifdef SPEEDPROF
+    { static u32 d0; u32 d=io16(0); if((d^d0)&0x10) SP_INC(SP_FLIPS); d0=d; }   /* page flips: the GBA reference counts menu iterations this way */
+#endif
+  }
 }
 /* ---------------------------------------------------------------- C helpers called from RT_CC */
 /* stage 20: a host-form VRAM pointer that runs past the 96 KiB VRAM shadow (0x80199000..: the 3D renderer's code and data) is folded back the way GBA VRAM
    mirrors (128 KiB period, 0x06018000..0x0601FFFF = 0x06010000..0x06017FFF), as a guest-form address would be by g2h(); nothing outside the guest windows is touched */
 static u32 vram_over_n;      /* the first fold is reported on the TTY ('overflow' is one of the rig's fault words): the guard hides the damage, not the bug */
 static inline u32 vram_over(u32 ea){ if(ea-((u32)VRAM+0x18000u)<0x801b0000u-((u32)VRAM+0x18000u)){ if(!vram_over_n++){ dbg("VRAM shadow overflow folded back "); hex(ea); dbg("\n"); } u32 o=(ea-(u32)VRAM)&0x1ffffu; if(o>=0x18000u) o-=0x8000u; ea=(u32)VRAM+o; } return ea; }
+#ifdef DISP_PROF
+/* TEST-ONLY counters of the C calls the dispatch work removes (PLAN.md Stage 2): RT_MISS C calls, h_memrd calls (and of them ROM reads),
+   h_memwr calls, D1 cache fills.  The test rig reads them by symbol and divides by the level clock (one tick per level-loop iteration). */
+u32 dsp_nmiss, dsp_nmrd, dsp_nrom, dsp_nmwr, dsp_nfill;
+#define DSP_PROF(x) (x)
+#else
+#define DSP_PROF(x) ((void)0)
+#endif
 u32 h_memrd(u32 ea,u32 kind){
+  DSP_PROF((dsp_nmrd++, dsp_nrom+=((ea>>24)==8||(ea>>24)==10||(ea>>24)==12)));    /* TEST-ONLY: every call, and the ROM reads among them */
   static const u8 SZ[5]={1,1,2,2,4}; u32 size=SZ[kind]; u32 v; ea=vram_over(ea);
-  if((ea>>24)==8||(ea>>24)==10||(ea>>24)==12) v=rom_read(ea,size);
+  if((ea>>24)==8||(ea>>24)==10||(ea>>24)==12){ SP_INC(SP_ROMRD);
+#ifdef SPEEDPROF
+    sp_now();           /* keep the stamp clock's 16-bit deltas short in logic that reads no IO */
+#endif
+    v=rom_read(ea,size); }
   else if((ea>>24)==13) v=1;
   else if(ea-0x8017f000u<0x400) v=io_read(ea-0x8017f000u,size);
   else if(ea>=0x80180000u&&ea<0x80200000u){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }
@@ -545,12 +794,12 @@ u32 h_memrd(u32 ea,u32 kind){
   return v;
 }
 u32 h_memwr(u32 ea,u32 size,u32 val){
-  ea=vram_over(ea);
+  ea=vram_over(ea); DSP_PROF(dsp_nmwr++);
   if(ea-0x8017f000u<0x400) io_write(ea-0x8017f000u,size,val);
   else if(ea>=0x80180000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
   else if((ea>>24)==13) {}
   else if((ea>>24)==4&&(ea&0xfffffc00u)==0x04000000u) io_write(ea&0x3ff,size,val);
-  else if((ea>>24)>=2&&(ea>>24)<=7&&g2h(ea)){ volatile u8*p=g2h(ea); for(u32 k=0;k<size;k++) p[k]=val>>(8*k); }   /* raw guest RAM address on the slow path (see h_memrd) */
+  else if((ea>>24)>=2&&(ea>>24)<=7&&g2h(ea)){ volatile u8*p=g2h(ea); for(u32 k=0;k<size;k++) p[k]=val>>(8*k); RAW_PADPOLL(); }   /* raw guest RAM address on the slow path (see h_memrd) */
   else { dbg("BADWR "); hex(ea); }
   return 0;
 }
@@ -576,12 +825,55 @@ static int sim_cold_overlap(u32 lo,u32 hi){ return hi>(u32)__ppu_start && lo<0x8
 static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls, cold_conflicts; static u32 sf3_retry, last_cold_pres, sf3_clk0;   /* stage 12: renderer switched off by an overlay load (pause menu code) comes back once the level clock runs again (pause over) and no cold group was loaded for 6 presents */
 static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel FlushCache A(44h): argument area and clobbers as dbgc() */
   __asm__ volatile("addiu $29,$29,-16\n li $8,0xA0\n jalr $8\n nop\n addiu $29,$29,16":"+r"(t1)::"$1","$2","$3","$4","$5","$6","$7","$8","$10","$11","$12","$13","$14","$15","$24","$25","$31","hi","lo","memory"); }
+#ifdef COLD_SECS
+#define COLD_SECS_N COLD_SECS
+#else
+#define COLD_SECS_N (CD_COLD_PAGES*2)
+#endif
+#ifdef COLD1PASS
+#ifndef COLD1_QUIET
+#ifdef RTC_GFRAMES
+#define COLD1_QUIET 30u        /* g_gframes counts REAL frames here (Stage 1): 0.5 s without a data read before present() starts the one pass
+                                  (the value 4 was tuned in virtual frames, 0.25-1 s in the menus; 4 real frames would be 67 ms) */
+#else
+#define COLD1_QUIET 4u         /* guest frames without a data read before present() starts the one pass */
+#endif
+#endif
+/* speed item M5: COLD.BIN in one pass.  The whole file is read into the homes of all groups (two requests of at most CD_RUN sectors, through
+   cd_read's retries), every group is marked loaded only after the read, and the I-cache is flushed once.  Only in the menus before the
+   first level start: the renderer is off and its world window, which the last groups overlap, is not loaded yet; main() copied the boot
+   image out of the cold homes long before.  At the level start sf3_init() drops the groups over the world window as before, and later
+   loads go through the per-group path below.  It starts at the game's first page miss when that comes in the boot's black screen (the
+   BG palette all zero; the white flash has faded out, the guest builds the language screen and presents nothing), so the 2.6 s read
+   freezes no animation (at the first quiet picture after the first data read, the language screen, it stopped the panning backdrop and
+   the sliding list for the whole read); else present() starts it at the first quiet picture after the first data read (P6 latches
+   presses made meanwhile); the first cold call starts it if that comes earlier. */
+static u32 cold_m5;   /* 0 not yet, 1 read, 2 never (a level had started first: the level clock ran or the renderer was on) */
+/* every BG palette entry is black (the backdrop too): M5's test for the boot's black screen in cd_fetch */
+static int pal_bg_zero(void){ const volatile u32*p=(const volatile u32*)PAL; u32 o=0; for(u32 i=0;i<128;i++) o|=p[i]; return !(o&0x7fff7fffu); }
+__attribute__((noinline)) static void cold_all(void){
+  if(cold_m5) return;
+  cold_m5=2; if(*(volatile u32*)(EW+0x1e00) || sf3_ok) return;
+  cold_m5=1;
+  cd_read(CD_COLD_LBA,COLD_SECS_N,(u8*)COLD_HOST);
+  for(u32 k=0;k<(COLD_SECS_N+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1;
+  last_cold_pres=g_pres; flush_icache();
+}
+#endif
 /* RT_MISS: a direct call/jump/function pointer reached a guest function that is not in the resident blob.  Overlay loader:
    find it in the cold table, read the 16 KiB groups of COLD.BIN that cover the function (and its out-of-line stubs) into their fixed
    home addresses, flush the I-cache, and return the host entry for RT_MISS to tail-jump to. */
 /* cold_find: host entry of a function in the cold table (its groups are loaded from the disc), 0 if the address is not in the table */
+static u32 vene[24][4] __attribute__((aligned(16))); static u32 vene_g[24], nvene;   /* resident veneer copies (stage 12, below): never recycled */
+#ifdef DISP_D2
+static u32 cf_perm;      /* stage 20 D2: the host entry cold_find returned last can never go away (a veneer copy, or a span whose groups all lie below the renderer's world window) */
+#define CF_PERM(x) (cf_perm=(x))
+#else
+#define CF_PERM(x) ((void)0)
+#endif
 static u32 cold_find(u32 addr){
   u32 g=addr&~1u; const u32*ct=(const u32*)coldtab; u32 n=ct[0]; const u32*r=ct+1; u32 lo=0,hi=n; cold_calls++;
+  CD_PADPOLL(526u);      /* P6: a long load runs here for seconds without a disc read or a KEYINPUT read */
   while(lo<hi){ u32 m=(lo+hi)>>1; u32 v=r[m*4]; if(v==g){ lo=m; goto found; } if(v<g) lo=m+1; else hi=m; }
   return 0;
 found:;
@@ -590,12 +882,14 @@ found:;
   /* stage 12: a tiny, position-independent cold function (the bx rN veneers, 12 bytes) whose group lies inside the renderer's data window used to switch the 3D renderer off when the HUD/text code reached it
      in a level (the group load would overwrite the world).  Its few words are read from the disc and kept in a small resident table instead; the group is not loaded. */
   if(sf3_ok && g0==g1 && he-hs<=16 && he>SF_WORLD_LO && hs<0x8011b200u && !cold_loaded[g0]){
-    static u32 vene[24][4] __attribute__((aligned(16))); static u32 vene_g[24], nvene;
     u32*const vtmp=(u32*)__veneer_scratch;   /* dedicated linker-reserved 4 KiB, outside PPU CLUT/row buffers and renderer code */
-    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g) return (u32)vene[q]+(host-hs);
+    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g){ CF_PERM(1); return (u32)vene[q]+(host-hs); }
     if(nvene<24){ u32 dst=COLD_HOST+g0*16384, off=hs-dst, sec=off>>11, left=CD_COLD_PAGES*2-g0*8-sec; cd_read(CD_COLD_LBA+g0*8+sec,left<2?left:2,(u8*)vtmp);
       const u32*src=(const u32*)((u8*)vtmp+(off&2047)); u32 nw=(he-hs)>>2, ok=1; for(u32 q=0;q<nw;q++){ u32 op=src[q]>>26; if(op==1||(op>=4&&op<=7)) ok=0; }
-      if(ok){ for(u32 q=0;q<4;q++) vene[nvene][q]=q<nw?src[q]:0; vene_g[nvene]=g; nvene++; flush_icache(); dbg("VENEER resident copy "); hex(g); dbg("\n"); return (u32)vene[nvene-1]+(host-hs); } } }
+      if(ok){ for(u32 q=0;q<4;q++) vene[nvene][q]=q<nw?src[q]:0; vene_g[nvene]=g; nvene++; flush_icache(); dbg("VENEER resident copy "); hex(g); dbg("\n"); CF_PERM(1); return (u32)vene[nvene-1]+(host-hs); } } }
+#ifdef COLD1PASS
+  if(!cold_loaded[g0]||!cold_loaded[g1]) cold_all();      /* a cold call before the one pass: do the pass now (later: returns at once) */
+#endif
   for(u32 k=g0;k<=g1;k++) if(!cold_loaded[k]){ u32 lo=COLD_HOST+k*16384, hi=lo+16384;      /* only a group that would really be loaded can hit the renderer's data (stage 7: groups already in memory used to trigger this too) */
     if(sf3_ok && (hi>SF_WORLD_LO && lo<0x8011b200u)) {
 #ifdef COLD_RECOVER     /* stage 12/13 alternative: load the group, renderer off, restored when the level clock runs again (present()) */
@@ -614,18 +908,330 @@ found:;
     cd_read(CD_COLD_LBA+k*8,left<8?left:8,(u8*)dst);
     cold_loaded[k]=1; cold_loads++; loaded=1; }
   if(loaded){ last_cold_pres=g_pres; flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
+  CF_PERM(COLD_HOST+(g1+1)*16384u<=SF_WORLD_LO);     /* every group of the span ends below the world window: never dropped (present()) */
   return host;
 }
+/* ---------------------------------------------------------------- stage 20 dispatch phase 1 (PLAN.md Stage 2), each item behind its own flag:
+   D3 -DDISP_D3  RT_MEMRD's first word `j RT_MEMRD_SLOW` -> nop: the blob's own fast path serves aligned lb/lbu/lh/lhu/lw from resident ROM pages
+   D1 -DDISP_D1  RT_MISS words 0-1 -> `j rt_mcache; addu $24,$25,$0`: a 512 x 8 B cache of cold_find results (dsp_mcache, BSS) in front of the C call
+   D4 -DDISP_D4  RT_MEMRD -> `j rd_front`, RT_MEMWR -> `j wr_front`: EWRAM/IWRAM by GBA address without the C call (ROM reads to D3's fast path first; IO still goes to C)
+   D2 -DDISP_D2  h_miss links a `jal RT_MISS` call site to its permanent host entry: queued in dsp_lq (BSS), written at the next present, one FlushCache
+   test only: -DDISP_D1CHK checks every D1 hit against the cold table (dsp_mchk_bad = 0 expected), -DDISP_PROF counts the C calls.
+   The blob addresses are the stubs of t2m.py runtime() (cfg 'P'): RT_MISS 0x80030008, rt_miss_ret 0x80030028, RT_MEMRD 0x80030044, its ROM fast path
+   0x8003004c, kind dispatch 0x8003009c, RT_MEMRD_SLOW 0x80030128, RT_MEMWR 0x8003013c, RT_CC 0x80030150.  dsp_boot() compares every word the new code
+   relies on before it patches anything; on a mismatch it patches nothing and says so on the TTY. */
+#if defined(DISP_D1)||defined(DISP_D2)||defined(DISP_D3)||defined(DISP_D4)
+#define DISP_ANY 1
+#endif
+#if defined(DISP_D1CHK)&&!defined(DISP_D1)
+#error "DISP_D1CHK checks the D1 cache: it needs -DDISP_D1"
+#endif
+#ifdef DISP_ANY
+u32 dsp_ok;             /* the boot patches are in (read by the test rig) */
+#endif
+#ifdef DISP_D1
+/* 512 x {key = guest target >> 1 (0xffffffff = empty), host entry}.  rc8: in the runtime's BSS (rt_mcache addresses it by symbol): wave 1 had it at
+   0x80028400 in the reserved area below ROMPG, which rc7's .rtcold code fills (ps1.ld) */
+u32 dsp_mcache[1024] __attribute__((aligned(8)));
+#define MCACHE ((volatile u32*)dsp_mcache)
+static void dsp_mclear(void){ for(u32 i=0;i<1024;i+=2) MCACHE[i]=0xffffffffu; }   /* at boot and wherever a cold group is dropped */
+static inline u32 dsp_mslot(u32 addr){ return ((addr>>1)^(addr>>12))&511; }       /* = rt_mcache */
+#else
+#define dsp_mclear() ((void)0)
+#endif
+#ifdef DISP_D2
+/* D2: rules of dispatch.md D2 for the call site at ra-8 and the target addr (as RT_MISS got it): ra word-aligned in the hot blob or in a loaded cold group;
+   the site is `jal RT_MISS` (0x0c00c002); the `li $25` before it encodes addr exactly (lui+ori at ra-16/ra-12, or lui alone at ra-12 when the low half is 0) */
+static u32 dsp_lq[256];                     /* 64 x {site, target, host, 0}; rc8: BSS (wave 1: 0x80029400, now .rtcold) */
+#define LQ ((volatile u32*)dsp_lq)
+#define LQ_N 64u
+u32 lq_n, d2_linked, d2_queued, d2_full, d2_stale, d2_batches;     /* read by the test rig: keep them external */
+static int d2_site_ok(u32 addr,u32 ra){
+  if(ra&3) return 0;
+  u32 s=ra-8;
+  if(!(s>=0x80030310u&&s<0x80044288u)){ u32 k=(s-COLD_HOST)>>14; if(s<COLD_HOST||k>=COLDGROUPS||!cold_loaded[k]) return 0; }
+  const volatile u32*w=(const volatile u32*)s;
+  if(w[0]!=0x0c00c002u) return 0;
+  u32 hi=0x3c190000u|(addr>>16), lo=0x37390000u|(addr&0xffff);
+  return (w[-1]==lo&&w[-2]==hi)||((addr&0xffff)==0&&w[-1]==hi);
+}
+/* 1 = the site is linked or queued (do not cache: the next calls from it must reach h_miss until the queue is written).  A full queue
+   returns 0, so h_miss caches the target in D1 instead: else every call from a site that did not fit went through h_miss and cold_find
+   until the next present drained the queue, about once a second in a level (review of wave 1: 204 full in a 10 min soak). */
+static int d2_link(u32 addr,u32 ra,u32 host){
+  if(!cf_perm||!d2_site_ok(addr,ra)) return 0;
+  u32 s=ra-8;
+  for(u32 q=0;q<lq_n;q++) if(LQ[4*q]==s) return 1;
+  if(lq_n>=LQ_N){ d2_full++; return 0; }
+  LQ[4*lq_n]=s; LQ[4*lq_n+1]=addr; LQ[4*lq_n+2]=host; lq_n++; d2_queued++; return 1;
+}
+/* at a present: write the queued sites (each checked again: its group may have been dropped since), then one FlushCache */
+static void d2_apply(void){
+  if(!lq_n) return;
+  u32 n=0;
+  for(u32 q=0;q<lq_n;q++){ u32 s=LQ[4*q], addr=LQ[4*q+1], host=LQ[4*q+2];
+    if(d2_site_ok(addr,s+8)){ *(volatile u32*)s=0x0c000000u|((host>>2)&0x03ffffffu); n++; } else d2_stale++; }
+  lq_n=0; d2_linked+=n; d2_batches++;
+  if(n) flush_icache();
+  if(d2_batches<=8||(d2_batches&63)==0){ dbg("DISP D2 linked "); dec(n); dbg("total "); dec(d2_linked); dbg("stale "); dec(d2_stale); dbg("full "); dec(d2_full); dbg("\n"); }
+}
+#endif
+#ifdef DISP_D1CHK
+/* TEST-ONLY: every D1 hit comes here (RT_CC from rt_mcache, a2 = the cached host) and is checked against the cold table without side effects: the same host
+   (or the function's resident veneer copy) and every group of its span loaded.  A mismatch is counted and printed; the call then takes the normal path. */
+u32 dsp_mchk_hits, dsp_mchk_bad;
+static u32 h_miss2(u32 addr,u32 ra);
+u32 h_mchk(u32 addr,u32 ra,u32 cached){
+  u32 g=addr&~1u, ok=0; const u32*ct=(const u32*)coldtab; u32 n=ct[0]; const u32*r=ct+1; u32 lo=0,hi=n; dsp_mchk_hits++;
+  while(lo<hi){ u32 m=(lo+hi)>>1; u32 v=r[m*4]; if(v==g){ lo=m; goto found; } if(v<g) lo=m+1; else hi=m; }
+  goto out;
+found:;
+  { u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3]; int vq=-1;
+    for(u32 q=0;q<nvene;q++) if(vene_g[q]==g) vq=(int)q;
+    if(vq>=0) ok=(cached==(u32)vene[vq]+(host-hs));
+    else if(cached==host){ ok=1; for(u32 k=(hs-COLD_HOST)>>14;k<=(he-1-COLD_HOST)>>14;k++) if(!cold_loaded[k]) ok=0; } }
+out:
+  if(ok) return cached;
+  dsp_mchk_bad++; if(dsp_mchk_bad<=16){ dbg("DISP D1 CHECK MISMATCH target "); hex(addr); dbg("cached "); hex(cached); dbg("\n"); }
+  MCACHE[2*dsp_mslot(addr)]=0xffffffffu;
+  return h_miss2(addr,ra);
+}
+#endif
+#ifdef DISP_D1
+/* D1 fill: only a cold_find result (never the interpreter), and not when D2 has linked or queued the call site */
+#define MC_FILL(a,h) do{ if(dsp_ok){ u32 s_=dsp_mslot(a); MCACHE[2*s_+1]=(h); MCACHE[2*s_]=(a)>>1; DSP_PROF(dsp_nfill++); } }while(0)
+#else
+#define MC_FILL(a,h) ((void)0)
+#endif
+#ifdef DISP_D2
+#define D2_LINK(a,ra,h) (dsp_ok&&d2_link((a),(ra),(h)))
+#else
+#define D2_LINK(a,ra,h) 0
+#endif
 #ifdef NO_INTERP
 static const u32 ip_enters = 0;  /* diagnostic value for the full-cold simulator */
-u32 h_miss(u32 addr){ u32 h=cold_find(addr); if(h) return h; gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
+u32 h_miss(u32 addr,u32 ra){ (void)ra; SP_INC(SP_MISS); DSP_PROF(dsp_nmiss++); u32 h=cold_find(addr); if(h){ if(!D2_LINK(addr,ra,h)) MC_FILL(addr,h); return h; } gpu_panic("RT_MISS guest code not in cold set: ",addr); return 0; }
 #else
 #include "interp_glue.h"
-/* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts) */
-u32 h_miss(u32 addr){
+/* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts).  a1 = the caller's $31 when the stage 20 RT_MISS patch is in (rt_mcache).
+   rc8: the overlay-area targets of the intro fix (rc7) are decided first and never cached (D1) or linked (D2): only cold_find results are. */
+u32 h_miss(u32 addr,u32 ra){
+  (void)ra; SP_INC(SP_MISS); DSP_PROF(dsp_nmiss++);
   ov_sync();
   if(((addr&~1u)-OV_BASE)<OV1_SIZE){ if(!ov_res()) return film_miss(addr); u32 h=hot_lookup(addr&~1u); if(h) return h; }   /* intro fix: overlay area (interp_glue.h) */
-  u32 h=cold_find(addr); if(h) return h; interp_target=addr&~1u; return (u32)interp_enter; }
+  u32 h=cold_find(addr); if(h){ if(!D2_LINK(addr,ra,h)) MC_FILL(addr,h); return h; } interp_target=addr&~1u; return (u32)interp_enter; }
+#endif
+#ifdef DISP_D1CHK
+static u32 h_miss2(u32 addr,u32 ra){ return h_miss(addr,ra); }
+#endif
+#ifdef DISP_ANY
+/* The new code.  rt_mcache: RT_MISS jumps here with $24 = $25 = the guest target and $31 = the caller's return address; it uses only $1, $2, $3, $24, $25
+   and $28, which the C call it replaces clobbers too ($2 carries its result), so flags ($4-$7), guest registers and $31 are untouched. */
+__asm__(
+  ".pushsection .text,\"ax\",@progbits\n.set push\n.set noreorder\n.set noat\n.align 2\n"
+#if defined(DISP_D1)||defined(DISP_D2)
+  ".globl rt_mcache\n.type rt_mcache,@function\n"
+  "rt_mcache:\n"
+#ifdef DISP_D1
+  " srl $1,$24,1\n"                 /* key = target >> 1: the Thumb bit does not matter */
+  " srl $2,$24,12\n"
+  " xor $2,$2,$1\n"
+  " andi $2,$2,511\n"               /* slot = ((t >> 1) ^ (t >> 12)) & 511 */
+  " sll $2,$2,3\n"
+  " lui $25,%hi(dsp_mcache)\n"
+  " addu $2,$2,$25\n"
+  " lw $25,%lo(dsp_mcache)($2)\n"   /* key[slot], dsp_mcache + 8 * slot (8-aligned: %lo(+4) has the same %hi) */
+  " lw $2,%lo(dsp_mcache+4)($2)\n"  /* host[slot] (load delay of the key) */
+  " bne $25,$1,rt_mslow\n"
+  " lui $25,0x8002\n"               /* delay slot: first word of the slow path */
+#ifdef DISP_D1CHK
+  " addu $3,$2,$0\n"                /* TEST-ONLY: a2 = the cached host, checked by h_mchk through RT_CC */
+  " lui $25,%hi(h_mchk)\n"
+  " j rt_mcc\n"
+  " addiu $25,$25,%lo(h_mchk)\n"
+#else
+  " jr $2\n"                        /* hit: straight to the host entry */
+  " nop\n"
+#endif
+#else
+  " lui $25,0x8002\n"
+#endif
+  "rt_mslow:\n"                     /* RT_MISS's own body: h_miss = HELP+8 through RT_CC, back through rt_miss_ret (jr $2) */
+  " ori $25,$25,0x8008\n"
+  " lw $25,0($25)\n"
+  "rt_mcc:\n"
+  " addu $2,$31,$0\n"               /* a1 = the caller's return address (D2) */
+  " lui $28,0x8003\n"
+  " j 0x80030150\n"
+  " ori $28,$28,0x0028\n"
+  ".size rt_mcache,.-rt_mcache\n"
+#endif
+#ifdef DISP_D4
+  /* rd_front, from RT_MEMRD: $24 = address, $2 = kind (0 lbu, 1 lb, 2 lhu, 3 lh, 4 lw), $28 = return.  By the region byte a >> 24: ROM first (about
+     four of five reads here are ROM reads): the fast path's own region test (regions 8, 10, 12, 14), then the fast path past it, 0x80030060, which takes
+     $25 = the region byte (D3); then EWRAM 0x801b0000 + (a & 0x3ffff) and IWRAM 0x801f0000 + (a & 0x7fff), = g2h(), into the blob's kind dispatch
+     (alignment checks, the load, jr $28).  Everything else goes to C (RT_MEMRD_SLOW): GBA IO and the IO page 0x8017f000 (io_read and the clock;
+     region byte 0x80), raw host addresses, a ROM page that is not resident, a misaligned read */
+  ".globl rd_front\n.type rd_front,@function\n"
+  "rd_front:\n"
+  " srl $25,$24,24\n"
+  " andi $1,$25,0xf9\n"
+  " xori $1,$1,8\n"
+  " beq $1,$0,rd_rom\n"
+  " addiu $1,$25,-2\n"              /* (on the ROM path 0x80030060 sets $1 again) */
+  " beq $1,$0,rd_ew\n"
+  " addiu $1,$25,-3\n"
+  " bne $1,$0,rd_slow\n"
+  " andi $25,$24,0x7fff\n"
+  " lui $1,0x801f\n"
+  " j 0x8003009c\n"
+  " addu $25,$25,$1\n"
+  "rd_ew:\n"
+  " sll $25,$24,14\n"
+  " srl $25,$25,14\n"
+  " lui $1,0x801b\n"
+  " j 0x8003009c\n"
+  " addu $25,$25,$1\n"
+  "rd_rom:\n"
+#ifdef DISP_D3
+  " j 0x80030060\n"                 /* the ROM fast path past its region test: sltiu $1,$25,0xe; ROMPG[(a >> 12) & 0x7ff]; the kind dispatch */
+  " nop\n"
+#endif
+  "rd_slow:\n"
+  " j 0x80030128\n"
+  " nop\n"
+  ".size rd_front,.-rd_front\n"
+  /* wr_front, from RT_MEMWR (its delay slot `ori $25,$25,0x8004` has run, so $25 is not used): $24 = address, $2 = size 1/2/4, $3 = value.  The same windows
+     by the region byte; aligned sb/sh/sw; everything else (GBA IO and the IO page, a misaligned store, any other address) takes RT_MEMWR's own body,
+     rebuilt here (h_memwr = HELP+4 through RT_CC) */
+  ".globl wr_front\n.type wr_front,@function\n"
+  "wr_front:\n"
+  " srl $25,$24,24\n"
+  " addiu $1,$25,-2\n"
+  " beq $1,$0,wr_ew\n"
+  " addiu $1,$25,-3\n"
+  " bne $1,$0,wr_slow\n"
+  " andi $25,$24,0x7fff\n"
+  " lui $1,0x801f\n"
+  " b wr_st\n"
+  " addu $25,$25,$1\n"
+  "wr_ew:\n"
+  " sll $25,$24,14\n"
+  " srl $25,$25,14\n"
+  " lui $1,0x801b\n"
+  " addu $25,$25,$1\n"
+  "wr_st:\n"
+  " addiu $1,$2,-4\n"
+  " beq $1,$0,wr_w\n"
+  " addiu $1,$2,-2\n"
+  " beq $1,$0,wr_h\n"
+  " addiu $1,$2,-1\n"
+  " bne $1,$0,wr_slow\n"
+  " nop\n"
+  " jr $28\n"
+  " sb $3,0($25)\n"
+  "wr_w:\n"
+  " andi $1,$24,3\n"
+  " bne $1,$0,wr_slow\n"
+  " nop\n"
+  " jr $28\n"
+  " sw $3,0($25)\n"
+  "wr_h:\n"
+  " andi $1,$24,1\n"
+  " bne $1,$0,wr_slow\n"
+  " nop\n"
+  " jr $28\n"
+  " sh $3,0($25)\n"
+  "wr_slow:\n"
+  " lui $25,0x8002\n"
+  " ori $25,$25,0x8004\n"
+  " lw $25,0($25)\n"
+  " j 0x80030150\n"
+  " nop\n"
+  ".size wr_front,.-wr_front\n"
+#endif
+  /* the new words of the boot patches, in the order of dsp_at[] below.  Assembled (never executed here) so that the linker resolves the jumps and
+     mips1_lint checks them with the rest of the code; ps1/tools/disp_patch_check.py decodes them in the linked ELF. */
+  ".globl dsp_new\n.type dsp_new,@function\n"
+  "dsp_new:\n"
+#if defined(DISP_D1)||defined(DISP_D2)
+  " j rt_mcache\n"                  /* 0x80030008 */
+  " addu $24,$25,$0\n"              /* 0x8003000c: RT_MISS's first word, now in the delay slot */
+#endif
+#ifdef DISP_D4
+  " j rd_front\n"                   /* 0x80030044 */
+  " j wr_front\n"                   /* 0x8003013c */
+#elif defined(DISP_D3)
+  " nop\n"                          /* 0x80030044: falls through into the ROM fast path (its delay slot 0x80030048 is a nop) */
+#endif
+  ".size dsp_new,.-dsp_new\n"
+  ".globl dsp_new_end\ndsp_new_end:\n"
+  ".set pop\n.popsection\n");
+extern const u32 dsp_new[], dsp_new_end[];
+/* patched words: address and the original word (t2m.py runtime()), in the order of dsp_new */
+static const u32 dsp_at[][2]={
+#if defined(DISP_D1)||defined(DISP_D2)
+  {0x80030008u,0x0320c021u},       /* RT_MISS: addu $24,$25,$0 */
+  {0x8003000cu,0x3c198002u},       /*          lui $25,0x8002 */
+#endif
+#ifdef DISP_D4
+  {0x80030044u,0x0800c04au},       /* RT_MEMRD: j RT_MEMRD_SLOW */
+  {0x8003013cu,0x3c198002u},       /* RT_MEMWR: lui $25,0x8002 */
+#elif defined(DISP_D3)
+  {0x80030044u,0x0800c04au},
+#endif
+};
+/* words the new code relies on, checked and left as they are */
+static const u32 dsp_keep[][2]={
+  {0x80030010u,0x37398008u},{0x80030014u,0x8f390000u},     /* RT_MISS: ori $25,$25,0x8008 (HELP+8); lw $25,0($25) */
+  {0x80030018u,0x3c1c8003u},{0x8003001cu,0x379c0028u},     /*          la $28,rt_miss_ret */
+  {0x80030020u,0x0800c054u},{0x80030024u,0x00000000u},     /*          j RT_CC; nop */
+  {0x80030028u,0x00400008u},{0x8003002cu,0x00000000u},     /* rt_miss_ret: jr $2; nop */
+  {0x80030048u,0x00000000u},                               /* RT_MEMRD delay slot: nop */
+  {0x8003004cu,0x0018ce02u},{0x80030050u,0x332100f9u},     /* ROM fast path: srl $25,$24,24; andi $1,$25,0xf9 (region test) */
+  {0x80030054u,0x38210008u},{0x80030060u,0x2f21000eu},     /*                xori $1,$1,8; past the test (D4's rd_front enters here): sltiu $1,$25,0xe */
+  {0x80030078u,0x3c198002u},{0x8003007cu,0x3739a000u},     /*                la $25,ROMPG (0x8002a000) */
+  {0x8003008cu,0x13200026u},{0x80030094u,0x33010fffu},     /*                beqz $25,RT_MEMRD_SLOW; andi $1,$24,0xfff */
+  {0x8003009cu,0x2441fffcu},{0x800300a0u,0x1020000fu},     /* kind dispatch: addiu $1,$2,-4; beqz $1,lw */
+  {0x800300ecu,0x8f220000u},{0x800300f0u,0x03800008u},     /*                lw $2,0($25); jr $28 */
+  {0x80030128u,0x3c198002u},{0x8003012cu,0x37398000u},     /* RT_MEMRD_SLOW: la $25,HELP+0 */
+  {0x80030130u,0x8f390000u},{0x80030134u,0x0800c054u},     /*                lw $25,0($25); j RT_CC */
+  {0x80030140u,0x37398004u},{0x80030148u,0x0800c054u},     /* RT_MEMWR: ori $25,$25,0x8004 (the patched word's delay slot); j RT_CC */
+  {0x80030150u,0x3c1d801fu},{0x80030154u,0x37bdff90u},     /* RT_CC: la $29,0x801fff90 */
+  {0x80030184u,0x03002021u},{0x80030188u,0x00402821u},     /*        a0 = $24; a1 = $2 */
+  {0x8003018cu,0x00603021u},{0x80030190u,0x0320f809u},     /*        a2 = $3; jalr $25 */
+  {0x800301c4u,0x03800008u},                               /*        jr $28 */
+};
+/* a hash of the rest of the ROM fast path and the kind dispatch (0x8003004c..0x80030128, which D3 and D4 run): ((h << 5) | (h >> 27)) ^ word */
+#define DSP_FAST_HASH 0x5b2dc86du
+static void dsp_boot(void){
+  u32 n=sizeof dsp_at/sizeof dsp_at[0], bad=0, h=0;
+  if((u32)(dsp_new_end-dsp_new)!=n) bad=1;
+  for(u32 i=0;i<n&&!bad;i++) if(*(volatile u32*)dsp_at[i][0]!=dsp_at[i][1]) bad=dsp_at[i][0];
+  for(u32 i=0;i<sizeof dsp_keep/sizeof dsp_keep[0]&&!bad;i++) if(*(volatile u32*)dsp_keep[i][0]!=dsp_keep[i][1]) bad=dsp_keep[i][0];
+  for(u32 a=0x8003004cu;a<0x80030128u;a+=4) h=((h<<5)|(h>>27))^*(volatile u32*)a;
+  if(!bad&&h!=DSP_FAST_HASH) bad=0x8003004cu;
+  if(bad){ dbg("DISP boot patches NOT applied: the blob word at "); hex(bad); dbg("is not the expected one (fast path hash "); hex(h); dbg(")\n"); return; }
+  for(u32 i=0;i<n;i++) *(volatile u32*)dsp_at[i][0]=dsp_new[i];
+  dsp_ok=1; flush_icache();
+  dbg("DISP boot patches applied:");
+#ifdef DISP_D3
+  dbg(" D3");
+#endif
+#ifdef DISP_D1
+  dbg(" D1");
+#endif
+#ifdef DISP_D4
+  dbg(" D4");
+#endif
+#ifdef DISP_D2
+  dbg(" D2");
+#endif
+#ifdef DISP_D1CHK
+  dbg(" D1CHK");
+#endif
+  dbg(", words "); dec(n); dbg("\n");
+}
 #endif
 
 /* ---------------------------------------------------------------- GPU
@@ -686,9 +1292,13 @@ static RTCOLD void gpu_region(void){
   dbg("disc region E: PAL display\n");
 }
 #endif
-static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; }
+static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; CLK_POLL(); }
 /* show the buffer at (0,o) once everything drawn into it is finished, at the next vertical blank; the display comes on with the first one */
-static void flip_to(int o){ gpu_idle(); vsync(); GP1=0x05000000|((u32)o<<10); if(!disp_on){ disp_on=1; GP1=0x03000000; } }
+static void flip_to(int o){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); GP1=0x05000000|((u32)o<<10); if(!disp_on){ disp_on=1; GP1=0x03000000; }
+#if defined(RTC64)||defined(SPEEDPROF)
+  pic_flipped();
+#endif
+}
 /* rc7: a fault the runtime cannot go on from (a boot-time check of the intro fix, an interpreter limit): the message on the TTY and on the screen (both
    buffers, display on), then stop; never a silent hang on a black or frozen picture */
 static RTCOLD void fatal_screen(const char*m,u32 a){
@@ -809,6 +1419,11 @@ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
         s32 vx=jump?0:ddx*491520/(s32)dt, vy=jump?0:ddy*491520/(s32)dt, vz=jump?0:ddz*491520/(s32)dt;
         if(jump){ pkp=-1; if(s7_reset){ s7_reset=0; for(int q=0;q<128;q++) cdn[q]=0; } }
         pmap=sf3_map_cur; nfr++;
+#ifdef RTC_DT
+        /* C4 (wave 1) with the rc7 velocities above: one picture per level iteration stands for dt ticks of game time; the cooldowns count ticks
+           (at most 90 at once) and the solver steps once per tick, at most 5 times per picture */
+        u32 cdt=dt>90?90:dt, sdt=dt>5?5:dt;
+#endif
         if(vy>8*1048576) vy=8*1048576; if(vy<-8*1048576) vy=-8*1048576;
         u32 tri=pad_new_extra&1; s32 sp=(vx<0?-vx:vx)+(vz<0?-vz:vz);
         if((pkp==1&&pk==0&&(((pvx<0?-pvx:pvx)+(pvz<0?-pvz:pvz))>2621440)) || (pk==1&&tri&&sp>1048576)){
@@ -819,12 +1434,21 @@ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
 #ifdef DOLLTEST
         if(nfr==DOLLTEST_AT){ int k=rd_spawn(px,py,pz,hd,3*1048576,3*1048576,2*1048576,200,0x2040D0); if(k>=0) hero_clk=clk; dbg("TEST-ONLY forced doll slot "); dec(k); dbg("\n"); }
 #endif
+#ifdef RTC_DT
+        for(int q=0;q<128;q++) if(cdn[q]) cdn[q]=cdn[q]>cdt?cdn[q]-cdt:0;
+#else
         for(int q=0;q<128;q++) if(cdn[q]) cdn[q]--;
+#endif
         { int m=0; for(int q=0;q<ne;q++){ if(ents3[q].kind==1&&cdn[ents3[q].spare&127]) continue; ents3[m++]=ents3[q]; } ne=m; }
         if(rd_has(200)&&clk-hero_clk>HERO_DOLL_TICKS){ rd_drop(200); dbg("DOLL player released, ticks "); dec(clk-hero_clk); dbg("\n"); }   /* rc7: the solver steps once a 3D frame: at this port's frame rate its own release (asleep 10 s of solver time) took minutes */
         sf3_hide_player=rd_has(200);
         rd_set_car(pk==1,px,py,pz,hd,vx,vy,vz);
-        if(rd_active()){ u32 d0=RC1_VAL; rd_step_all(sf3_rpw,px,pz); u32 dl=(RC1_VAL-d0)&0xffff; static u32 dmax,dsum,dn; dn++; dsum+=dl; if(dl>dmax) dmax=dl; if((dn&15)==1){ dbg("RD lines "); dec(dl); dbg("max "); dec(dmax); dbg("avg "); dec(dsum/dn); dbg("active "); dec(rd_active()); dbg("steps "); dec(rd_steps); dbg("hurtmax "); dec(rd_hurt_max); dbg("\n"); } }
+#ifdef RTC_DT
+        if(rd_active()){ u32 d0=RC1_VAL; for(u32 st=0;st<sdt&&rd_active();st++) rd_step_all(sf3_rpw,px,pz); u32 dl=(RC1_VAL-d0)&0xffff;
+#else
+        if(rd_active()){ u32 d0=RC1_VAL; rd_step_all(sf3_rpw,px,pz); u32 dl=(RC1_VAL-d0)&0xffff;
+#endif
+          static u32 dmax,dsum,dn; dn++; dsum+=dl; if(dl>dmax) dmax=dl; if((dn&15)==1){ dbg("RD lines "); dec(dl); dbg("max "); dec(dmax); dbg("avg "); dec(dsum/dn); dbg("active "); dec(rd_active()); dbg("steps "); dec(rd_steps); dbg("hurtmax "); dec(rd_hurt_max); dbg("\n"); } }
         pkp=pk; ppx=px; ppy=py; ppz=pz; pvx=vx; pvy=vy; pvz=vz; }
   *pxp=px;*pyp=py;*pzp=pz;*hdp=hd;*pkq=pk;*nep=ne; }
 #ifdef SF3_SNAP
@@ -851,8 +1475,8 @@ void h_vbl(void){
 #ifdef KPLAN
   { static u32 poked; if(TESTTOURCAR&&!poked&&CAR_T&&lvl_f0&&io_cyc/280896-lvl_f0>=CAR_T){ poked=1; *(volatile u16*)(EW+0x1db8)=6; dbg("TEST-ONLY: controlled entity index set to 6 (car)\n"); } }
 #endif
-  { u32 n=(160+228-io_vc)%228; if(!n) n=228; IO_ADV(n*1232); } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; g_gframes++; ppu_flush();
-  present();
+  { u32 n=(160+228-io_vc)%228; if(!n) n=228; IO_ADV(n*1232); } io_vc=160; io16w(0x202,io16(0x202)|1); tick(); g_nvbl++; VF++; ppu_flush();
+  SP_INC(SP_TRIG_VBL); present();
 }
 #ifdef PADDBG
 /* test log (stage 13): the controlled entity as Payback holds it, once per present while a level runs.  GS gframe clock controlled-index entities x z heading hp score defindex raw-pad guest-keyinput */
@@ -873,20 +1497,35 @@ static void gs_dump(void){
     if(bpe){ dbg("ped "); dec(pi); dec(*(const s32*)(bpe+4)); dec(*(const s32*)(bpe+8)); }
     dbg("\n"); } }
 #endif
+#ifdef DISP_PROF
+static void present_(void);
+static void present(void){ u32 t0=dsp_rc(), c0=dsp_cdl; present_(); dsp_prl+=(dsp_rc()-t0)-(dsp_cdl-c0); }   /* TEST-ONLY timing wrapper */
+#define present present_
+#endif
 static void present(void){
+#ifdef SPEEDPROF
+  u32 sp_t=sp_now(); int sp_lvl=0; SP_T0(ts); sp_inpres++;
+#endif
   cd_idle();             /* a data read left running since the last picture is paused now (reads that follow each other need no Pause) */
   sv_service(); cdda_service();
+  SP_ADD(SP_SVC,ts); CLK_POLL();
+#if defined(RTC_PRESENT)||defined(SPEEDPROF)
+  c3_seen6=0; c3_scan=DL[0];   /* a world frame begun from here on belongs to the next picture */
+#endif
 #ifdef SF3_DEFER
   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
   /* rc7: after the guest left a level (present() below turns the renderer off) the start is armed again: a new level is running once its clock
      differs from the one left behind and its entity table is there again */
   { if(!sf3_tried && !sf3_ok && *(volatile u32*)(EW+0x1e00) && (u32)*(volatile s16*)(EW+0x1e66)<=10u
        && (!sf3_left || (*(volatile u32*)(EW+0x1e00)!=sf3_left_clk && *(volatile s16*)(IW+0xc)>=0))){ sf3_tried=1; sf3_left=0; sf3_first_map=*(volatile s16*)(EW+0x1e66); dbg("guest map "); dec(sf3_first_map); dbg("\n"); dbg("deferred sf3_init at level start, gba frame "); dec(io_cyc/280896); dbg("\n");
-      sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
+      sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } }
   if(sf3_retry && !sf3_ok && g_pres-last_cold_pres>=6 && *(volatile u32*)(EW+0x1e00)!=sf3_clk0){ sf3_retry=0; dbg("sf3 re-init after overlay load\n");
-    sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
+    sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); }
 #endif
-  g_pres++;
+  g_pres++; SP_INC(SP_NPRES);
+#ifdef COLD1PASS
+  if(!cold_m5 && disp_on && (rom_miss_count|cold_loads) && g_gframes-cd_rd_gf>=COLD1_QUIET && !pp_fade_w) cold_all();
+#endif
 #ifndef PRES_DBG_EVERY
 #define PRES_DBG_EVERY 50
 #endif
@@ -903,10 +1542,14 @@ static void present(void){
                 u32 a=lo<SF_WORLD_LO?SF_WORLD_LO:lo, b=hi>we?we:hi;
                 if(a<b){ u32 s0=(a-SF_WORLD_LO)>>11, s1=(b-1-SF_WORLD_LO)>>11; cd_read(sf3_w_lba+s0,s1-s0+1,(u8*)(SF_WORLD_LO+s0*2048)); }
                 cold_loaded[k]=0; nrest++; } }
+            dsp_mclear();
             sf3_ok=1; dbg("SF3 renderer data restored from the world file, groups "); dec(nrest); dbg("level clock "); dec(c); dbg("\n"); }
           else { dbg("SF3 re-init after cold-code conflict, level clock "); dec(c); dbg("\n");
-            sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } } }
+            sf3_ok=(sf3_init()==0); for(u32 k=0;k<COLDGROUPS;k++){ u32 lo=COLD_HOST+k*16384, hi=lo+16384; if(hi>SF_WORLD_LO && lo<0x8011b200u) cold_loaded[k]=0; } dsp_mclear(); dbg("sf3_ok "); dec(sf3_ok); dbg("\n"); } } }
       else rclk=0; } }
+#endif
+#ifdef DISP_D2
+  d2_apply();             /* stage 20 D2: the call sites queued since the last picture, after this present's group drops */
 #endif
   if((g_pres%PRES_DBG_EVERY)==1){ dbg("present "); dec(g_pres); dbg(" tick "); dec(io_nd); dbg("gf "); dec(g_gframes); dbg("clk "); dec(*(volatile u32*)(EW+0x1e00)); dbg("map "); dec(*(volatile u16*)(EW+0x1d40)); dbg("nent "); dec(*(volatile u16*)(IW+0xc)); dbg("dsp "); hex(io16(0)); dbg("keys "); hex(io_keys); dbg("PPU n2 "); dec(pp_n2); dbg("n4 "); dec(pp_n4); dbg("up "); dec(pp_nup); dbg("rb "); dec(pp_nrb); dbg("rst "); dec(pp_nreset); dbg("lost "); dec(pp_lost); dbg("fade "); dec(pp_nfade); dbg("w "); dec(pp_fade_w); dbg("fb "); dec(pp_nfb); dbg("obj "); dec(pp_nobj); dbg("disp "); hex(pp_disp); dbg("\n"); }
   u32 rc=RC1_VAL; u32 lines=(rc-last_rc)&0xffff;   /* scanlines of CPU time since the previous present = guest logic time */
@@ -915,6 +1558,9 @@ static void present(void){
   logic_lines=lines; if(lines>max_lines) max_lines=lines; tot_lines+=lines; nfr_meas++;
   int oy=buf?240:0; cur_oy=oy;
 #ifndef AUTOKEYS
+#ifdef RTC_GFRAMES
+  clk_gba();
+#endif
   if(pad_gf!=g_gframes){ pad_gf=g_gframes; pad_frame_poll(); }
   io_keys=pad_gba;
   { u32 lat=pad_latch|pad_raw, np=lat&~pad_lastp; pad_latch=0; pad_lastp=pad_raw;
@@ -949,7 +1595,11 @@ static void present(void){
     { static u32 tgd; if(!tgd && sf3_map_loads>=TG_LOADS && st3_render>2){ tgd=1; *(volatile s16*)(EW+0x1e66)=TG_TO; dbg("TEST-ONLY: guest grid id set to "); dec(TG_TO); dbg("\n"); } }
 #endif
     u32 g0=RC1_VAL; int ok=gather3(&px,&py,&pz,&hd,&pk,&ne); st3_gather_lines=(RC1_VAL-g0)&0xffff;
-    if(ok){ stage7_pre(&px,&py,&pz,&hd,&pk,&ne); hpx=px; hpy=py; hpz=pz; hhd=hd; hpk=pk; hne=ne; hvalid=1; u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,PPU_SF3HUD); while(*(volatile u32*)0x1F8010A8&0x01000000){} pp_draw(oy,1); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+#ifdef SPEEDPROF
+    sp_acc[SP_GATHER]+=st3_gather_lines; sp_lvl=1;
+#endif
+    if(ok){ SP_T0(tq); stage7_pre(&px,&py,&pz,&hd,&pk,&ne); SP_ADD(SP_PRE,tq); hpx=px; hpy=py; hpz=pz; hhd=hd; hpk=pk; hne=ne; hvalid=1; u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,PPU_SF3HUD);
+      SP_ADD(SP_ENG,r0); SP_T0(td); while(*(volatile u32*)0x1F8010A8&0x01000000){} SP_ADD(SP_DMA,td); SP_T0(tp); pp_draw(oy,1); SP_ADD(SP_PPD,tp); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
       if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("map "); dec(sf3_map_cur); dbg("gmap "); dec(g3_map); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cnf "); dec(cold_conflicts); dbg("interp "); dec(ip_enters); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<32;q++) dec(sf3_cnt[q]); dbg("\n"); }
 #ifdef SPINTEST
       /* TEST-ONLY (stage 13): once, after SPINTEST renders: 12 headings (1/12 turn apart), 6 renders each (the camera and the LOD governor settle), the guest frozen in this call; prints the 6th render of each heading and the summary, then goes on normally */
@@ -1005,12 +1655,16 @@ static void present(void){
       stage 20: only while the guest still has its level's entity table (count 0..100 at IWRAM 0x0300000c, as gather3 reads it): Quit to title leaves the level clock at its last value
       and sets the count to -1, and the held view then showed through every index-0 pixel of the game menu (pp_draw(oy,1) draws no backdrop) */
       static u32 nh; if(nh<3||(nh&63)==0){ dbg("SF3 hold last frame, hold count "); dec(nh); dbg("\n"); } nh++;
-      sf3_frame(oy,hpx,hpy,hpz,hhd,hpk,ents3,hne,PPU_SF3HUD); while(*(volatile u32*)0x1F8010A8&0x01000000){} pp_draw(oy,1); goto flip; } }
+      { SP_T0(r0); sf3_frame(oy,hpx,hpy,hpz,hhd,hpk,ents3,hne,PPU_SF3HUD); SP_ADD(SP_ENG,r0); SP_T0(td); while(*(volatile u32*)0x1F8010A8&0x01000000){} SP_ADD(SP_DMA,td); SP_T0(tp); pp_draw(oy,1); SP_ADD(SP_PPD,tp); } goto flip; } }
 #ifdef SF3_DEFER
  no3d:
 #endif
-  if(sf3_cfl&&*(volatile u32*)(EW+0x1e00)){ last_rc=RC1_VAL; return; }   /* stage 13: renderer data is being restored after a cold-code overlay hit it: keep showing the last 3D frame (no switch to the debug page, no luminance flash) */
-  pp_draw(oy,0);          /* the 2D layer: black borders, backdrop, page, sprites (ppu12.h sets its own drawing environment) */
+  if(sf3_cfl&&*(volatile u32*)(EW+0x1e00)){ last_rc=RC1_VAL;
+#ifdef SPEEDPROF
+    sp_acc[SP_PRESL]+=sp_now()-sp_t; sp_inpres--;
+#endif
+    return; }   /* stage 13: renderer data is being restored after a cold-code overlay hit it: keep showing the last 3D frame (no switch to the debug page, no luminance flash) */
+  { SP_T0(tp); pp_draw(oy,0); SP_ADD(SP_PPD,tp); }          /* the 2D layer: black borders, backdrop, page, sprites (ppu12.h sets its own drawing environment) */
 #ifndef PPU_DEBUG
   goto flip;
 #else
@@ -1060,6 +1714,9 @@ static void present(void){
   flip_to(oy); buf^=1;
   cd_resume();           /* CD audio held for data reads comes back when no data read was made for a while (after this picture's own reads) */
   last_rc=RC1_VAL;
+#ifdef SPEEDPROF
+  sp_acc[SP_PRESL]+=sp_now()-sp_t; sp_inpres--; if(sp_lvl) SP_INC(SP_NLVL); sp_line(sp_lvl);
+#endif
 }
 #ifdef SNAPRESUME
 /* TEST-ONLY resume from a guest-state snapshot taken in the unicorn sim at the entry of present() (called from h_vbl and from the VCOUNT poll in io_read) during the level: SNAPST.BIN on the disc (sector-aligned):
@@ -1078,8 +1735,10 @@ static RTCOLD void snap_restore(void){
   snap_target=w[0x88/4];
   const u32*st=w+40;
   io_vc=st[0]; io_nread=st[1]; io_nd=st[2]; io_cyc=st[3]; io_acc=st[4]; g_gframes=st[5]; g_nvbl=st[6];
+#ifndef RTC_TIMERS
   for(int k=0;k<4;k++){ tm_t0[k]=st[7+k]; tm_rl[k]=st[11+k]; tm_ovb[k]=st[15+k]; tm_en[k]=st[19+k]; }
   io_hi=0; for(int k=0;k<4;k++) tm_t0h[k]=io_cyc<tm_t0[k]?0xffffffffu:0u;   /* the snapshot's 32-bit base: every timer started less than 2^32 cycles ago */
+#endif
   ee_init=st[23];
 #ifdef KPLAN
   lvl_f0=st[24];
@@ -1102,6 +1761,9 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
      interrupt can reach a kernel handler; here I_MASK = 0, every pending I_STAT bit and every CD-ROM controller interrupt is acknowledged. */
   IMASK=0; ISTAT=0;
   RC1_MODE=0x0100;       /* root counter 1 counts hblank: the time base of every bounded wait of the CD driver */
+#ifdef RTC64
+  clk_raw=RC1_VAL&0xffff; /* and of the guest's clock (clk.h): set once here, never reset */
+#endif
 #ifndef CDSIM
   cd_drain();
 #endif
@@ -1117,13 +1779,20 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   memcpy(EW,p,0x40000); p+=0x40000; memcpy(IW,p,0x8000); p+=0x8000; memcpy(PAL,p,0x400); p+=0x400; memcpy(VRAM,p,0x18000); p+=0x18000; memcpy(OAM,p,0x400); p+=0x400; memcpy(io,p,0x400);
   io_vc=b[32]; io_nread=b[33]; for(int i=0;i<4;i++) io_tm[i]=b[34+i]; io_nd=b[38]; io_keys=PAD[(io_nd/30)%6];
   const u32 *rp=(const u32*)rompack; rp_n=rp[0]; rp_idx=rp+1; rp_data=(const u8*)(rp+1+rp_n);
+#ifdef DISP_D3
+  for(u32 i=0;i<2048;i++) rom_pg[i]=0;          /* ROMPG is outside the BSS: a real BIOS (and a packed EXE) leaves it undefined */
+#endif
   for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&2047]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted before the first level, see cd_fetch) */
 #ifdef PCACHE1
-  pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++) fr_pg[i]=(rp_idx[i]&2047)+1;
+  pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++){ u32 pg=rp_idx[i]&2047; fr_pg[i]=pg+1; pg_fr[pg]=i+1; }
 #endif
   dbg("boot image loaded, rom pages "); dec(rp_n); dbg("\n");
 #ifndef NO_INTERP
   intro_fix_init();     /* overlay guard + the ZOO-logo join point (interp_glue.h) */
+#endif
+#ifdef DISP_ANY
+  dsp_mclear();             /* the D1 cache is empty before RT_MISS can reach it */
+  dsp_boot();
 #endif
   last_rc=RC1_VAL;
   static u32 regs[32]; for(int i=0;i<32;i++) regs[i]=b[i];
