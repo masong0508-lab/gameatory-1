@@ -81,7 +81,13 @@ run() {
 }
 run a a_boot_to_title      "$HERE/sessions/boot_to_title.py" --save-state
 run b b_new_game_to_level  "$HERE/sessions/new_game_to_level.py" --path pad --save-state
-run b b_assist_path        "$HERE/sessions/new_game_to_level.py" --path assist --save-state
+# KPL/KPLB assist hooks exist only on TEST discs. Real release images
+# must not run this impossible route or fail the entire matrix by design.
+if [ -n "$SYMS" ] && [ -f "$SYMS" ] && grep -aq 'KPL' "$SYMS"; then
+    run b b_assist_path    "$HERE/sessions/new_game_to_level.py" --path assist --save-state
+else
+    echo "SKIP b_assist_path: no KPL menu-assist symbols in this build"
+fi
 run j j_replay_script      "$HERE/sessions/replay.py" --script "$OUT/b_new_game_to_level/script.txt" --assist off
 run d d_maps               "$HERE/sessions/maps.py"
 run e e_save_load          "$HERE/sessions/save_load.py"
