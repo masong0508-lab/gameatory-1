@@ -70,6 +70,18 @@ exit 22
         self.assertIn('SKIP b_assist_path', p.stdout)
         self.assertEqual(chunks[0][chunks[0].index('--path') + 1], 'pad')
 
+    def test_runner_parses_as_posix_sh_before_any_emulation(self):
+        check = subprocess.run(['sh', '-n', str(RUNNER)], text=True,
+                               capture_output=True, check=False)
+        self.assertEqual(check.returncode, 0, check.stderr)
+
+    def test_parenthesized_safe_core_value_survives_quoting(self):
+        p, chunks, *_ = self.mock_run('swanstation_GPU_ResolutionScale=2x(native)',
+                                      only='a')
+        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        self.assertEqual(self.options(chunks[0]),
+                         ['swanstation_GPU_ResolutionScale=2x(native)'])
+
     def test_explicit_opt_tokens_are_accepted(self):
         p, chunks, *_ = self.mock_run('--opt swanstation_CPU_Overclock=400 --opt swanstation_CDROM_ReadSpeedup=10', only='a')
         self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
