@@ -322,7 +322,11 @@ def view_state(im):
         return 'white'
     if l < 0.45:
         return 'dark'
-    return 'city' if (l >= 0.8 and c >= 0.105) else 'menu'
+    # Some real city scenes are almost monochrome (pale streets or shaded
+    # vehicles) even though the 3D view covers the frame. Preserve the
+    # saturated-city rule and add a strictly high-coverage, low-chroma path;
+    # a truly grey menu with c=0 and white fade still fail this gate.
+    return 'city' if (l >= 0.8 and c >= 0.105) or (l >= 0.9 and c >= 0.02 and w < 0.35) else 'menu'
 
 
 def heading_to(dx, dy):
