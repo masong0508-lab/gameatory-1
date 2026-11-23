@@ -8,6 +8,8 @@ import tempfile
 import unittest
 import warnings
 import zipfile
+import zlib
+from unittest.mock import patch
 from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -64,6 +66,25 @@ class PrivateInputTest(unittest.TestCase):
         status, output = self.call(self.root / "inputs")
         self.assertEqual(status, 1)
         self.assertIn("MISSING s2/cold.pkl", output)
+
+    def test_release_from_full_owner_zip_allows_other_known_members(self):
+        # The full owner package contains 14 Track A inputs plus seven
+        # documented Track B references. --release must not reject them.
+        status, output = self.call(self.package(), "--release")
+        self.assertEqual(status, 0, output)
+        self.assertIn("14 expected files; 0 error(s)", output)
+        pkg = self.package([*self.values.items(), ("unauthorized.bin", b"extra")])
+        status, output = self.call(pkg, "--release")
+        self.assertEqual(status, 1)
+        self.assertIn("UNEXPECTED unauthorized.bin", output)
+
+    def test_corrupt_deflate_is_reported_without_traceback(self):
+        pkg = self.package()
+        with patch.object(zipfile.ZipFile, "open", side_effect=zlib.error("bad data")):
+            status, output = self.call(pkg)
+        self.assertEqual(status, 1)
+        self.assertIn("READ/CRC boot.bin", output)
+        self.assertIn("error(s)", output)
 
     def test_mutation_detected_even_when_size_unchanged(self):
         path = self.root / "inputs/boot.bin"
