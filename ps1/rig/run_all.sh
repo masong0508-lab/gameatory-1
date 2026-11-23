@@ -41,7 +41,7 @@ for rig_token in $RIG_OPTS; do
     # substitutions. Valid core options use strings such as 400, 10, false,
     # Software, 2x(native) and scph5501.bin.
     case "$rig_value" in
-        ''|*[!A-Za-z0-9_./:%+(),-]*)
+        ''|*[!A-Za-z0-9_./:%+,\(\)-]*)
             echo 'RIG_OPTS: invalid option value' >&2; exit 2 ;;
     esac
     expect_value=0
