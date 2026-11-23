@@ -124,15 +124,14 @@ finds.
 
 ## Handing work back
 
-Open now (2026-11-23 14:37 UTC): #4, #6-#11, #18 and #19 are merged.
+Open now (2026-11-23 19:05 UTC): #4, #6-#11, #18 and #19 are merged.
 Waiting on fixes in their review comments: #20 (helicopter "L land" compares
 against the entry-point ground; it lands on higher ground), #21 (map_flicker.py
 cannot import flicker_evidence when started through ob_session; soak minimum
 hard-coded) and #23 (count linger from the press, not the clock restart). #5
-needs the revision in its review. rc8 is now on the main line (#22). Claude is building rc9 (pause picture return, intro films, credits) and fixing the known rig bugs on the main line on a separate branch:
-`_syms_match` rejects the rc8 ELF because rc8's PSX.EXE is packed (use
-`payback_rc8.nm.txt` as SYMS for rc8), and level save states made at 400% fail
-to reload ("unserialize failed"). The rig, QA and page-profiler tests run in
+needs the revision in its review. rc8 (#22), rc9 (#24) and Claude's rig fixes (#25: packed-EXE symbol
+check, SwanStation save states, ground vehicle first in in_level) are on the
+main line. The private rc9 disc is for-GPT-6/Payback-PS1-rc9-disc.zip. The rig, QA and page-profiler tests run in
 CI through `tools/check.py`.
 
 Branch from a named commit of `claude/snes-mashup-umjsjp` and open a small
