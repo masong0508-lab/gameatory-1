@@ -205,7 +205,7 @@ The faults are those that kept rc6 from being played through:
 | I1 | The boot intro never ended: `prune.py` STUBS id 3 (`0x080234be`) is not a function but the join point of the ZOO-logo wait, and its stub returned into the wait | The stub site is patched at boot into `li $25,0x080234be; j RT_MISS`, so the interpreter runs the untranslated intro code. `intro_fix_init` checks every word it relies on (stub id, site, `RT_MISS`, the `RT_BX` hash code, the overlay-area hash slots) and stops on a PORT ERROR screen if one differs; `tools/check_intro_site.py` makes the same checks on every linked ELF and fails the build (proved on altered scratch copies: 0 stub sites, a changed `RT_BX` word). The real fix is a translation-input change: drop `0x080234be` from `prune.py` STUBS at the next regeneration and translate the intro. |
 | I2 | The film player (code overlay 1 at IWRAM `0x03000d84`) cannot run: rc5 ran the overlay-0 translation in its place | While overlay 1 is resident the hash slots whose keys lie in the overlay area point at `rt_ovmiss` (nothing added to `RT_BX`; `h_miss` and `ip_lookup` keep the `ov_stale` check); a call of the player ends the film as a key press does (picture cleared, DISPCNT 0x404, r0 = 1 'skipped'), so the intro takes the game's own skip path and film 2 is never called. No clock skip and no film-header parsing remain. The raw timer and the overlay loader that the intro calls are performed natively by the interpreter; the extra timer advance of the first attempt (`IP_TIMER_EXTRA`) is gone: title 1632 frames after the language press with it, 1630 without (SwanStation). |
 | I3 | No key left the intro | Cross and Circle (GBA A and B) skip where the GBA skips (guest frames 250..526 after the language press); the title comes 35 guest frames later (GBA: 22). Start never skips; a press on the Nintendo screen or during the ZOO fade (from guest frame 527) does nothing, as on the GBA. |
-| I4 | The guest time base (TM3:TM2) wrapped after 256 s of GBA time: deadlines set before the wrap were never reached (View intro black or locked, 41 raw-timer callers such as the white fades at `0x080273c6` / `0x08022e40`) | `io_hi` carries `io_cyc` into a 64-bit cycle count wherever it grows, and the timers count from the 64-bit difference to `tm_t0`: TM3:TM2 wraps after 72.8 hours, as on the GBA. |
+| I4 | The guest time base (TM3:TM2) wrapped after 256 s of GBA time: deadlines set before the wrap were never reached (View intro black or locked, 41 raw-timer callers such as the white fades at `0x080273c6` / `0x08022e40`) | `io_hi` carries `io_cyc` into a 64-bit cycle count wherever it grows, and the timers count from the 64-bit difference to `tm_t0`: TM3:TM2 wraps after 72.8 hours, as on the GBA. (`io_hi` is the virtual-clock build's time base; the rc8 release, built with `RTC_TIMERS`, counts the timers from `clk.h`'s line clock, see rc8 row M.) |
 | L1 | Getting into a vehicle crashed the game: the interpreter folded a computed `height << 23` into a host EWRAM address and the span loop wrote past the VRAM shadow into the 3D renderer's code | A shift folds only a value that an immediate move put into its register (`ip_km`, saved and restored around nested runs); a host VRAM pointer that runs past the shadow is folded back the way GBA VRAM mirrors, and the first such fold is reported on the TTY ('overflow', a rig fault word). |
 | L2 | In a vehicle the level read 17 pages beyond the resident set in a cycle: with 8 FIFO slots each came from the CD again about every second guest frame (tank 0.48 guest frames/s) | From the first level on, the 62 resident pages and the 8 slots are one pool with CLOCK replacement (a reference bit set by every read of a page in RAM); the hit path is a load, a store and a test (`cd_fetch` out of line); `rom_read` looks a page up once per page, not per byte. |
 | L3 | After Quit to title the held 3D view showed through every index-0 pixel of the game menu | The last 3D view is held only while the guest still has its level's entity table (count 0..100 at IWRAM `0x0300000c`). |
@@ -313,20 +313,20 @@ and the open issues showed. Speed is in emulated time (core frames / 59.94).
 
 | | Problem | rc8 |
 | --- | --- | --- |
-| M | rc7's `.rtcold` overlapped wave 1's D1 table and D2 queue; rc7's CLOCK pool and `io_hi` time base overlapped D3 and the Stage 1 clock | One 64-bit guest clock (`io_hi` carry feeds the Stage 1 clock and the timers). The D1 table (`dsp_mcache`) and the D2 queue (`dsp_lq`) are BSS/`.sfbss` arrays, not fixed addresses. D3 keeps the ROM page table in `ROMPG` (`0x8002a000`, every build) and the rc7 CLOCK pool marks a page unmapped there, so a D3 hit still sets the reference bit. `.sfbss` is NOLOAD and cleared first in `main`. `ps1.ld` asserts every region end (runtime, `.rtcold`, ROMPG, the cold table at `0x8011c000`, ragdoll, renderer). `check_native` links all eight layouts. |
+| M | rc7's `.rtcold` overlapped wave 1's D1 table and D2 queue; rc7's CLOCK pool and `io_hi` time base overlapped D3 and the Stage 1 clock | One guest clock: in the release (`RTC64`/`RTC_TIMERS`) the timers count from `clk.h`'s 64-bit GBA-cycle count `G`; `io_hi` is only compiled in the virtual-clock build (round 2: `G` was computed from the 32-bit line count, see row K). The D1 table (`dsp_mcache`) and the D2 queue (`dsp_lq`) are BSS/`.sfbss` arrays, not fixed addresses. D3 keeps the ROM page table in `ROMPG` (`0x8002a000`, every build) and the rc7 CLOCK pool marks a page unmapped there, so a D3 hit still sets the reference bit. `.sfbss` is NOLOAD and cleared first in `main`. `ps1.ld` asserts every region end (runtime, `.rtcold`, ROMPG, the cold table at `0x8011c000`, ragdoll, renderer). `check_native` links all eight layouts. |
 | C | Car hang at clock multiplier 5 (wave 1): entering a vehicle overwrote the renderer's code (6 words at `0x80199000`, frame 2694 in a helicopter, a traffic car froze the run at 28 ticks/s) | This is rc7's L1 (`height << 23` folded into a host address); rc8 carries rc7's `ip_km` / VRAM-fold fix over wave 1's dispatch. Renderer code unchanged in every rc8 vehicle run (tank, car k9/k14, helicopter). |
 | #14 | Vehicle `k17` unknown | `k17` is the helicopter: on the GBA (mGBA) ground inputs do not move it, L takes off, A flies (85k units), L lands; the PS1 does the same. No fix needed. Parked: `k11` tank, `k17` helicopter, `k9` sports car; `k3..k7`, `k14` are traffic. |
 | #15 | Map 3 at 400 % showed more picture changes than presents | A counter artifact: `g_pres` counts at the start of `present()`; every extra change is a real display flip. New `g_flips` counts display-start changes. 11 maps x 1200 frames at 400 %: 6,604 changes, 54 extra, all flips, 0 changes without a flip, 0 black. |
 | B | Junk on the last picture line (231) in the pause menu, game menu and View replay | The pause effect's 2x affine sprites (OAM 8/12) put texture row 16 on line 231: the PS1 GPU rounds an interpolated texture coordinate to the nearest texel, the GBA truncates. `pp_obj` places each affine texture corner half a texel further on. The 224-line area is not cropped. Line 231 clean on SwanStation and Beetle in the pause menu, the game menu and the View replay screen. |
-| R | Long music gaps (rc7 level 51 % sound, silences to 16.6 s) | `CDDA_HMAX` (= `CDDA_QMAX/2`): after a hold of 4 s or more the radio resumes after the short quiet interval (1 s) and the back-off resets; ROM page reads are never blocked. |
+| R | Long music gaps (rc7 level 51 % sound, silences to 16.6 s) | `CDDA_HMAX` (= `CDDA_QMAX/2`): after a hold of 4 s or more the radio resumes after the short quiet interval (1 s) and the back-off resets; ROM page reads are never blocked. Round 2: this early resume backs off too (row H). |
 
-Memory of the release (rc7 in brackets): runtime ends `0x80026e90`, 4,464
-bytes free (4,768); `.rtcold` ends `0x80029fb4`, 76 free (968); ROMPG
-`0x8002a000`; page cache `0x8015e000..0x80166000`, 62 resident pages;
-ragdoll 2,140 free (2,140); renderer ends `0x801afe2c`, 468 free (3,524).
-`check_native` runtime free: Release 4,556, KPLAN test 1,260, SPEEDPROF 812,
-virtual clock 6,380, D1CHK 2,796, D3 only 10,268, D2 only 9,116, D1 D4 5,708.
-TEST_assist 1,168.
+Memory of the release (round 1 / rc7 in brackets): runtime ends `0x800270f0`,
+3,856 bytes free (4,464 / 4,768); `.rtcold` ends `0x80029fb4`, 76 free (76 / 968);
+ROMPG `0x8002a000`; page cache `0x8015e000..0x80166000`, 62 resident pages;
+ragdoll 2,140 free (2,140 / 2,140); renderer ends `0x801afe2c`, 468 free (468 / 3,524).
+`check_native` runtime free: Release 3,948, KPLAN test 636, SPEEDPROF 220,
+virtual clock 5,884, D1CHK 2,188, D3 only 9,804, D2 only 8,652, D1 D4 5,084.
+TEST_assist 544.
 
 Speed, SwanStation, emulated time; stock = 100 % CPU and 1x CD,
 recommended = `CPU_Overclock=400`, `CDROM_ReadSpeedup=10`,
@@ -339,26 +339,79 @@ recommended = `CPU_Overclock=400`, `CDROM_ReadSpeedup=10`,
 | rc7 | rec | 2.07 | 6.57 | 11.08 | 15.94 / 1.98 | 15.32 / 1.92 | 14.79 / 1.84 | 13.73 / 1.72 | 59.9 / 20.0 / 59.9 |
 | wave 1 | stock | 10.88 | 18.30 | 27.58 | 6.12 / 1.47 | 3.70 / 0.77 | renderer overwritten | no car reached | 19.2 / 12.0 / 19.9 |
 | wave 1 | rec | 1.94 | 6.27 | 9.58 | 28.62 / 16.15 | 28.52 / 15.75 | renderer overwritten | hang after entering | 59.9 / 30.0 / 59.9 |
-| rc8 | stock | 11.18 | 18.67 | 27.98 | 27.74 / 10.88 | 29.02 / 12.08 | 28.97 / 13.05 | 26.63 / 8.67 | 19.9 / 12.0 / 19.9 |
-| rc8 | rec | 1.94 | 6.29 | 9.66 | 29.80 / 29.62 | 29.87 / 29.80 | 29.81 / 29.61 | 29.23 / 28.29 | 59.9 / 30.0 / 59.9 |
+| rc8 round 1 | stock | 11.18 | 18.67 | 27.98 | 27.74 / 10.88 | 29.02 / 12.08 | 28.97 / 13.05 | 26.63 / 8.67 | 19.9 / 12.0 / 19.9 |
+| rc8 round 1 | rec | 1.94 | 6.29 | 9.66 | 29.80 / 29.62 | 29.87 / 29.80 | 29.81 / 29.61 | 29.23 / 28.29 | 59.9 / 30.0 / 59.9 |
+| rc8 | stock | 11.14 | 18.57 | 27.78 | 27.57 / 11.97 | 28.54 / 11.40 | 28.81 / 12.59 | 28.77 / 9.41 (traffic car) | 19.9 / 12.0 / 19.9 |
+| rc8 | rec | 1.94 | 6.26 | 9.56 | 29.85 / 29.77 | 29.90 / 29.87 | 29.71 / 29.31 | 29.85 / 29.83 (traffic car) | 59.9 / 30.0 / 59.9 |
 
-Music, full US disc, SwanStation stock: level 91.4 % of the time with sound,
-longest silence 3.3 s; menus 97.5 % (rc7: 51 % / 95 %, longest 16.6 s). With
-a teleport every 10 s (71 ROM fetches a minute): 29 % sound, silences
-2.5-10.7 s; the same build without `CDDA_HMAX`: 6 %, silences 39 s and 70 s.
+Music, round 1, full US disc, SwanStation stock: level 91.4 % of the time
+with sound, longest silence 3.3 s; menus 97.5 % (rc7: 51 % / 95 %, longest
+16.6 s). The review showed that the same build without `CDDA_HMAX` gave the
+same 91.4 % from that state (4 page fetches in 2 minutes): that figure was not
+caused by `CDDA_HMAX`, which mattered only under steady page reads and there
+cost 12-20 % of the level speed on SwanStation (row H).
 
-Verified on the release discs (SwanStation and Beetle unless noted): the
-static gates (`mips1_lint`, gpuwait, loaddelay, `prepare --check`, 71 unit
-tests, `check_native`, `check_intro_site`, `disp_patch_check`,
-`verify_inputs` 40/40, `rtcold_proof`); pad route to the level 13/13 at stock
-and recommended; tank (both cores), car and helicopter (SwanStation); quit
-from foot and from the tank and car, GAME OVER, a second level; flicker in
-menus (0 extra, 0 black), level and vehicles (0 changes without a flip);
-memory card save and cold-boot load; a 30-minute soak at recommended settings
-(SwanStation, 1,800 s of game time, no fault); the Europe disc to the title
-(PAL). Open: the intro film still does not play (rc7 I2 design), the pause
-picture still lingers 2-4 s after the pause menu, and the rig's in_level
-vehicle poke did not take.
+### rc8 round 2: review findings
+
+| | Finding | Fix |
+| --- | --- | --- |
+| H | (medium) `CDDA_HMAX` resumed the music every 4 s under steady page reads (fast driving, teleports): 19-23 resumes in 2-4 min, each a seek to the music and back that the game waits for, 12-20 % of the level ticks/s on SwanStation | The early resume backs off: when music that came back through it is held again before it has played 4 s, the hold needed for the next early resume doubles (`cdda_hmax`, up to `CDDA_HMAXX` = 32 s); music that plays 8 s sets it back to 4 s. Data reads are still never delayed. |
+| K | (low) `clk_gba` computed `G` from the 32-bit `clk_lines`: at its wrap (75.8 h after power-on) TM3:TM2 stepped back about 3 h, `g_gframes` jumped by about 11,500 and the level clock stood still | `clk_hi` counts the wraps of `clk_lines` in `clk_poll`; `G = (lo*K >> 16) + (hi*K << 16)` (two 32x32 multiplies) is the exact 64-bit value. `clk_now32()` and its differences stay 32-bit. |
+| D | (low) Overlay-area targets with a cold-table entry (`0x03000da8`, `OV1_INIT`) went through the D2 link and the D1 fill, which could later run overlay-0 code while the film overlay is resident | `h_miss` never D2-links an overlay-area target (a call site cannot be unlinked); it fills D1 only while overlay 0 is resident, and `ov_slots(1)` (the film overlay comes in) empties D1. Not caching them at all cost the menus 4-7 % (pad route 66 frames later on SwanStation, 114 on Beetle), so D1 keeps them. |
+| G | (low, not reproduced) A bail-out at 191 m/s after a Beetle helicopter crash | The bail-out launch is halved until the sum of its absolute x and z speeds is 64 m/s or less (the sum taken unsigned). Driving bail-outs were 9-95. |
+
+Measured on the round-2 release discs, emulated time:
+
+- Radio under page-read stress (radspeed, a teleport every 600 frames, 2 min, level
+  ticks/s): SwanStation 22.60 as built, 23.59 with the early resume disabled
+  (rc7 behaviour), 25.13 radio off (round 1: 21.15 / 24.68 / 24.02); Beetle
+  24.71 / 25.70 / 25.76. Every 450 frames over 4 min, SwanStation: 12.88 /
+  13.74 / 14.14 (round 1: 11.19 / 14.02 / 14.14). The cost against the rc7
+  behaviour is 4-6 % (round 1: 14-20 %); sound under this stress 13 % / 4 %
+  (round 1 25 %), longest silence 37 s.
+- Radio in normal play (radspeed without teleports, 2 min, 8 page fetches):
+  SwanStation 78.0 % sound, longest silence 5.3 s, 27.95 ticks/s; with the
+  early resume disabled 69.5 %, 16.9 s, 28.18. Beetle 82.2 %, 4.9 s, 28.94;
+  disabled 80.4 %, 14.9 s, 29.05. music.py (level, then menus): SwanStation
+  stock 78 % / 94 %, recommended 95 % / 96 %; Beetle stock 82 % / 97 %,
+  recommended 80 % / 93 %. The level share depends on the state (8 fetches in
+  these 2 minutes against 4-5 in round 1's state, which gave 91 %).
+- Clock: `clk_lines` moved to 20 s before its wrap (rig intervention): the
+  level clock keeps running (1,771 ticks in the last 60 s of 10 min on
+  SwanStation, 1,796 of 2 min on Beetle), `g_gframes` advances with the frames,
+  `clk_hi` = 1. The TM3:TM2 pair wrap: clock recovers (as round 1).
+- View intro after a level (both cores): D1 held `0x03000da8` in the level
+  and at the title, held no overlay-area key while the film overlay was
+  resident, back at the title after 1,020 / 1,110 frames, Play game works.
+- Pad route to the level: SwanStation 1,665 frames (27.78 s), Beetle 1,615;
+  recommended 573 / 873 (round 1: 1,677 / 1,611 / 579 / 871).
+
+Verified on the round-2 release discs (SwanStation and Beetle unless noted):
+the static gates (`mips1_lint`, gpuwait, loaddelay, `prepare --check`, 71
+unit tests, `check_native`, `check_intro_site`, `disp_patch_check`,
+`verify_inputs` 40/40, `rtcold_proof`); pad route 13/13 at stock and
+recommended; the two boot logos and the title (own `logos.py`); tank, a
+traffic car (SwanStation stock and recommended, Beetle stock) and the
+helicopter (enter, fly, get out; renderer intact); quit from foot, tank, car
+and helicopter, a second level; GAME OVER (SwanStation); the in-level session
+35/35 (SwanStation; the man is moved by the rig and held there for 30 frames
+before L1, and entered the traffic car next to him); flicker in the level and
+while driving (0 changes without a flip, 0 black), the 11-map scan (6,600
+changes, 0 without a flip); memory card save and cold-boot load; invariant
+soaks (code, page pool, pages equal to `ROM.BIN`, interpreter stacks, D1
+overlay keys, black pictures): SwanStation stock 30 min, Beetle stock 20 min,
+SwanStation recommended 30 min, all clean; a 30-minute soak at recommended
+settings (1,800 s of game time, no fault); the Europe disc to the title on
+both cores and to the level (Beetle; SwanStation reaches the level, its city
+classifier misreads the PAL picture, the picture shows the city).
+Expected FAILs: `boot_to_title` (5: the GBA's third logo and the intro film
+are the film overlay, which this port skips, rc7 design I2; its logo samples
+at fixed GBA frames land on fades and the title), the `clkprobe` control run
+(a jump of one hour that leaves TM3:TM2 in its upper half: the game stops its
+clock there, as on the GBA), the soak's "3D missing 10 s" (the man stood
+against a grey wall, picture viewed), the TEST_assist level check "three
+lives" (the assist takes a mode with five lives). Open: the intro film still
+does not play, the pause picture lingers 2-4 s after the pause menu.
 
 ## What the existing stages actually contain
 

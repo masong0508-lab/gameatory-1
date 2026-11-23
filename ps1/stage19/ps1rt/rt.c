@@ -1014,11 +1014,16 @@ u32 h_miss(u32 addr,u32 ra){ (void)ra; SP_INC(SP_MISS); DSP_PROF(dsp_nmiss++); u
 #else
 #include "interp_glue.h"
 /* RT_MISS: overlay loader, else the interpreter (stage 8: nothing halts).  a1 = the caller's $31 when the stage 20 RT_MISS patch is in (rt_mcache).
-   rc8: the overlay-area targets of the intro fix (rc7) are decided first and never cached (D1) or linked (D2): only cold_find results are. */
+   rc8: the overlay-area targets of the intro fix (rc7) are decided first.  rc8 review: an overlay-0 target with a cold-table entry
+   (0x03000da8, OV1_INIT) fell through to the D2 link and the D1 fill, so a later call there while the film overlay is resident could have
+   taken the stale overlay-0 code before this test.  Such a target is never linked (D2: a call site cannot be unlinked); it may go into D1,
+   which is filled here only while overlay 0 is resident, and ov_slots(1) (the film overlay comes in) empties D1.  Not caching it at all
+   cost the menus 4-7 % (pad route to the level 66 frames later on SwanStation, 114 on Beetle). */
 u32 h_miss(u32 addr,u32 ra){
   (void)ra; SP_INC(SP_MISS); DSP_PROF(dsp_nmiss++);
   ov_sync();
-  if(((addr&~1u)-OV_BASE)<OV1_SIZE){ if(!ov_res()) return film_miss(addr); u32 h=hot_lookup(addr&~1u); if(h) return h; }   /* intro fix: overlay area (interp_glue.h) */
+  if(((addr&~1u)-OV_BASE)<OV1_SIZE){ if(!ov_res()) return film_miss(addr); u32 h=hot_lookup(addr&~1u); if(h) return h;   /* intro fix: overlay area (interp_glue.h) */
+    h=cold_find(addr); if(h){ MC_FILL(addr,h); return h; } interp_target=addr&~1u; return (u32)interp_enter; }
   u32 h=cold_find(addr); if(h){ if(!D2_LINK(addr,ra,h)) MC_FILL(addr,h); return h; } interp_target=addr&~1u; return (u32)interp_enter; }
 #endif
 #ifdef DISP_D1CHK
@@ -1427,7 +1432,11 @@ static void stage7_pre(s32*pxp,s32*pyp,s32*pzp,int*hdp,int*pkq,int*nep){
         if(vy>8*1048576) vy=8*1048576; if(vy<-8*1048576) vy=-8*1048576;
         u32 tri=pad_new_extra&1; s32 sp=(vx<0?-vx:vx)+(vz<0?-vz:vz);
         if((pkp==1&&pk==0&&(((pvx<0?-pvx:pvx)+(pvz<0?-pvz:pvz))>2621440)) || (pk==1&&tri&&sp>1048576)){
-          s32 bx=pk==1?vx:pvx, bz=pk==1?vz:pvz; int k=rd_spawn(px,py,pz,hd,bx,3*1048576,bz,200,0x2040D0); if(k>=0) hero_clk=clk; dbg("DOLL bail-out slot "); dec(k); dbg("speed "); dec(((bx<0?-bx:bx)+(bz<0?-bz:bz))>>20); dbg("\n"); }
+          s32 bx=pk==1?vx:pvx, bz=pk==1?vz:pvz;
+          /* rc8 review: a vehicle swap or crash can still move the man up to 4000 units in a tick, read as a launch of up to 1875 m/s (191 seen
+             after a Beetle helicopter crash; driving bail-outs reach 95).  The launch is halved until it is 64 m/s or less (|x|+|z|). */
+          while((u32)(bx<0?-bx:bx)+(u32)(bz<0?-bz:bz)>(64u<<20)){ bx/=2; bz/=2; }   /* unsigned sum: two axes near 1875 m/s overflow s32 */
+          int k=rd_spawn(px,py,pz,hd,bx,3*1048576,bz,200,0x2040D0); if(k>=0) hero_clk=clk; dbg("DOLL bail-out slot "); dec(k); dbg("speed "); dec(((bx<0?-bx:bx)+(bz<0?-bz:bz))>>20); dbg("\n"); }
         if(pk==1&&sp>4*1048576){ for(int q=0;q<ne;q++){ if(ents3[q].kind!=1) continue; int id=ents3[q].spare&127; if(cdn[id]) continue;
             s32 dx=ents3[q].x-px, dz=ents3[q].z-pz; if(dx<0) dx=-dx; if(dz<0) dz=-dz; if(dx+dz>270) continue;
             int k=rd_spawn(ents3[q].x,ents3[q].y,ents3[q].z,ents3[q].yaw,vx*9/10,vy+2*1048576+(sp>>3),vz*9/10,id,0x30A0E0+(id*0x13A7C1&0x7f7f7f)); if(k>=0){ cdn[id]=420; dbg("DOLL hit ped "); dec(id); dbg("slot "); dec(k); dbg("speed "); dec(sp>>20); dbg("\n"); } } }

@@ -41,15 +41,19 @@ typedef unsigned long long u64;
 static u32 g_gframes;
 #endif
 #ifdef RTC64
-/* C1: PS1 lines since boot (32 bits: 75.8 hours, longer than the GBA's own TM3:TM2 pair lasts, 72.8 h).  Two agreeing reads (an
-   hblank-clocked counter can be read mid-change); at most one wrap (4.17 s) between two polls, which the poll points guarantee.
+/* C1: PS1 lines since boot, 64 bits: clk_lines is the low word (it wraps after 75.8 hours), clk_hi counts its wraps.  rc8 review: with
+   the low word alone G stepped back by 2^32 lines at that wrap (TM3:TM2 about 3 h back, the level clock stood still), a jump the GBA's
+   own clock never makes.  Two agreeing reads (an hblank-clocked counter can be read mid-change); at most one wrap (4.17 s) between two
+   polls, which the poll points guarantee.  clk_now32() and the differences taken from it stay 32-bit (they are wrap-safe).
    G = GBA cycles since boot, 64-bit: 1066.285 GBA cycles per PS1 line = 69880080 / 65536. */
-static u32 clk_raw, clk_lines;
-static __attribute__((noinline)) void clk_poll(void){ u32 a=RC1_VAL&0xffff, b=RC1_VAL&0xffff; if(a!=b) a=RC1_VAL&0xffff; clk_lines+=(a-clk_raw)&0xffff; clk_raw=a; }
+static u32 clk_raw, clk_lines, clk_hi;
+static __attribute__((noinline)) void clk_poll(void){ u32 a=RC1_VAL&0xffff, b=RC1_VAL&0xffff; if(a!=b) a=RC1_VAL&0xffff;
+  u32 o=clk_lines; clk_lines+=(a-clk_raw)&0xffff; clk_raw=a; if(clk_lines<o) clk_hi++; }
 #ifdef RTC_GFRAMES
 static u32 gf_last, gf_rem;         /* low word of G at the last call, GBA cycles since the last frame boundary (32-bit: calls < 256 s apart) */
 #endif
-static __attribute__((noinline)) u64 clk_gba(void){ clk_poll(); u64 g=((u64)clk_lines*69880080u)>>16;        /* one 32x32 multiply */
+static __attribute__((noinline)) u64 clk_gba(void){ clk_poll();
+  u64 g=(((u64)clk_lines*69880080u)>>16)+(((u64)clk_hi*69880080u)<<16);   /* (hi*2^32+lo)*K>>16 exactly: two 32x32 multiplies */
 #ifdef RTC_GFRAMES
   { u32 g32=(u32)g; gf_rem+=g32-gf_last; gf_last=g32; if(gf_rem>=280896u){ u32 n=gf_rem/280896u; g_gframes+=n; gf_rem-=n*280896u; } }
 #endif

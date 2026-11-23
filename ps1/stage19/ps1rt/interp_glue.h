@@ -111,7 +111,7 @@ u32 film_ends, ov_stale_n, ip_hles;
 static int ov_res(void){ const volatile u32*w=(const volatile u32*)(IW+(OV_BASE&0x7fffu)); return w[0]==ov_w[0]&&w[1]==ov_w[1]; }
 static int ov_stale(u32 a){ return ((a&~1u)-OV_BASE)<OV1_SIZE && !ov_res(); }
 extern void rt_ovmiss(void); extern void rt_ret0(void); extern void rt_ret1(void); extern const unsigned RT_STUB_HOST;
-static void ov_slots(u32 on){ for(u32 k=0;k<ov_nsl;k++) ov_sl[k][1]=on?(u32)rt_ovmiss:ov_sh[k]; ov_patched=on; }   /* data words read by rt_hash: no I-cache flush */
+static void ov_slots(u32 on){ for(u32 k=0;k<ov_nsl;k++) ov_sl[k][1]=on?(u32)rt_ovmiss:ov_sh[k]; ov_patched=on; if(on) dsp_mclear(); }   /* data words read by rt_hash: no I-cache flush; rc8: D1 may hold overlay-0 targets (h_miss) */
 static inline void ov_sync(void){ if(ov_patched && ov_res()) ov_slots(0); }
 static u32 film_skip(void){ film_ends++; for(u32 k=0;k<0x12c00u;k+=4) *(volatile u32*)(VRAM+k)=0; h_memwr(0x04000000u,2,0x404); dbg("FILM not shown, ended as skipped\n"); return 1; }
 /* film_miss: h_miss for an address of the overlay area while overlay 1 is resident */

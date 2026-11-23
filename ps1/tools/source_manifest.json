@@ -152,7 +152,7 @@
     {
       "source": "stage19/ps1rt/clk.h",
       "target": "ps1rt/clk.h",
-      "sha256": "07ca6b365a74b9027d0321dc7a0b1a39ac771a2043e165b75729d85dbe51decb"
+      "sha256": "7ebe9ccfbc2dc55224c1aa8c9ddf875560f05e37424101c512d451be647035f3"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
@@ -172,7 +172,7 @@
     {
       "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "2993a636bee565b72ee7d9bb472582b43480bf732dc184d96f162550174207da"
+      "sha256": "a1c69b5de969439f8fb4aa0d2f3dd2428eab9db7d10c97577817acecc02305f4"
     },
     {
       "source": "stage19/ps1rt/hw_pad.h",
@@ -192,7 +192,7 @@
     {
       "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "cba2204301a58df252670d4dcb0d907476c62630c8cd0506627df5f991fa5bf9"
+      "sha256": "df82bdea9ab0ad41d63381029ff14836730bb377c8f4a7500d9f8f577e034014"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "a515a9c5b1456f12bde080094d7bbb4d5dc8a0cbdc720cd8cbe7cb62ade2ddff"
+      "sha256": "f2a57de0f7245f8aec1a1f945c96801bb7793da90f4dc14daa4f63851b48890c"
     },
     {
       "source": "stage19/rd/doll.c",
