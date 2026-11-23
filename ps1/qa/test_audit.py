@@ -1,6 +1,7 @@
 """ROM-free acceptance-audit regression tests with synthetic session artifacts."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -140,6 +141,49 @@ class AuditTests(unittest.TestCase):
         rep = audit.audit(self.root, "swanstation", "gameplay")
         self.assertIn("invalid_json", rep["sessions"][0]["errors"])
         self.assertIn("invalid_speed_metric", rep["sessions"][6]["errors"])
+
+    def test_failures_manifest_rejects_an_old_passing_json(self):
+        full(self.root)
+        # The most dangerous failure: a core aborts before replacing a prior
+        # successful result. The runner's fresh FAIL manifest must veto it.
+        (self.root / "session_failures.txt").write_text("FAIL b_new_game_to_level: no PASS assertions\n")
+        rep = audit.audit(self.root, "swanstation", "gameplay")
+        self.assertEqual(rep["status"], "FAIL")
+        self.assertIn("runner_reported_failures", rep["failures"])
+
+    def test_log_newer_than_json_rejects_stale_session(self):
+        full(self.root)
+        p = self.root / "b_new_game_to_level"
+        log = self.root / "b_new_game_to_level.log"
+        log.write_text("synthetic new failed run")
+        os.utime(p / "result.json", (100, 100))
+        os.utime(log, (110, 110))
+        rep = audit.audit(self.root, "swanstation", "gameplay")
+        self.assertIn("session_result_stale", rep["sessions"][1]["errors"])
+
+    def test_reboot_older_than_parent_is_not_fresh_save_evidence(self):
+        full(self.root)
+        parent = self.root / "e_save_load/result.json"
+        child = self.root / "e_save_load/reboot/result.json"
+        os.utime(child, (100, 100))
+        os.utime(parent, (110, 110))
+        rep = audit.audit(self.root, "swanstation", "gameplay")
+        self.assertIn("reboot_result_stale", rep["sessions"][4]["errors"])
+
+    def test_symbol_mismatch_and_monitor_warnings(self):
+        session(self.root, "a_boot_to_title")
+        session(self.root, "b_new_game_to_level")
+        p = self.root / "a_boot_to_title/result.json"
+        data = json.loads(p.read_text())
+        data["meta"]["syms_match_disc"] = False
+        data["meta"]["tty"] = False
+        p.write_text(json.dumps(data))
+        rep = audit.audit(self.root, "swanstation", "boot")
+        self.assertIn("symbols_for_another_disc", rep["sessions"][0]["errors"])
+        self.assertIn("guest_fault_monitor_unavailable", rep["sessions"][0]["warnings"])
+        self.assertIn("emulator_options_not_recorded", rep["sessions"][0]["warnings"])
+        self.assertEqual(rep["exe_sha1"], SHA)
+        self.assertNotIn("SECRET", json.dumps(rep))
 
     def test_missing_fingerprint_not_certified(self):
         session(self.root, "a_boot_to_title", sha=None)
