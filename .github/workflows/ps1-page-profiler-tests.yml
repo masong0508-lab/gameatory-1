@@ -1,0 +1,33 @@
+name: PS1 ROM page profiler regression tests
+
+on:
+  push:
+    paths:
+      - "ps1/qa/pages/**"
+      - ".github/workflows/ps1-page-profiler-tests.yml"
+  pull_request:
+    paths:
+      - "ps1/qa/pages/**"
+      - ".github/workflows/ps1-page-profiler-tests.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ps1-pages-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rom-free-ps1-pages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Parse source-only profiler tools
+        run: python3 -m compileall -q ps1/qa/pages
+      - name: Unit-test ROM page provenance, coverage and ranking
+        run: python3 -m unittest discover -s ps1/qa/pages -p 'test*.py' -v
