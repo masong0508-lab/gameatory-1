@@ -89,6 +89,53 @@ def h2g(h):
     return None
 
 
+# ------------------------------------------------------------------------------------------------ SwanStation save states
+SWAN_EVENTS_MARKER = b'\x06\x00\x00\x00Events'
+
+
+def swanstation_events(state):
+    """The timing-event table of a SwanStation save state: [(name, downcount, ticks since its last run, period, interval)], or
+    None when no table is found (another core, another state layout).  The table follows the marker string 'Events' (u32 length
+    6, then the bytes), a u32 and the event count; each event is its name (u32 length + bytes) and four s32.  Only a candidate
+    that parses completely with printable names counts (RAM can hold the word too); the last such one is the core's."""
+    found = None
+    i = state.find(SWAN_EVENTS_MARKER)
+    while i >= 0:
+        p = i + len(SWAN_EVENTS_MARKER) + 4
+        try:
+            n, = struct.unpack_from('<i', state, p); p += 4
+            if not 0 < n <= 64:
+                raise ValueError
+            ev = []
+            for _ in range(n):
+                ln, = struct.unpack_from('<I', state, p)
+                name = state[p + 4:p + 4 + ln]
+                if not 0 < ln <= 64 or not all(32 <= c < 127 for c in name):
+                    raise ValueError
+                p += 4 + ln
+                d, t, per, itv = struct.unpack_from('<4i', state, p); p += 16
+                ev.append((name.decode('ascii'), d, t, per, itv))
+            found = ev
+        except (ValueError, struct.error):
+            pass
+        i = state.find(SWAN_EVENTS_MARKER, i + 1)
+    return found
+
+
+def state_unloadable(core, state):
+    """Why the core might refuse to load this state again, or '' when nothing is known against it.  SwanStation sometimes writes
+    states it cannot read back, and every such state seen had timing events with a negative time since their last run (frames
+    where the runtime waits for a CD sector, at every CPU and CD setting; rc8: 6 of 1500 frames after the level start; swapping
+    the bytes of exactly those fields with a good state's made it load).  The condition is necessary, not sufficient: the rc9
+    review loaded 137 of 138 such states (3.5 to 4.4 % of frames).  save_state_file does not take such a state (stepping one frame
+    on costs nothing); load_state_file tries the core first and names this only when the core refuses."""
+    if core != 'swanstation':
+        return ''
+    ev = swanstation_events(state)
+    neg = [(e[0], e[2]) for e in ev or () if e[2] < 0]
+    return ', '.join('%s %d' % x for x in neg)
+
+
 # ------------------------------------------------------------------------------------------------ the game's own text
 class Mark:
     """A piece of the game's own text that a check looks for, kept as its length in characters and the sha256 (hex) of its
@@ -154,6 +201,40 @@ def contains(text, x):
 def same_text(text, x):
     """True when text is x (a plain word, compared as it is, or a Mark)."""
     return x.equals(text) if isinstance(x, Mark) else text == x
+
+
+# ------------------------------------------------------------------------------------------------ packed PSX.EXE
+EXEPACK_MAGIC = 0x31584b50          # 'PKX1': the run table of a packed PSX.EXE (ps1/stage19/ps1rt/exepack.py, speed item M11)
+
+
+def exe_image(exe, syms=None):
+    """(load address, bytes) of the program image a PS-X EXE puts in RAM.  A packed EXE (-DEXEPACK: the ELF defines __exepack_v1)
+    is rebuilt by its crt0 before main(): the runtime verbatim below __bss_start, then a run table 'PKX1', n, zero_end, n x (dest,
+    len) and the runs' bytes back to back; the image is the runs at their destinations and zeros elsewhere up to zero_end (the same
+    model as exepack.unpack).  Without the two symbols, or without a run table at __bss_start, the image is the EXE's text as it is."""
+    t_addr, t_size = struct.unpack_from('<II', exe, 0x18)
+    body = exe[0x800:0x800 + t_size]
+    syms = syms or {}
+    bss = syms.get('__bss_start')
+    if '__exepack_v1' not in syms or bss is None:
+        return t_addr, body
+    off = bss - t_addr
+    if off < 0 or off + 12 > len(body):
+        return t_addr, body
+    magic, n, zero_end = struct.unpack_from('<III', body, off)
+    if magic != EXEPACK_MAGIC or off + 12 + 8 * n > len(body) or zero_end < bss:
+        return t_addr, body
+    ents = [struct.unpack_from('<II', body, off + 12 + 8 * i) for i in range(n)]
+    img = bytearray(zero_end - t_addr)
+    img[:off] = body[:off]
+    src = off + 12 + 8 * n
+    for dest, ln in ents:
+        d = dest - t_addr
+        if d < off or d + ln > len(img) or src + ln > len(body):
+            raise ValueError('packed PSX.EXE: run 0x%08x+%d lies outside the image' % (dest, ln))
+        img[d:d + ln] = body[src:src + ln]
+        src += ln
+    return t_addr, bytes(img)
 
 
 # ------------------------------------------------------------------------------------------------ symbols
@@ -608,20 +689,22 @@ class Game(Emu):
         return Emu._env(self, cmd, data)
 
     def _syms_match(self):
-        """True when the symbol file is an ELF whose loadable image equals the PSX.EXE on the disc (else None: cannot tell)."""
+        """True when the symbol file is an ELF whose loadable image equals the PSX.EXE on the disc (else None: cannot tell).
+        A packed PSX.EXE (exe_image) is compared after rebuilding the image its crt0 makes: every PT_LOAD segment with file bytes,
+        also those that lie beyond the packed file's end (the renderer and ragdoll overlays), must equal the image there."""
         try:
             d = open(self.syms_path, 'rb').read()
             if d[:4] != b'\x7fELF':
                 return None
             exe = self.disc.read('PSX.EXE')
+            t_addr, img = exe_image(exe, load_symbols(self.syms_path))
             phoff, = struct.unpack_from('<I', d, 0x1c)
             phentsize, phnum = struct.unpack_from('<HH', d, 0x2a)
-            t_addr, = struct.unpack_from('<I', exe, 0x18)
             for i in range(phnum):
                 p_type, p_off, p_va, p_pa, p_fsz, p_msz = struct.unpack_from('<6I', d, phoff + i * phentsize)
                 if p_type == 1 and p_fsz:
-                    o = 0x800 + (p_va - t_addr)
-                    if o < 0x800 or exe[o:o + p_fsz] != d[p_off:p_off + p_fsz]:
+                    o = p_va - t_addr
+                    if o < 0 or o + p_fsz > len(img) or img[o:o + p_fsz] != d[p_off:p_off + p_fsz]:
                         return False
             return True
         except Exception:
@@ -1515,7 +1598,7 @@ class Game(Emu):
         PATH.json, so that a fresh process can repeat the proof (sessions/state_check.py).  Returns the metadata, or None
         when no good state could be made (nothing is written then).  The session continues from the saved point."""
         self.release()
-        tried = 0
+        tried = skipped = 0
         while True:
             n = 0
             ip = self.in_present()
@@ -1527,6 +1610,16 @@ class Game(Emu):
                 self.log('  save_state_file: present() never idle at a frame boundary within %d frames, no state written' % wait)
                 return None
             s = self.save_state()
+            why = state_unloadable(self.core_name, s)
+            if why:
+                skipped += 1
+                if skipped == 1 or skipped % 20 == 0:
+                    self.log('  save_state_file: a state of frame %d has timing events behind (%s), which the core may not load: next frame (%d skipped)' % (self.nrun, why, skipped))
+                if skipped >= wait:
+                    self.log('  save_state_file: no loadable state within %d frames, no state written' % skipped)
+                    return None
+                self.run(1)
+                continue
             card = bytes(self._card_buf) if self.card_mode != 'none' else None
             f0 = self.nrun
             if verify:
@@ -1589,8 +1682,16 @@ class Game(Emu):
             d = open(path + '.mcd', 'rb').read()
             C.memmove(C.addressof(self._card_buf), d, len(d))
         # the core's GPU keeps a transfer in flight outside the state: leave present() in THIS machine before replacing it
+        st = open(path, 'rb').read()
         self._leave_present()
-        self.load_state(open(path, 'rb').read())
+        try:
+            self.load_state(st)
+        except RuntimeError as e:
+            why = state_unloadable(self.core_name, st)
+            if why:
+                raise RuntimeError('state %s was not loaded by %s (%s); it was taken on a frame with timing events behind (%s), '
+                                   'which SwanStation sometimes cannot load: make it again' % (path, self.core_name, e, why)) from e
+            raise
         self._ring_reset()
         self.run(1)
         return meta

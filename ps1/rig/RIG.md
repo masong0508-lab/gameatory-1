@@ -298,6 +298,19 @@ Two properties of the fast core that the rig works around:
   level of RC v2 takes up to 30 s of console time. `Game.image()` therefore returns the frame buffer cut from VRAM while
   the core's picture is stale (`g.picture_stale()`), and fingerprints use the frame buffer.
 
+One property of SwanStation that the rig works around:
+
+- It sometimes writes states it cannot read back (`retro_unserialize` fails and the core resets the machine). In rc8
+  this happened on 6 of 1,500 frames after the level start, on frames where the runtime waits for a CD sector, which are
+  the frames the safe point above prefers; at stock settings as well as at a 400 % CPU or with a faster CD, with and
+  without a memory card. Every state that failed had timing events with a negative time since their last run, and
+  swapping the bytes of exactly those fields with those of a good state made it load. The condition is necessary, not
+  sufficient: most such states load (the rc9 review loaded 137 of 138; they are 3.5 to 4.4 % of frames, in CD waits and
+  the pause). `save_state_file` reads the event table of every state it takes (`ps1game.swanstation_events`) and steps
+  on to another frame instead of writing such a state; `load_state_file` tries the core first and, when the core refuses
+  a state of that kind, says so in its error. `tests/test_swanstation_state.py` checks the table reader and both paths on
+  synthetic states.
+
 ## Things to know
 
 - The fast core is **not cycle accurate**: instruction timing and CD latency are the core's model. Speed figures are
