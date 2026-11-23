@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import lzma
 import stat
 import sys
+import zlib
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -90,7 +92,8 @@ def file_sha(stream, expected_size: int) -> tuple[str, int]:
     return h.hexdigest(), total
 
 
-def verify_zip(archive: Path, expected: dict[str, tuple[str, int]]) -> list[str]:
+def verify_zip(archive: Path, expected: dict[str, tuple[str, int]],
+               allowed: set[str] | None = None) -> list[str]:
     failures = []
     with zipfile.ZipFile(archive) as z:
         members: dict[str, zipfile.ZipInfo] = {}
@@ -109,7 +112,10 @@ def verify_zip(archive: Path, expected: dict[str, tuple[str, int]]) -> list[str]
                 failures.append(f"DUPLICATE {name}")
             else:
                 members[name] = info
-        for name in sorted(set(members) - set(expected)):
+        # --release verifies only the 14 staged inputs, but a genuine owner
+        # ZIP also contains seven other *known* manifest members. These are
+        # not unexpected extras; unknown paths are still rejected.
+        for name in sorted(set(members) - (set(expected) if allowed is None else allowed)):
             failures.append(f"UNEXPECTED {name}")
         for name, (want, size) in expected.items():
             info = members.get(name)
@@ -121,7 +127,8 @@ def verify_zip(archive: Path, expected: dict[str, tuple[str, int]]) -> list[str]
                 try:
                     with z.open(info) as stream:
                         got, actual_size = file_sha(stream, size)
-                except (OSError, ValueError, RuntimeError, EOFError, zipfile.BadZipFile):
+                except (OSError, ValueError, RuntimeError, EOFError, zipfile.BadZipFile,
+                        zlib.error, lzma.LZMAError):
                     failures.append(f"READ/CRC {name}")
                     continue
                 if (got, actual_size) != (want, size):
@@ -169,12 +176,13 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     try:
         exp, rom_sha = read_manifest(args.manifest)
+        all_known = set(exp)
         if args.release:
             exp = {k: v for k, v in exp.items() if k in RELEASE}
         if args.inputs.is_dir():
             failures = verify_directory(args.inputs, exp)
         elif args.inputs.is_file() and zipfile.is_zipfile(args.inputs):
-            failures = verify_zip(args.inputs, exp)
+            failures = verify_zip(args.inputs, exp, allowed=all_known)
         else:
             raise InputError("inputs must be an existing directory or ZIP archive")
         if args.rom:
