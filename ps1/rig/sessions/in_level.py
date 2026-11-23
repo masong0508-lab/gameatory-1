@@ -306,7 +306,9 @@ def main():
             e['parked'] = moved < 16
             vs.append(e)
         me = g.player()
-        vs.sort(key=lambda e: (not e['parked'], dist(e, me)))
+        # a ground vehicle first: the drive checks below (Cross accelerates, Left/Right steer, Square reverses) are those of a car or
+        # tank; the helicopter (kind 17) flies with other controls, on the GBA as here (rc8 issue #14), and was picked on Beetle
+        vs.sort(key=lambda e: (e['k'] == 17, not e['parked'], dist(e, me)))
         for e in vs[:6]:
             g.log('  vehicle #%d k%d at %d,%d heading %d state %d %s: %.0f units (%.1f cells) away' % (e['i'], e['k'], e['x'], e['y'], e['heading'], e['state'], 'parked' if e['parked'] else 'moving', dist(e, me), dist(e, me) / 2048))
         if not vs:
