@@ -1,17 +1,21 @@
 # One-command PS1 rc8 private regression runner
 
-**Status:** source-only harness prepared against the owner's rc7 draft test kit. Run the full matrix again **only after Claude supplies a private rc8 disc and matching ELF**. This file contains no licensed data, screenshots, CD audio, save files, game strings or binary test inputs. All output stays in the private directory supplied with `--out`.
+**Status:** source-only harness prepared against the owner's rc7 draft test kit. Run the full matrix again **only after Claude supplies a private rc8 disc and matching symbol listing**. This file contains no licensed data, screenshots, CD audio, save files, game strings or binary test inputs. All output stays in the private directory supplied with `--out`.
 
 ## One command
 
 ```sh
 python3 ps1/qa/run_rc8_matrix.py \
     --disc '/private/rc8/payback_rc8.cue' \
-    --syms '/private/rc8/payback_rc8.elf' \
+    --syms '/private/rc8/payback_rc8.nm.txt' \
     --cores '/private/Payback-PS1-QA-kit/cores' \
     --system '/private/Payback-PS1-QA-kit/system' \
     --out '/private/rc8-qa-20261122'
 ```
+
+**rc8 packed-disc symbol caveat:** The rc8 release `PSX.EXE` is packed. The seeded rig compares ELF PT_LOAD bytes with on-disc `PSX.EXE`, so the normal uncompressed `.elf` fails that comparison. Use Claude's matching private `payback_rc8.nm.txt` instead; the runner checks that it contains the runtime counters `g_flips`, `g_pres`, `st3_render`, and `sf3_map_cur` before any emulator job starts. A text symbol listing **cannot cryptographically prove** its executable identity: the private summary marks `symbol_list_fingerprint_verified=false`. For an ELF that can be compared byte-for-byte, a mismatch **aborts before boot**. Do not share either game's disc or packaged executable via GitHub.
+
+**Privacy and diagnostic slices:** `--disc`, `--syms`, and `--out` are normalized to absolute paths before the child processes run from the repository root; a relative output that resolves inside GitHub's checkout is **rejected before any file is written**. To repeat one failing part without all the expensive sessions, add e.g. `--only swan_recommended_11map_flicker --frames-per-map 1200`. The `--only` option may be repeated for different named jobs. A bad job name fails fast. This does not substitute for the complete default matrix.
 
 The output directory **must not exist**: the runner refuses stale results from an earlier disc or settings. It requires the safe, fail-on-session-error `ps1/rig/run_all.sh` from **PR #8** and the `RIG_OPTS` propagation and accurate-core cold-boot fix from **PR #11**. It does not silently run a nominally recommended test at stock. Stock runs have *separate* output roots. To inspect the planned steps without loading a ROM or creating files, add `--dry-run`.
 
@@ -43,4 +47,4 @@ The two new sessions were smoke-tested against the **actual private rc7 draft** 
 
 The earlier rc7 flicker smoke used the legacy `g_pres` counter; it was useful for black-flash and screen-change checks but cannot by itself prove actual display-flip synchronization. New rc8 results must show `flip_counter=g_flips` and `release_grade_flip_evidence=true` in the private `result.json`.
 
-Run the complete **default 1,200-frame/map flicker scan and full 108,000-emulated-frame console soak on rc8** when its disc/ELF arrives. File actual reproducible regressions with core, options, disc/commit, session and emulator frame; repeat at stock before declaring them build defects. Do not upload private logs, ROM bytes, disc images, snapshots, emulator cores or game screenshots to GitHub.
+Run the complete **default 1,200-frame/map flicker scan and full 108,000-emulated-frame console soak on rc8** when its private disc and matching symbol list arrive. File actual reproducible regressions with core, options, disc/commit, session and emulator frame; repeat at stock before declaring them build defects. Do not upload private logs, ROM bytes, disc images, snapshots, emulator cores or game screenshots to GitHub.
