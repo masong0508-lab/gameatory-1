@@ -52,6 +52,11 @@ def controlled_mode(rd16, rd32, read_rom_byte):
     return 'foot' if cls == 1 else f'vehicle_{kind:03d}' if cls == 0 else 'unclassified'
 
 
+def owner_rom_matches(rom: bytes, expected_sha1: str) -> bool:
+    """Reject merely size-correct, corrupt or modified 8 MiB dumps."""
+    return len(rom) == 0x800000 and hashlib.sha1(rom).hexdigest() == expected_sha1
+
+
 class PageRecorder:
     """Pure read/present classifier; never records address values or ROM bytes.
 
@@ -131,7 +136,7 @@ def main(argv=None):
     sys.path.insert(0, str(repo_root / 'payback-mod'))
     from paybackmod.rom import PAYBACK_EU_SHA1
     rom = a.rom.read_bytes()
-    if len(rom) != 0x800000 or hashlib.sha1(rom).hexdigest() != PAYBACK_EU_SHA1:
+    if not owner_rom_matches(rom, PAYBACK_EU_SHA1):
         ap.error('requires the exact original European 8 MiB Payback ROM (SHA-1 mismatch)')
     try:
         from unicorn import UC_HOOK_CODE
