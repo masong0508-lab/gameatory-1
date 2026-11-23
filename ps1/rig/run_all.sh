@@ -14,7 +14,6 @@ case "$CORE" in
     swanstation|beetle|pcsx_rearmed) ;;
     *) echo "unknown libretro core: $CORE" >&2; exit 2 ;;
 esac
-mkdir -p "$OUT"
 ONLY=${ONLY:-}
 SOAK_FRAMES=${SOAK_FRAMES:-120000}
 SOAK_GAME_SECONDS=${SOAK_GAME_SECONDS:-600}
@@ -37,10 +36,27 @@ for rig_token in $RIG_OPTS; do
     case "$rig_key" in
         *[!A-Za-z0-9_]*|'') echo 'RIG_OPTS: invalid option name' >&2; exit 2 ;;
     esac
-    [ -n "${rig_token#*=}" ] || { echo 'RIG_OPTS: value must not be empty' >&2; exit 2; }
+    rig_value=${rig_token#*=}
+    # Value grammar deliberately avoids shell metacharacters, spaces and
+    # substitutions. Valid core options use strings such as 400, 10, false,
+    # Software, 2x(native) and scph5501.bin.
+    case "$rig_value" in
+        ''|*[!A-Za-z0-9_./:%+(),-]*)
+            echo 'RIG_OPTS: invalid option value' >&2; exit 2 ;;
+    esac
     expect_value=0
 done
 [ "$expect_value" -eq 0 ] || { echo 'RIG_OPTS: missing KEY=VALUE after --opt' >&2; exit 2; }
+for duration in "$SOAK_FRAMES" "$SOAK_GAME_SECONDS"; do
+    case "$duration" in
+        ''|*[!0-9]*) echo 'SOAK_FRAMES and SOAK_GAME_SECONDS must be positive integers' >&2; exit 2 ;;
+    esac
+    [ "$duration" -gt 0 ] 2>/dev/null || {
+        echo 'SOAK_FRAMES and SOAK_GAME_SECONDS must be greater than zero' >&2; exit 2;
+    }
+done
+# Do not create an output directory until all user settings pass validation.
+mkdir -p "$OUT"
 failures="$OUT/session_failures.txt"
 : > "$failures"             # do not include stale FAIL lines from prior runs
 failed=0
