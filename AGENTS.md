@@ -129,7 +129,7 @@ Waiting on fixes in their review comments: #20 (helicopter "L land" compares
 against the entry-point ground; it lands on higher ground), #21 (map_flicker.py
 cannot import flicker_evidence when started through ob_session; soak minimum
 hard-coded) and #23 (count linger from the press, not the clock restart). #5
-needs the revision in its review. Known rig bugs on the main line, Claude's:
+needs the revision in its review. rc8 is now on the main line (#22). Claude is building rc9 (pause picture return, intro films, credits) and fixing the known rig bugs on the main line on a separate branch:
 `_syms_match` rejects the rc8 ELF because rc8's PSX.EXE is packed (use
 `payback_rc8.nm.txt` as SYMS for rc8), and level save states made at 400% fail
 to reload ("unserialize failed"). The rig, QA and page-profiler tests run in
