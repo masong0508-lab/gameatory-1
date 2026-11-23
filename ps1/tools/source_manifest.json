@@ -55,24 +55,24 @@
       "sha256": "47f133af6b4fe6022e1401d333fa89e84c59ab35c0a16d463b22b238df1a406b"
     },
     {
-      "source": "stage8/interp_fallback/interp/interp.c",
+      "source": "stage19/interp/interp.c",
       "target": "interp/interp.c",
-      "sha256": "2120bb1ea727c2158befd2b120082ae01d6688fd5cd35fb9ace032364b77a6cd"
+      "sha256": "8f872d7c647e6aafdf2614a4edeb777930a35cb0429cf6fb1ce29883da3526e2"
     },
     {
-      "source": "stage8/interp_fallback/interp/interp.h",
+      "source": "stage19/interp/interp.h",
       "target": "interp/interp.h",
-      "sha256": "ce894715d355bd93b0bb4abfd0005e1041e96f2c9508f3484c50e7f57bd8ee96"
+      "sha256": "0bac572d0541cf7a5f74bf57b2683a1b59c9f6598f4f72001e1551d8cf060634"
     },
     {
-      "source": "stage8/interp_fallback/interp/interp_asm.s",
+      "source": "stage19/interp/interp_asm.s",
       "target": "interp/interp_asm.s",
-      "sha256": "5f150fcd78aee9fe714b194f1d837df8a490a3dc4e6424cd6b8a072207da6812"
+      "sha256": "752d21b13bccbf70e4bdec7ce5e827248c46502e25604ce3ae0dd09c063e004b"
     },
     {
-      "source": "stage8/interp_fallback/interp/test_host.c",
+      "source": "stage19/interp/test_host.c",
       "target": "interp/test_host.c",
-      "sha256": "b1e8dab3eec37d421d6d15bc0f8f41c4e8e676f46224b7561367afb9d4ff0c31"
+      "sha256": "810bd07bcae682a2f818eae79188f21e0c98fc338d34da1762ed0d66a20a197c"
     },
     {
       "source": "stage7/integration/lockstep2.py",
@@ -147,12 +147,17 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "2797bf1324a79b7be50590a08e509eafef257c74aae86d3830e029d0616036f8"
+      "sha256": "46db2071ca72a605d68bf3940f78321480f02b5fffd6ab91344728b188b9bddb"
+    },
+    {
+      "source": "stage19/ps1rt/clk.h",
+      "target": "ps1rt/clk.h",
+      "sha256": "7ebe9ccfbc2dc55224c1aa8c9ddf875560f05e37424101c512d451be647035f3"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
       "target": "ps1rt/crt0.s",
-      "sha256": "e79650f78bf7f565f3d10b6d5f74d101aa2b588ccdf278ade07a408aa200ca90"
+      "sha256": "a435ce6e83dde0b327121079392806ed6bb2eff88e9598e15e82200de6bef4af"
     },
     {
       "source": "stage7/integration/ps1rt/font.h",
@@ -167,7 +172,7 @@
     {
       "source": "stage19/ps1rt/hw_cdda.h",
       "target": "ps1rt/hw_cdda.h",
-      "sha256": "6be550275a2b7ae12e634f66c85e10df3740c030f7ab597c49bc9aff7986d0a6"
+      "sha256": "a1c69b5de969439f8fb4aa0d2f3dd2428eab9db7d10c97577817acecc02305f4"
     },
     {
       "source": "stage19/ps1rt/hw_pad.h",
@@ -185,9 +190,9 @@
       "sha256": "25e31840c8c4d502cc84ef49afa5df50a3c60bbe91dd1440466d0c617e4675a2"
     },
     {
-      "source": "stage16/merge/ps1rt/interp_glue.h",
+      "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "b070b9ac1e8445437373b82065fe7d96cd36dd261b6ef081bae1d5a84db391f8"
+      "sha256": "df82bdea9ab0ad41d63381029ff14836730bb377c8f4a7500d9f8f577e034014"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",
@@ -197,12 +202,12 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "a1b973c68b3f0602dd916dc05583233cd9255475f13b083e616357cd6f037a13"
+      "sha256": "a2c10db33f98e852515d8928847f8b07f24aaf2f02f0ac5289788a274f3648b0"
     },
     {
-      "source": "stage16/merge/ps1rt/ps1.ld",
+      "source": "stage19/ps1rt/ps1.ld",
       "target": "ps1rt/ps1.ld",
-      "sha256": "6a476ad97f7cf3815045f13569a3da2bfdd4747559ecb75632d645fdb7161dbd"
+      "sha256": "b8c3556ee558ba0bbde3ddde22158a02470e2ac888289573b034f0a2abdf3c27"
     },
     {
       "source": "stage16/merge/ps1rt/ps1_f.ld",
@@ -217,12 +222,12 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "d49bd07f79efffbf22646736517e2f3357519846b67ff54aa636457a098214c1"
+      "sha256": "f2a57de0f7245f8aec1a1f945c96801bb7793da90f4dc14daa4f63851b48890c"
     },
     {
-      "source": "stage7/integration/rd/doll.c",
+      "source": "stage19/rd/doll.c",
       "target": "rd/doll.c",
-      "sha256": "6bbd9315e074530ba54c26a9a5d7d97f223713e92f0fe9616608578064ea1112"
+      "sha256": "df24b18fc8bc037c4c0fefdab4fbfef6d954687be54287e205b70729e1a2cf66"
     },
     {
       "source": "stage7/integration/rd/gte_rp.h",
@@ -317,7 +322,7 @@
     {
       "source": "stage19/sf/ps1.h",
       "target": "sf/ps1.h",
-      "sha256": "815ef9581eb356f6b8250506f54ae8ed86a532f6c46d617f7468eea731d5b806"
+      "sha256": "9503a1b0de0817ac1366ea19eecd52a5d178913061dabec66cacf607215bced7"
     },
     {
       "source": "stage19/sf/sf3.c",
@@ -512,7 +517,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "6b18defad3108d1bf77ac86eb368b725a6d29e2fb66b352dd0fe44b43853f32f"
+      "sha256": "73fec128f868687cfda9c8abd7678edf78b521c95035231cde2a3e7bcfa03c80"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
@@ -763,6 +768,26 @@
       "source": "tools/mips1_lint.py",
       "target": "tools/mips1_lint.py",
       "sha256": "e58c48380c1b8d1dd397ee494d0f0b74b0930790ad332abc15ed003a1566d2e8"
+    },
+    {
+      "source": "tools/check_intro_site.py",
+      "target": "tools/check_intro_site.py",
+      "sha256": "1fc989b8bd60f0b6a243952662e10c367426e4a2f4f7b344777e1ef14e16caab"
+    },
+    {
+      "source": "tools/disp_patch_check.py",
+      "target": "tools/disp_patch_check.py",
+      "sha256": "02f16ba42a5c55e981c1e9b023c110fdf976abeb3ac9e89edaf138a22a81a47a"
+    },
+    {
+      "source": "stage19/ps1rt/exepack.py",
+      "target": "ps1rt/exepack.py",
+      "sha256": "0f8d242c84f1df083ec2927bfe7255b8060b4ec8f7b8943608935fa1aaf72103"
+    },
+    {
+      "source": "SPEED_WAVE1.md",
+      "target": "SPEED_WAVE1.md",
+      "sha256": "ee45694ce6d65ad43ba13979c581e4b4beafbd291c1848d7d34325330c534640"
     }
   ],
   "patches": [

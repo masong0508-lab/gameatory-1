@@ -29,6 +29,7 @@ def manifest_source(target):
 
 BUILD_SCRIPT = manifest_source('ps1rt/build.sh')
 LINT = manifest_source('tools/mips1_lint.py')
+PATCH_CHECK = manifest_source('tools/disp_patch_check.py')
 MOCK_TOOL = r'''#!/usr/bin/env python3
 import json, os
 from pathlib import Path
@@ -84,6 +85,7 @@ class BuildDriverTests(unittest.TestCase):
         shutil.copyfile(BUILD_SCRIPT, self.tree / 'ps1rt/build.sh')
         (self.tree / 'tools').mkdir()
         shutil.copyfile(LINT, self.tree / 'tools/mips1_lint.py')
+        shutil.copyfile(PATCH_CHECK, self.tree / 'tools/disp_patch_check.py')
         self.good_elf = self.root / 'linked-fixture.elf'
         self.good_elf.write_bytes(elf_fixture.clean_program())
         self.bad_elf = self.root / 'linked-fixture-teq.elf'
@@ -154,6 +156,25 @@ class BuildDriverTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Missing input: ../tools/mips1_lint.py', result.stderr)
         self.assertEqual(self.events(), [])
+        self.assert_old_outputs()
+
+    def test_preflight_names_the_dispatch_patch_check(self):
+        (self.tree / 'tools/disp_patch_check.py').unlink()
+        result = self.run_build('--check')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing input: ../tools/disp_patch_check.py', result.stderr)
+        self.assertEqual(self.events(), [])
+        self.assert_old_outputs()
+
+    def test_wrong_dispatch_patch_word_fails_the_build_before_a_disc(self):
+        import test_disp_patch
+        elf = self.root / 'linked-fixture-dispatch.elf'
+        elf.write_bytes(test_disp_patch.program(patch=lambda new: [new[2]] + new[1:]))
+        result = self.run_build(MOCK_ELF=str(elf))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not `j rt_mcache`', result.stdout + result.stderr)
+        self.assertIn('PS1 build step failed: disp-patch-check-1', result.stderr)
+        self.assertFalse(any(e['tool'] in ('genisoimage', 'isoinfo') for e in self.events()))
         self.assert_old_outputs()
 
     def test_non_r3000a_instruction_fails_the_build_before_a_disc(self):
@@ -272,7 +293,7 @@ class BuildProfileTests(unittest.TestCase):
         (self.tree / 't/disc7.sh').write_text('printf "%s\\n" "KPLAN=$KPLAN" "NAME=$1" "CFLAGS=$2" "SNAP=$3" > "$RECORD"\n')
         self.record = self.tree / 'record.txt'
         self.env = dict(os.environ, ROM=str(self.tree / 'synthetic-input.bin'), RECORD=str(self.record))
-        for key in ('KPLAN', 'PADDBG', 'NPAGES', 'RPG'):
+        for key in ('KPLAN', 'PADDBG', 'NPAGES', 'RPG', 'BOOTF', 'CLOCKF', 'DISP'):
             self.env.pop(key, None)
 
     def profile(self, script, **settings):
@@ -289,6 +310,34 @@ class BuildProfileTests(unittest.TestCase):
         self.assertNotIn('-DPADDBG', flags)
         self.assertNotIn('-DKPLAN', flags)
         for flag in ('-DSF3_DEFER', '-DPCACHE1', '-DEXTRA'):
+            self.assertIn(flag, flags)
+
+    def test_release_has_the_stage3_speed_items(self):
+        items = ('-DEXEPACK', '-DCOLD1PASS', '-DPCPAIR', '-DCDPADPOLL', '-DPADSPLIT')
+        for script, settings in (('tools12/build.sh', {}), ('tools12/build_test_assist.sh', {})):
+            flags = self.profile(script, **settings)['CFLAGS'].split()
+            for flag in items:
+                self.assertIn(flag, flags, script)
+            for flag in ('-DCDSTAT', '-DCDDA_DATARADIO', '-DCDPADPOLL_AB', '-DPCPAIR_LEVEL'):
+                self.assertNotIn(flag, flags, script)
+        flags = self.profile('tools12/build.sh', BOOTF='')['CFLAGS'].split()
+        for flag in items:
+            self.assertNotIn(flag, flags)
+        self.assertIn('-DPCACHE1', flags)
+
+    def test_release_has_the_stage1_clock_and_stage2_dispatch_items(self):
+        clock = ('-DRTC64', '-DRTC_TIMERS', '-DRTC_PRESENT', '-DRTC_PMAX=100', '-DRTC_GFRAMES', '-DRTC_QUANT', '-DRTC_DT')
+        dispatch = ('-DDISP_D3', '-DDISP_D1', '-DDISP_D4', '-DDISP_D2')
+        for script in ('tools12/build.sh', 'tools12/build_test_assist.sh'):
+            flags = self.profile(script)['CFLAGS'].split()
+            for flag in clock + dispatch:
+                self.assertIn(flag, flags, script)
+            for flag in ('-DSPEEDPROF', '-DDISP_PROF', '-DDISP_D1CHK', '-DDISP_FREEZE_GF'):
+                self.assertFalse(any(f == flag or f.startswith(flag + '=') for f in flags), (script, flag))
+        flags = self.profile('tools12/build.sh', CLOCKF='', DISP='')['CFLAGS'].split()
+        for flag in clock + dispatch:
+            self.assertNotIn(flag, flags)
+        for flag in ('-DSF3_DEFER', '-DPCACHE1', '-DEXEPACK'):
             self.assertIn(flag, flags)
 
     def test_test_variant_adds_menu_assist_and_debug_log(self):

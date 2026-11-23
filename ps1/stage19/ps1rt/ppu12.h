@@ -144,7 +144,15 @@ static void pp_fade_flip(u32 P){
   pp_nfade++;
 }
 /* ---- ring replay: once per guest frame (adv_lines at vcount 160) and at every present */
+#ifndef SP_IN   /* the speed stamps come from rt.c's clk.h; no-ops where this file is compiled without it (native tests) */
+#define SP_IN() ((void)0)
+#define SP_OUT() ((void)0)
+#define SP_T0(v) do{}while(0)
+#define SP_ADD(i,v) ((void)0)
+#define SP_INC(i) ((void)0)
+#endif
 static void ppu_flush(void){
+  SP_T0(sp_t0); SP_IN();  /* SPEEDPROF (rt.c clk.h): replay time */
   u32 n=DL[0]; if(n-pp_from>256){ pp_lost+=n-pp_from-256; pp_from=n-256; }
   for(;pp_from<n;pp_from++){
     volatile u32*e=&DL[8+(pp_from&255)*8]; u32 id=e[0];
@@ -157,6 +165,7 @@ static void ppu_flush(void){
   }
   /* fade ramp: gfx_effect fades the screen to black over 32 steps, the next gfx_fade_flip brings it back (one step = one guest frame here) */
   if(pp_bright<32){ pp_bright+=4; if(pp_bright>32) pp_bright=32; }
+  SP_ADD(SP_FLUSH,sp_t0); SP_INC(SP_NFLUSH); SP_OUT();
 }
 /* ---- display */
 static u32 pp_col(u32 v,u32 br){ if(br>=32) return v; u32 r=(v&31)*br/32, g=((v>>5)&31)*br/32, b=((v>>10)&31)*br/32; return r|(g<<5)|(b<<10); }
@@ -219,9 +228,12 @@ static void pp_obj(void){
       } else {
         /* texture corner -> screen: S = M^-1 (T - c_t), c_t = (w/2,h/2); computed in 1/16 pixel, plus half a pixel (the GBA samples at integer positions) */
         int vx[4],vy[4]; int cx16=x*16+bw*8+8, cy16=y*16+bh*8+8;
-        for(int k=0;k<4;k++){ int du=tx*8+((k&1)?8:0)-w/2, dv=ty*8+((k&2)?8:0)-h/2;
-          s32 nx=pd*du-pb*dv, ny=-pc*du+pa*dv;       /* adj(P) * (du,dv) */
-          s32 sx16=(s32)((nx*4096)/det)*1, sy16=(s32)((ny*4096)/det)*1;   /* (256*nx/det) px = nx*4096/det in 1/16 px */
+        /* the PS1 GPU rounds an interpolated texture coordinate to the NEAREST texel, the GBA truncates: each texture corner is placed half a texel
+           further on (du, dv in half texels, +1), so a pixel samples floor() of the GBA coordinate.  Without it a magnified sprite's last line or
+           column showed the texel beyond its edge (the pause effect's 2x sprites put texture row 16 on the picture's last line, 231). */
+        for(int k=0;k<4;k++){ int du=2*(tx*8+((k&1)?8:0)-w/2)+1, dv=2*(ty*8+((k&2)?8:0)-h/2)+1;
+          s32 nx=pd*du-pb*dv, ny=-pc*du+pa*dv;       /* adj(P) * (du,dv), in half texels */
+          s32 sx16=(s32)((nx*2048)/det), sy16=(s32)((ny*2048)/det);   /* (256*nx/det) px = nx*4096/det in 1/16 px; half texels: 2048 */
           int Vx=cx16+sx16, Vy=cy16+sy16;
           vx[k]=PP_FDIV(Vx*4,48); vy[k]=PP_Y0+PP_FDIV(Vy*7-16,80); }   /* 1/16 px -> PS1: x 4/3; y 7/5 rounded like PP_SY (identity: PP_SY(y)) */
         pp_q4(vx,vy,u,v,ue,ve,cl,tpb,cmd);
