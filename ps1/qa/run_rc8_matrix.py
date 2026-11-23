@@ -143,7 +143,7 @@ def inspect_disc_symbols(disc, syms):
         return dict(exe_sha1=iso.sha1('PSX.EXE'),
                     elf_matches_disc=match,
                     symbol_list_fingerprint_verified=match is True,
-                    symbol_format='ELF' if syms.read_bytes()[:4] == b'\\x7fELF' else 'text')
+                    symbol_format='ELF' if syms.read_bytes()[:4] == b'\x7fELF' else 'text')
     finally:
         iso.f.close()
 
