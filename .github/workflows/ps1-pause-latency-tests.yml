@@ -1,0 +1,33 @@
+name: PS1 pause transition latency source tests
+
+on:
+  push:
+    paths:
+      - 'ps1/qa/pause_resume_latency.py'
+      - 'ps1/qa/pause_latency_metrics.py'
+      - 'ps1/qa/test_pause_latency_metrics.py'
+      - '.github/workflows/ps1-pause-latency-tests.yml'
+  pull_request:
+    paths:
+      - 'ps1/qa/pause_resume_latency.py'
+      - 'ps1/qa/pause_latency_metrics.py'
+      - 'ps1/qa/test_pause_latency_metrics.py'
+      - '.github/workflows/ps1-pause-latency-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rom-free-pause-timing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check the pause probe
+        run: python3 -m py_compile ps1/qa/pause_resume_latency.py ps1/qa/pause_latency_metrics.py
+      - name: Check synthetic pause/video/clock evidence
+        run: python3 -m unittest discover -s ps1/qa -p 'test_pause_latency_metrics.py' -v
