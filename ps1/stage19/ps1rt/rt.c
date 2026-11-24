@@ -1800,7 +1800,8 @@ static void present(void){
       SP_ADD(SP_ENG,r0); pr_async=1; u32 dl=(RC1_VAL-r0)&0xffff; st3_render++;
 #else
       SP_ADD(SP_ENG,r0); SP_T0(td); while(*(volatile u32*)0x1F8010A8&0x01000000){} SP_ADD(SP_DMA,td); SP_T0(tp); pp_draw(oy,1); SP_ADD(SP_PPD,tp); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++;
-#endif st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+#endif
+      st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
       if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("map "); dec(sf3_map_cur); dbg("gmap "); dec(g3_map); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cnf "); dec(cold_conflicts); dbg("interp "); dec(ip_enters); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<32;q++) dec(sf3_cnt[q]); dbg("\n"); }
 #ifdef SPINTEST
       /* TEST-ONLY (stage 13): once, after SPINTEST renders: 12 headings (1/12 turn apart), 6 renders each (the camera and the LOD governor settle), the guest frozen in this call; prints the 6th render of each heading and the summary, then goes on normally */
