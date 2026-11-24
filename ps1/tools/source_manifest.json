@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "534affc89a2efc25a4388996ab93aa79594a6335fe9c12b0d69d25ec743e5e85"
+      "sha256": "e056797f97702ea81dc061fa92ebb4a6eac0747c359599dc06cfbee268ae355e"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "8e897724cf6e499702c7f16d2833fb0eed928c4156820436da82f52c3f6a20db"
+      "sha256": "56a23b9524c059233bc39fd6a7c64d6027c77cc113add185c1a40ae0263ca9bf"
     },
     {
       "source": "merged/pin.py",
@@ -847,7 +847,7 @@
     {
       "source": "merged/sfglue.h",
       "target": "merged/sfglue.h",
-      "sha256": "5ae26f0c0cf784c467205005c95d3c6582a156dce1714acba15190a6a919ebf1"
+      "sha256": "132025f1722d0dc1e3097a801cd30fc06f0a5d08de167d9410a024de5affb37c"
     },
     {
       "source": "merged/sfmem.c",
