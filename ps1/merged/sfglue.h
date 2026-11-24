@@ -60,8 +60,12 @@ static u64 sf_native_call(u32 fn, const u32 *a, u32 gsp){
   return r;
 }
 /* ip_hle's first question: is t a Stunt Fox function compiled natively?  then run it and return to the guest lr */
+extern const u32 sfnat_niw; extern const u32 sfnat_iw[][2];
 static int sf_hle(IS*s,u32 t){
-  void*f=sf_native_of(t); if(!f) return 0;
+  void*f=sf_native_of(t);
+  if(!f&&(t>>24)==3&&s->r[14]-0x081b0000u<0x00100000u){      /* Stunt Fox's IWRAM code, called by Stunt Fox (interpreted from the ROM) */
+    u32 g=t&~1u; for(u32 i=0;i<sfnat_niw;i++) if(sfnat_iw[i][0]==g){ f=(void*)sfnat_iw[i][1]; break; } }
+  if(!f) return 0;
   sf_last_t=t; sf_last_lr=s->r[14]; sf_last_r0=s->r[0];
   u32 a[8], sp=s->r[13];
   for(int i=0;i<4;i++) a[i]=s->r[i];

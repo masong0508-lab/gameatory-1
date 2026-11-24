@@ -17,4 +17,4 @@ case "$ROM" in /*) ;; *) ROM="$PWD/$ROM" ;; esac
 [ "$(stat -c %s "$ROM")" = 16777216 ] || { echo "build_msb.sh: the merged ROM must be 16 MiB (--no-remixes)" >&2; exit 2; }
 cd "$(dirname "$0")/.."
 export ROM MERGED=1 ROMPAGES=4096 PZLIST=t/pause_pages_msb.txt PRUNE_DROP=3      # PRUNE_DROP: mkps1.py writes STUBTAB without id 3, as the translation was made
-NPAGES=61 RPG=t/resident_msb.txt bash tools12/build.sh "${1:?give an output name}" "-DMERGED ${2:-}"
+NPAGES=61 RPG=${RPG:-t/resident_msb.txt} bash tools12/build.sh "${1:?give an output name}" "-DMERGED ${2:-}"

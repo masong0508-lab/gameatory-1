@@ -13,6 +13,10 @@ clang -Os -emit-llvm per file, irmem.py (guest memory model), llvm-link with sfm
 import os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# the files compiled natively (B2 default): the renderer and what runs every frame in a city.  The rest (the space game, station,
+# missions, settings, campaign ...) is interpreted from the ROM: native code costs RAM that the cold groups and the ROM pages need
+# (place.py; all files natively leave 20 cold groups interpreted and the menus at 0.5 pictures a second)
+NATIVE = 'render tex citydraw model fx physics world draw2d merge ragdoll car ship props s2core space'
 KEEP_NATIVE = {'erecip', 'sin_table', 'rtab', 'pb_avg', 'font_tiles'}   # read-only tables read per pixel or span: native copies
 SKIP = {'main.c', 'hud.c'}                       # build.py MERGE_SKIP (C files)
 GEN_NATIVE = ['pbtables.c', 'tables.c']
@@ -99,7 +103,11 @@ def main():
     open(tex, 'w').write(t2)
     inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', '/usr/lib/llvm-18/lib/clang/18/include',
            '-DMERGE', '-DPS1', '-I' + os.path.join(b, 'src'), '-I' + os.path.join(b, 'build', 'gen')]
-    srcs = sorted(os.path.join(b, 'src', f) for f in os.listdir(os.path.join(b, 'src')) if f.endswith('.c') and f not in SKIP)
+    only = set(os.environ.get('SFNAT_ONLY', NATIVE).split())   # (the rest stays interpreted from the ROM; SFNAT_ONLY=all: every file)
+    if only == {'all'}:
+        only = set()
+    srcs = sorted(os.path.join(b, 'src', f) for f in os.listdir(os.path.join(b, 'src'))
+                  if f.endswith('.c') and f not in SKIP and (not only or f[:-2] in only))
     srcs += [os.path.join(b, 'build', 'gen', f) for f in GEN_NATIVE]
     ir = os.path.join(out, 'ir')
     os.makedirs(ir, exist_ok=True)
@@ -177,6 +185,7 @@ def main():
     else:
         txt += '\n@llvm.used = appending global [%d x ptr] [%s], section "llvm.metadata"\n' % (len(keep), arr)
     open(os.path.join(out, 'sf.keep.ll'), 'w').write(txt)
+    declared_fns = set(re.findall(r'^declare [^@]*@([\w.$]+)\(', txt, re.M))
     log.write('kept for the guest: %s\n' % ' '.join(keep))
     linked = os.path.join(out, 'sf.keep.ll')
     optd = os.path.join(out, 'sf.opt.bc')
@@ -208,21 +217,27 @@ def main():
     for u in sorted(undef):
         if u in RUNTIME or LINKER.match(u):
             continue
-        if u in rom or (u in gsyms and gsyms[u][1] == 'A'):
+        if u in declared_fns and u in gsyms and gsyms[u][1] in 'Tt' and u not in PORTED:
+            stubs.append((u, gsyms[u][0]))          # a Stunt Fox function left interpreted (SFNAT_ONLY): a guest call
+        elif u in rom or (u in gsyms and gsyms[u][1] == 'A'):
             absol.append((u, gsyms[u][0]))
+        elif u in gsyms and gsyms[u][1] in 'bBdD' and gsyms[u][0] >> 24 == 2 and gcount[u] == 1:
+            absol.append((u, 0x801b0000 + gsyms[u][0] - 0x02000000))   # a variable of a file left interpreted: its host image (pin.py)
         elif u in gsyms and gsyms[u][1] in 'Tt' and u not in PORTED:
             stubs.append((u, gsyms[u][0]))
         else:
             bad.append(u)
     if bad:
         raise SystemExit('natbuild: undefined and not provided: ' + ' '.join(bad))
-    ents = []
+    ents, iw = [], []
     for n, t in defined.items():
-        if t in 'Tt' and n in gsyms and gcount[n] == 1 and gsyms[n][1] in 'Tt' and not n.startswith('__sf_') and gsyms[n][0] >> 24 != 3:
-            # (not Stunt Fox's IWRAM code: on the PS1 IWRAM keeps Payback's own code at those addresses, hot_install copies nothing)
-            ents.append((gsyms[n][0] & ~1, n))
+        if t in 'Tt' and n in gsyms and gcount[n] == 1 and gsyms[n][1] in 'Tt' and not n.startswith('__sf_'):
+            # Stunt Fox's IWRAM code (0x03...) goes to a table of its own: on the PS1 IWRAM keeps Payback's code at those addresses
+            # (hot_install copies nothing), so sfglue.h takes such a target as ours only when Stunt Fox's interpreted code calls it
+            (iw if gsyms[n][0] >> 24 == 3 else ents).append((gsyms[n][0] & ~1, n))
     ents.sort()
-    glob = [n for _, n in ents if defined[n] == 't']           # static in Stunt Fox, but the guest reaches it: the entry table needs it global
+    iw.sort()
+    glob = [n for _, n in ents + iw if defined[n] == 't']           # static in Stunt Fox, but the guest reaches it: the entry table needs it global
     if glob:
         run(['llvm-objcopy'] + ['--globalize-symbol=sfn_' + n for n in sorted(set(glob))] + [obj], log)
     with open(os.path.join(out, 'sfnat_gen.c'), 'w') as f:
@@ -232,13 +247,17 @@ def main():
         for n, a in stubs:
             f.write('u64 sfn_%s(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, u32 a7) { u32 a[8] = {a0, a1, a2, a3, a4, a5, a6, a7}; '
                     'return sf_guest_call(0x%08xu, a); }\n' % (n, a))
-        names = sorted({n for _, n in ents})
+        names = sorted({n for _, n in ents + iw})
         for n in names:
             f.write('extern char sfn_%s[];\n' % n)
         f.write('const u32 sfnat_nent = %d;\nconst u32 sfnat_ent[][2] = {\n' % len(ents))
         for a, n in ents:
             f.write('  {0x%08xu, (u32)sfn_%s},\n' % (a, n))
         f.write('};\n')
+        f.write('const u32 sfnat_niw = %d;\nconst u32 sfnat_iw[][2] = {\n' % len(iw))
+        for a, n in iw:
+            f.write('  {0x%08xu, (u32)sfn_%s},\n' % (a, n))
+        f.write('  {0, 0}\n};\n')
     with open(os.path.join(out, 'sfnat_syms.ld'), 'w') as f:
         for n, a in absol:
             f.write('sfn_%s = 0x%08x;\n' % (n, a))
