@@ -136,7 +136,11 @@ static void pp_blit2(u32 img,int x,int y,u32 disp){
 #ifdef PP_ROMDIRECT
 static u32 pp_nromb4;   /* rc10: opaque blits copied from ROM pages already in RAM (no VRAM read-back) */
 /* every ROM page of bytes [a, a+n) is in RAM now (mapped, or kept in a pool frame): reading them costs no disc access */
+#ifdef MERGED
+static int pp_rom_has(u32 a,u32 n){ for(u32 pg=a>>12;pg<=(a+n-1)>>12;pg++){ if(pg>=ROM_NPG) return 0; if(!rom_pg[pg]&&!pg_fr[pg]) return 0; } return 1; }
+#else
 static int pp_rom_has(u32 a,u32 n){ for(u32 pg=a>>12;pg<=(a+n-1)>>12;pg++){ u32 q=pg&2047; if(!rom_pg[q]&&!pg_fr[q]) return 0; } return 1; }
+#endif
 #endif
 static void pp_blit4(u32 img,int x,int y,u32 disp){
   int limw=*(volatile s16*)(EW+0x1cea), limh=*(volatile s16*)(EW+0x1cec), stride=*(volatile s16*)(EW+0x1d00);
@@ -411,12 +415,31 @@ static void pp_obj(void){
   pp_nobj=nq;
 }
 static void pp_rect(int x,int y,int w,int h,u32 rgb){ gp0_2(0x60000000|rgb,XY(x,y),XY(w,h)); }
+#ifdef MERGED
+/* Milestone B: GBA mode 3 (240x160, 15-bit colour, BG2), which Star-FlyBack's title card (stuntfox src/title.c sf_intro_film) uses with the BLDY
+   darkening fade (BLDCNT effect 3 on BG2).  The picture goes as a 15-bit texture into the two backdrop cache pages (576..832, 256..416; the cache
+   is emptied, the backdrops come back from the ROM when the menus blit them again) and is drawn over 320 x 224 like the mode-4 page, modulated by
+   (16 - EVY) / 16.  GBA and PS1 colours are both BGR555; bit 15 is unused on the GBA and inert in an opaque PS1 draw. */
+u32 pp_nm3;
+static void pp_mode3(void){
+  if(pp_nimg||pp_pgy[0]||pp_pgy[1]){ pp_nimg=0; for(int k=0;k<AT_NPG;k++) pp_pgy[k]=0; pp_nl0[0]=pp_nl0[1]=0; pp_nreset++; }
+  pp_vload(AT_X0,PS1_VRAM_PPU_ATLAS_Y,240,160,(const u32*)VRAM,240*160/2);
+  u32 bc=io16(0x50), m=128;
+  if(((bc>>6)&3)==3&&(bc&4)){ u32 evy=io16(0x54)&31; if(evy>16) evy=16; m=(16-evy)*8; }
+  else if(((bc>>6)&3)==2&&(bc&4)){ u32 evy=io16(0x54)&31; if(evy>16) evy=16; m=128+evy*8; if(m>255) m=255; }   /* (brighten: approximated by modulation) */
+  if(m) pp_q(0,PP_Y0,320,PP_Y0+PP_H,0,0,240,160,0,((AT_X0)>>6)|((PS1_VRAM_PPU_ATLAS_Y>>8)<<4)|(2<<7),0x2c000000u|m|(m<<8)|(m<<16));
+  pp_nm3++;
+}
+#endif
 static void pp_draw(int oy,int level){
   u32 d=io16(0);
   /* drawing environment of this frame buffer: area 320 x PP_H at (0,oy+PP_Y0), drawing offset (0,oy), texture window off.  GP0 E3/E4: x | y<<10, E5: x | y<<11 (NOT the vertex packing) */
   gp0c(0xE1000000|(1<<7)|(1<<10)); gp0c(0xE2000000); gp0e(0xE3000000|((u32)(oy+PP_Y0)<<10)); gp0e(0xE4000000|319u|((u32)(oy+PP_Y0+PP_H-1)<<10)); gp0e(0xE5000000|((u32)oy<<11)); gp0c(0xE6000000);
   /* the lines outside the picture area: black (fills are absolute VRAM rectangles, not clipped by the drawing area) */
   gp0_2(0x02000000,XY(0,oy),XY(320,PP_Y0)); gp0_2(0x02000000,XY(0,oy+PP_Y0+PP_H),XY(320,240-PP_Y0-PP_H));
+#ifdef MERGED
+  if(!level&&!(d&0x80)&&(d&7)==3&&(d&0x400)){ pp_rect(0,PP_Y0,320,PP_H,0); pp_mode3(); if(d&0x1000){ pp_cluts(); pp_obj(); } return; }
+#endif
   if((d&0x80)||(d&7)!=4||!(d&0x400)){ if(!level) pp_rect(0,PP_Y0,320,PP_H,0); if(!level||!(d&0x1000)) return; pp_cluts(); pp_obj(); return; }
   { PT0(t_); pp_cluts(); PTA(3,t_); }
   u32 lp=(d&0x10)?1:0;                   /* displayed page: bit 4 set shows the page at VRAM+0xa000 (the game then draws into base 0) */
