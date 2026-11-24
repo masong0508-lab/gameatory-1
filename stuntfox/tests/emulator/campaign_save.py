@@ -116,10 +116,10 @@ class Campaign(Smoke):
                  "paint", "jobs_done", "paints_got", "sw_pack", "sg_invert", "sg_autoaim",
                  "rag_on", "rag_fall", "rag_wacky", "rag_unlock")
         result = {name: self.scalar(name) for name in names}
-        result["options"] = list(self.e.read(self.address("pos", 31), 31))
+        result["options"] = list(self.e.read(self.address("pos", 32), 32))
         result["applied_options"] = {name: self.scalar(name) for name in (
             "car_vmax_k", "car_accel_k", "ship_speed_k", "sg_shield_k", "cam_dflt",
-            "opt_tex", "opt_planet", "car_boost_inf", "sg_inf_missiles", "sw_pack_k")}
+            "opt_tex", "opt_planet", "car_boost_inf", "sg_inf_missiles", "sw_pack_k", "opt_tree_detail")}
         result["radio"] = self.e.read(self.address("radio", 20) + 17, 1)[0] & 0x7F
         return result
 
@@ -268,13 +268,13 @@ class Campaign(Smoke):
         self.tap("DOWN")
         self.tap("A")  # game settings
         initial = self.live()["options"]
-        for i in range(31):
+        for i in range(32):
             self.tap("RIGHT" if initial[i] == 0 else "LEFT", 24)
-            if i < 30:
+            if i < 31:
                 self.tap("DOWN", 24)
         changed = self.live()["options"]
         self.shot("settings-changed")
-        self.require("all 31 setting choices change through real input",
+        self.require("all 32 setting choices change through real input",
                      all(a != b for a, b in zip(initial, changed)), before=initial, after=changed)
         self.tap("B")
         self.tap("B")

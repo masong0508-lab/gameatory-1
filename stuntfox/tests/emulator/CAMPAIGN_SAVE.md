@@ -20,7 +20,7 @@ screenshots, campaign image, native slot state and pass/fail checks.
 The writer boots through the game's profile/story menus and boards the Arwing
 with Select. It starts the campaign and uses Save Now through the hangar menu.
 The game's initial 300 credits pay for the larger missile rack. Paint, both
-flight controls, ragdoll options, radio selection and all 31 game-setting
+flight controls, ragdoll options, radio selection and all 32 game-setting
 sliders are changed through normal input. A new process must restore the exact
 campaign image, live equipment and every option from the native EEPROM file.
 
@@ -74,7 +74,7 @@ equipment bytes retain their existing layout. Its sixteen spare bytes now hold:
 | 3 | Shield setting's three packed bits |
 | 4–7 | Existing options word 2, little-endian |
 | 8–11 | Existing options word 3, little-endian |
-| 12–15 | Existing extra-options word, little-endian |
+| 12–15 | Existing extra-options word, little-endian (formerly reserved bits 30–31 now encode tree detail; zero retains Normal) |
 
 The campaign's existing CRC protects the extension. `opt_load` validates each
 decoded option against its allowed range, and the extra-options RAM mirror is
@@ -91,4 +91,4 @@ python3 tests/save/progress.py
 
 It compiles the actual equipment codec and settings packer with ASan/UBSan and
 checks full round trips, old/unknown versions, invalid choices, field limits,
-jet-pack/ragdoll/radio flags and the unchanged 32-byte image size.
+jet-pack/ragdoll/radio flags, tree-detail choices and unchanged 32-byte image size.

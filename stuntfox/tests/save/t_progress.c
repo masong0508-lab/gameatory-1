@@ -4,6 +4,7 @@
 #include <string.h>
 #include <limits.h>
 #include "../../src/spacegame.c"
+#include "../../src/tree_lod.h"
 
 u16 car_vmax_k, car_grip_k, ship_speed_k, draw_k, ent_far;
 u16 car_accel_k, car_steer_k, car_boost_k, car_drift_mu, sw_pack_k;
@@ -24,6 +25,45 @@ static void options_default(void)
     opt_set_progress(zero);
 }
 
+static void tree_detail_checks(void)
+{
+    u8 options[OPT_PROGRESS_BYTES] = {0}, packed[OPT_PROGRESS_BYTES];
+    options_default();
+    CHECK(opt_tree_detail == SF_TREE_NORMAL, "old zero-reserved options retain normal trees");
+    CHECK(tree_detail_lod(2599, SF_TREE_NORMAL) == SF_TREE_NORMAL &&
+          tree_detail_lod(2600, SF_TREE_NORMAL) == SF_TREE_MEDIUM &&
+          tree_detail_lod(4199, SF_TREE_NORMAL) == SF_TREE_MEDIUM &&
+          tree_detail_lod(4200, SF_TREE_NORMAL) == SF_TREE_SIMPLE,
+          "normal distance tier boundaries are unchanged");
+    CHECK(tree_detail_lod(1000, SF_TREE_MEDIUM) == SF_TREE_MEDIUM &&
+          tree_detail_lod(4199, SF_TREE_MEDIUM) == SF_TREE_MEDIUM &&
+          tree_detail_lod(4200, SF_TREE_MEDIUM) == SF_TREE_SIMPLE,
+          "medium removes near crown detail without changing far tier");
+    CHECK(tree_detail_lod(1000, SF_TREE_SIMPLE) == SF_TREE_SIMPLE &&
+          tree_detail_lod(6000, SF_TREE_SIMPLE) == SF_TREE_SIMPLE &&
+          tree_detail_lod(1000, 255) == SF_TREE_NORMAL,
+          "simple caps all crown geometry; invalid cap uses normal");
+    for (int code = 1; code <= 3; code++) {
+        /* Existing option word 4: bit 29 is title-music, formerly zero
+           bits 30-31 now store tree detail. Keep the former bit intact. */
+        options[12] = (u8)(0x20 | code << 6);
+        opt_set_progress(options);
+        CHECK(opt_tree_detail == (code == 3 ? SF_TREE_NORMAL : code - 1),
+              "tree choice decodes, invalid code returns to normal");
+        CHECK(draw_k == 256 && prop_k == 256 && opt_tex,
+              "tree detail does not shorten city/prop reach or disable textures");
+        SgProgress image;
+        sg_get_progress(&image);
+        options_default();
+        sg_set_progress(&image);
+        opt_get_progress(packed);
+        options[12] = (u8)(0x20 | (code == 3 ? 0 : code) << 6);
+        CHECK(!memcmp(packed, options, sizeof packed),
+              "detail survives whole equipment save and keeps other packed choices");
+    }
+    options_default();
+}
+
 static void example(void)
 {
     credits = 12345; medals = 5; paints_got = 0x13f;
@@ -38,6 +78,7 @@ int main(void)
 {
     SgProgress saved, got, old;
     u8 options[OPT_PROGRESS_BYTES], before[OPT_PROGRESS_BYTES], after[OPT_PROGRESS_BYTES];
+    tree_detail_checks();
     options_default();
     example();
     sg_get_progress(&saved);

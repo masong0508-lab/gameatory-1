@@ -1,5 +1,6 @@
 /* See settings.h. */
 #include "settings.h"
+#include "tree_lod.h"
 #include "draw2d.h"
 #include "spacegame.h"
 #include "tex.h"
@@ -20,6 +21,7 @@ extern u8 car_grav_k, car_boost_inf;   /* car.c: gravity in quarters (4 as built
 extern u8 sg_inf_missiles;             /* spacegame.c */
 u16 cam_dflt = 256;                    /* merge.c: the chase camera's distance it settles at */
 u16 prop_k = 256;                      /* world.h: trees, lamps and benches drawn out to this much of their reach */
+u8 opt_tree_detail = SF_TREE_NORMAL;   /* tree polygon detail cap; does not alter prop reach or hitboxes */
 u8 opt_tex = 1;                        /* merge.c: Payback's tiles on (tex_on) */
 u8 opt_theme;                          /* radio.c: 1: Payback's own song 0 on the title screen, in the menus and the credits */
 u8 opt_planet = 1;                     /* planet.c: the world a planet from up high (off: the flat slab and sky as ever) */
@@ -45,7 +47,7 @@ static u8 fps_now;
 enum { O_TARGET, O_TIME, O_DIFF, O_WANTED, O_LIVES, O_DAMAGE, O_SCORE,
        O_CARSPD, O_ACCEL, O_GRIP, O_DRIFT, O_STEER, O_CGRAV, O_BOOSTK, O_UNLIM,
        O_SHIPSPD, O_SHIELD, O_MISSILE, O_GRAV, O_BOUNCE, O_JET, O_CAMD, O_TICKER,
-       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_PLANET, O_THEME, O_N };
+       O_SPEED, O_DRAW, O_TEX, O_PROPS, O_TRAFFIC, O_FPS, O_PLANET, O_THEME, O_TREE_DETAIL, O_N };
 typedef struct {
     const char *name;
     const char *const *label;
@@ -119,6 +121,7 @@ static const u16 v_camd[] = {190, 256, 330, 400};
 static const char *const l_theme[] = {"Remix", "Original"};
 static const char *const l_props[] = {"None", "Fewer", "Normal"};
 static const u16 v_props[] = {0, 128, 256};
+static const char *const l_tree_detail[] = {"Simple", "Medium", "Normal"};
 static const char *const l_boost[] = {"x0.5", "x0.75", "Normal", "x1.5", "x2", "x4"};
 static const u16 v_boost[] = {128, 192, 256, 384, 512, 1024};
 
@@ -156,6 +159,9 @@ static const Opt opts[O_N] = {
     [O_FPS] = {"Frame counter", l_offon, 2, 0, 4, 19, 1},
     [O_PLANET] = {"Planet view", l_offon, 2, 1, 4, 28, 1},
     [O_THEME] = {"Title music", l_theme, 2, 0, 4, 29, 1},
+    /* Append to preserve all existing option indices and packed bits. The
+       extra word reserved bits 30-31 were zero in previous canonical saves. */
+    [O_TREE_DETAIL] = {"Tree detail", l_tree_detail, 3, SF_TREE_NORMAL, 4, 30, 2},
 };
 #define ROWS (O_N + 2)             /* then RESET ALL and BACK */
 
@@ -239,6 +245,7 @@ static void apply(void)
     cam_dflt = v_camd[pos[O_CAMD]];
     opt_tex = !pos[O_TEX];
     opt_planet = pos[O_PLANET];
+    opt_tree_detail = pos[O_TREE_DETAIL];
     prop_k = v_props[pos[O_PROPS]];
     fps_show = pos[O_FPS];
     if (pos[O_THEME] != opt_theme) {
@@ -316,7 +323,8 @@ void opt_x_keep(void)
 
 /* SgProgress has thirteen bytes for all four option words. Word 1 only uses
    the shield's three bits; words 2, 3 and the extras word retain their existing
-   bit assignments. A changed assignment requires a new extension version. */
+   bit assignments. New choices may use previously zero reserved bits with
+   code zero as the old behavior; reassigning existing bits needs a new version. */
 void opt_get_progress(u8 out[OPT_PROGRESS_BYTES])
 {
     pack_all();
