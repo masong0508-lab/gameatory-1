@@ -483,7 +483,13 @@ static void pz_present(void){
 #endif
 /* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
    gread ... (or inline the whole miss path into them) */
+#ifdef PGPROF
+u8 pg_prof[4096];       /* TEST-ONLY (B2 page lists): disc fetches by ROM page, saturating */
+#endif
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
+#ifdef PGPROF
+  if(pg<4096&&pg_prof[pg]<255) pg_prof[pg]++;
+#endif
   { u32 f1=pg_fr[pg]; if(f1){ rom_pg[pg]=pool_frame(f1-1); rom_soft++; return rom_pg[pg]; } }   /* read again after the hand unmapped it: no disc read */
 #ifdef POOL_THRASH
   if(!rom_pool || pool_menu){ u32 k=0; while(k<16 && ev_ring[k]!=pg+1) k++;
@@ -571,6 +577,9 @@ static u32 rom_read(u32 ea,u32 size){
 }
 /* ---------------------------------------------------------------- guest memory access by guest address (DMA) */
 static u8 *g2h(u32 a){
+#ifdef MERGED_NATIVE
+  if(a-0x80000000u<0x200000u) return (u8*)a;     /* B2: a host address from native Stunt Fox (its data, its stack) handed to a DMA */
+#endif
   switch(a>>24){
     case 2: return EW+(a&0x3ffff);
     case 3: return IW+(a&0x7fff);
@@ -759,7 +768,11 @@ static u8 *resolve(u32 a,u32 *avail){
     case 6: o=a&0x1ffff; if(o>=0x18000) o-=0x8000; *avail=0x18000-o; return VRAM+o;
     case 7: o=a&0x3ff; *avail=0x400-o; return OAM+o;
     case 8: case 10: case 12: { u32 off=a&0x01ffffff; const u8*pp=rom_page(off>>12); *avail=4096-(off&4095); return (u8*)pp+(off&4095); }
-  } return 0;
+  }
+#ifdef MERGED_NATIVE
+  if(a-0x80000000u<0x200000u){ *avail=0x80200000u-a; return (u8*)a; }     /* B2: native Stunt Fox's own memory */
+#endif
+  return 0;
 }
 /* DMA3 immediate between plain windows / resident ROM pages: block loops instead of per-unit helpers.  returns 0 when it cannot (caller falls back) */
 static int dma_fast(u32 src,u32 dst,u32 n,u32 unit,u32 sc,u32 dc){
@@ -929,7 +942,11 @@ u32 h_memrd(u32 ea,u32 kind){
     v=rom_read(ea,size); }
   else if((ea>>24)==13) v=1;
   else if(ea-0x8017f000u<0x400) v=io_read(ea-0x8017f000u,size);
+#ifdef MERGED_NATIVE
+  else if(ea>=0x80000000u&&ea<0x80200000u){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }    /* B2: native Stunt Fox's data and stack too */
+#else
   else if(ea>=0x80180000u&&ea<0x80200000u){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }
+#endif
   else if((ea>>24)==4&&(ea&0xfffffc00u)==0x04000000u) v=io_read(ea&0x3ff,size);
   else if((ea>>24)>=2&&(ea>>24)<=7&&g2h(ea)){ const volatile u8*p=g2h(ea); v=0; for(u32 k=0;k<size;k++) v|=((u32)p[k])<<(8*k); }   /* raw guest RAM address that reached the slow path (runtime-built pointer, e.g. lsl #19 constants) */
 #ifdef MERGED
@@ -945,7 +962,11 @@ u32 h_memrd(u32 ea,u32 kind){
 u32 h_memwr(u32 ea,u32 size,u32 val){
   ea=vram_over(ea); DSP_PROF(dsp_nmwr++);
   if(ea-0x8017f000u<0x400) io_write(ea-0x8017f000u,size,val);
+#ifdef MERGED_NATIVE
+  else if(ea>=0x80000000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
+#else
   else if(ea>=0x80180000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
+#endif
   else if((ea>>24)==13) {}
   else if((ea>>24)==4&&(ea&0xfffffc00u)==0x04000000u) io_write(ea&0x3ff,size,val);
   else if((ea>>24)>=2&&(ea>>24)<=7&&g2h(ea)){ volatile u8*p=g2h(ea); for(u32 k=0;k<size;k++) p[k]=val>>(8*k); RAW_PADPOLL(); }   /* raw guest RAM address on the slow path (see h_memrd) */
@@ -970,6 +991,10 @@ static int sf3_ok; static u32 sf3_cfl, sf3_cfl_clk; static u32 sf3_tried, sf3_le
 /* The discovery translator's COLD_GAP must begin at the first reserved byte,
    including PPU/veneer scratch before the draw ring and guest RAM. */
 static int sim_cold_overlap(u32 lo,u32 hi){ return hi>(u32)__ppu_start && lo<0x80200000u; }
+#endif
+#ifdef MERGED_NATIVE
+#include "sfnat_place.h"
+static u32 cold_nat_n;
 #endif
 static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls, cold_conflicts; static u32 sf3_retry, last_cold_pres, sf3_clk0;   /* stage 12: renderer switched off by an overlay load (pause menu code) comes back once the level clock runs again (pause over) and no cold group was loaded for 6 presents */
 static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel FlushCache A(44h): argument area and clobbers as dbgc() */
@@ -1004,8 +1029,14 @@ __attribute__((noinline)) static void cold_all(void){
   if(cold_m5) return;
   cold_m5=2; if(*(volatile u32*)(EW+0x1e00) || sf3_ok) return;
   cold_m5=1;
+#ifdef MERGED_NATIVE
+  { u32 ng=(SF_NAT_LO-COLD_HOST)>>14, ns=ng*8<COLD_SECS_N?ng*8:COLD_SECS_N;      /* B2: only the groups below native Stunt Fox */
+    cd_read(CD_COLD_LBA,ns,(u8*)COLD_HOST);
+    for(u32 k=0;k<(ns+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1; }
+#else
   cd_read(CD_COLD_LBA,COLD_SECS_N,(u8*)COLD_HOST);
   for(u32 k=0;k<(COLD_SECS_N+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1;
+#endif
   last_cold_pres=g_pres; flush_icache();
 }
 #endif
@@ -1028,6 +1059,10 @@ static u32 cold_find(u32 addr){
 found:;
   u32 host=r[lo*4+1], hs=r[lo*4+2], he=r[lo*4+3];
   u32 g0=(hs-COLD_HOST)>>14, g1=(he-1-COLD_HOST)>>14, loaded=0;
+#ifdef MERGED_NATIVE
+  /* B2: native Stunt Fox lives from SF_NAT_LO up (ps1/merged/place.py): a group that reaches it is never loaded, its functions are interpreted */
+  if(COLD_HOST+(g1+1)*16384u>SF_NAT_LO){ static u32 nnat; cold_nat_n++; if(nnat<24){ nnat++; dbg("COLD group over native SF: interpreting "); hex(addr); dbg("\n"); } return 0; }
+#endif
   /* stage 12: a tiny, position-independent cold function (the bx rN veneers, 12 bytes) whose group lies inside the renderer's data window used to switch the 3D renderer off when the HUD/text code reached it
      in a level (the group load would overwrite the world).  Its few words are read from the disc and kept in a small resident table instead; the group is not loaded. */
   if(sf3_ok && g0==g1 && he-hs<=16 && he>SF_WORLD_LO && hs<0x8011b200u && !cold_loaded[g0]){
@@ -1738,7 +1773,7 @@ static void present(void){
 #if defined(RTC_PRESENT)||defined(SPEEDPROF)
   c3_seen6=0; c3_scan=DL[0];   /* a world frame begun from here on belongs to the next picture */
 #endif
-#ifdef SF3_DEFER
+#if defined(SF3_DEFER) && !defined(MERGED_NATIVE)     /* (B2: no sf3; Stunt Fox draws its own picture into the page) */
   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
   /* rc7: after the guest left a level (present() below turns the renderer off) the start is armed again: a new level is running once its clock
      differs from the one left behind and its entity table is there again */

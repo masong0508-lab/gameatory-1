@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Milestone B stage B2 (PS1): compile Stunt Fox's own C natively for MIPS-I (README.md in this directory).
+
+usage: natbuild.py STUNTFOX_DIR GBA_BUILD_DIR OUT_DIR
+  STUNTFOX_DIR   the repository's stuntfox/ (its src/ is copied, never changed)
+  GBA_BUILD_DIR  stuntfox/build of the merged GBA build that made the ROM on the disc (build/gen: the generated tables;
+                 build/merge/stuntfox-merge.elf: the guest addresses).  Both derive from the player's ROM: private, never committed.
+  OUT_DIR        work directory; writes sfnat.o (all native Stunt Fox code and data), sfnat_gen.c (the entry table guest address -> native
+                 function, the guest-call stubs of Stunt Fox's assembly functions), sfnat_syms.ld (guest addresses of the tables left in the
+                 ROM), sfnat_sections.txt (input section sizes, for the placement) and natbuild.log.
+Steps: copy the sources into OUT_DIR/b (gba.h replaced by ps1/merged/include/gba.h; tex.c's target("arm") attributes dropped in the copy),
+clang -Os -emit-llvm per file, irmem.py (guest memory model), llvm-link with sfmem.c, opt -Os (inlines the helpers), codegen for MIPS-I."""
+import os, re, shutil, subprocess, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+KEEP_NATIVE = {'erecip', 'sin_table', 'rtab', 'pb_avg', 'font_tiles'}   # read-only tables read per pixel or span: native copies
+SKIP = {'main.c', 'hud.c'}                       # build.py MERGE_SKIP (C files)
+GEN_NATIVE = ['pbtables.c', 'tables.c']
+# files whose loads and stores test the address inline (the per-pixel and per-polygon code); the rest call the out-of-line copies (RAM)
+HOT = set(os.environ.get('SFNAT_HOT', 'render tex citydraw model fx sfport physics world draw2d').split())          # generated tables compiled in (pb_shade is written; sin_table is hot)
+GEN_ROM = ['consttab.c', 'logo.c', 'merge_sig.c', 'pbmip.c', 'planetdata.c']   # read where they lie in the ROM (RAM is short)
+# functions written in C for the PS1 in place of Stunt Fox's ARM assembly (sfport.c); the other assembly functions run in the interpreter
+PORTED = {'fill_trap', 'rec_hash', 'tex_hrun', 'tex_hrun4', 'tex_vrun', 'tex_mrun1', 'tex_vrun4', 'tex_mrun', 'tex_walk'}
+RUNTIME = {'sf_rd', 'sf_wr', 'sf_resolve', 'sf_native_of', 'sf_gthunk', 'sf_gtarget'}
+LINKER = re.compile(r'^__(hot\d*b?_(start|end|lma|save)|data_(start|end|lma)|bss_(start|end)|keep_canary|pool_a(_end)?|scr)$')
+CF = ['--target=mipsel-none-elf', '-march=mips1', '-mno-abicalls', '-mfp32', '-msoft-float', '-fno-pic', '-ffreestanding', '-fno-builtin',
+      '-G0', '-mno-gpopt', '-mno-check-zero-division', '-fomit-frame-pointer', '-Wno-everything']
+
+
+def run(cmd, log):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    log.write('$ ' + ' '.join(cmd) + '\n' + r.stdout + r.stderr)
+    if r.returncode:
+        sys.stderr.write(r.stdout + r.stderr)
+        raise SystemExit('natbuild: failed: ' + ' '.join(cmd[:3]) + ' ...')
+    return r.stdout
+
+
+def gba_symbols(elf, log):
+    out = run(['llvm-nm', elf], log)
+    syms, count = {}, {}
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) != 3:
+            continue
+        a, t, n = int(p[0], 16), p[1], p[2]
+        count[n] = count.get(n, 0) + 1
+        syms[n] = (a, t)
+    return syms, count
+
+
+def gba_ram_objects(elf, log, path):
+    """the GBA build's RAM variables by file (FILE symbols open each object's locals): pin.py's table"""
+    secs = {}
+    for line in run(['llvm-readelf', '-S', '-W', elf], log).splitlines():
+        m = re.match(r'\s*\[\s*(\d+)\]\s+(\S+)', line)
+        if m:
+            secs[m.group(1)] = m.group(2)
+    kind = {'.data': 'data', '.bss': 'bss', '.radio': 'bss', '.scratch': 'bss', '.scratch2': 'bss'}
+    f, rows = '-', []
+    for line in run(['llvm-readelf', '-s', '-W', elf], log).splitlines():
+        p = line.split()
+        if len(p) < 8 or not p[0].endswith(':'):
+            continue
+        if p[3] == 'FILE':
+            f = p[7]
+        elif p[3] == 'OBJECT' and secs.get(p[6]) in kind:
+            rows.append('%s %s %s %s %s' % (f if p[4] == 'LOCAL' else '-', p[7], p[1], p[2], kind[secs[p[6]]]))
+    # a variable gcc split (v.0, v.1, ... side by side) and clang may not: also as one object "v" over the whole span
+    grp = {}
+    for r in rows:
+        f, n, ad, sz, k = r.split()
+        m = re.match(r'^(.*)\.(\d+)$', n)
+        if m:
+            grp.setdefault((f, m.group(1), k), []).append((int(ad, 16), int(sz)))
+    have = {(r.split()[0], r.split()[1]) for r in rows}
+    for (f, v, k), parts in grp.items():
+        parts.sort()
+        if len(parts) > 1 and (f, v) not in have and all(parts[i][0] + parts[i][1] == parts[i + 1][0] for i in range(len(parts) - 1)):
+            rows.append('%s %s %08x %d %s' % (f, v, parts[0][0], parts[-1][0] + parts[-1][1] - parts[0][0], k))
+    open(path, 'w').write('\n'.join(rows) + '\n')
+
+
+def main():
+    sfdir, gbadir, out = (os.path.abspath(x) for x in sys.argv[1:4])
+    opt = os.environ.get('SFNAT_OPT', '-Os')
+    os.makedirs(out, exist_ok=True)
+    log = open(os.path.join(out, 'natbuild.log'), 'w')
+    b = os.path.join(out, 'b')
+    shutil.rmtree(b, ignore_errors=True)
+    shutil.copytree(os.path.join(sfdir, 'src'), os.path.join(b, 'src'))
+    shutil.copytree(os.path.join(gbadir, 'gen'), os.path.join(b, 'build', 'gen'))
+    for h in os.listdir(os.path.join(HERE, 'include')):
+        shutil.copy(os.path.join(HERE, 'include', h), os.path.join(b, 'src', h))
+    tex = os.path.join(b, 'src', 'tex.c')               # (MIPS has no ARM state: the attribute is an error there, nothing else changes)
+    t = open(tex).read()
+    t2 = t.replace('target("arm"), ', '').replace(', target("arm")', '').replace('__attribute__((target("arm")))', '')
+    assert 'target("arm")' not in t2
+    open(tex, 'w').write(t2)
+    inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', '/usr/lib/llvm-18/lib/clang/18/include',
+           '-DMERGE', '-DPS1', '-I' + os.path.join(b, 'src'), '-I' + os.path.join(b, 'build', 'gen')]
+    srcs = sorted(os.path.join(b, 'src', f) for f in os.listdir(os.path.join(b, 'src')) if f.endswith('.c') and f not in SKIP)
+    srcs += [os.path.join(b, 'build', 'gen', f) for f in GEN_NATIVE]
+    ir = os.path.join(out, 'ir')
+    os.makedirs(ir, exist_ok=True)
+    # the ROM tables: their globals are read at their guest addresses
+    rom = set()
+    for f in GEN_ROM:
+        ll = os.path.join(ir, 'rom_' + f[:-2] + '.ll')
+        run(['clang'] + CF + ['-O0'] + inc + ['-S', '-emit-llvm', os.path.join(b, 'build', 'gen', f), '-o', ll], log)
+        rom |= set(re.findall(r'^@([\w.]+) = (?:dso_local )?(?:local_unnamed_addr )?(?:unnamed_addr )?constant', open(ll).read(), re.M))
+    # read-only data that the ROM holds at a known address (a unique name of the GBA build): read from there (rom_pg pages, sfglue.h
+    # sf_rd), not linked a second time into the PS1's RAM; the hot tables of the renderer stay native
+    gs, gc = gba_symbols(os.path.join(gbadir, 'merge', 'stuntfox-merge.elf'), log)
+    romconst = {n for n, (a, t) in gs.items() if gc[n] == 1 and a >> 24 == 8 and t in 'rRtT' and n not in KEEP_NATIVE}
+    rom |= romconst | {n for n, (a, t) in gs.items() if t == 'A' and a >> 24 in (8, 9)}   # (and the blobs the GBA link places: s2_blob, st_blob)
+    open(os.path.join(out, 'rom_globals.txt'), 'w').write('\n'.join(sorted(rom)) + '\n')
+    open(os.path.join(out, 'native_globals.txt'), 'w').write('\n')
+    lls = []
+    gba_ram_objects(os.path.join(gbadir, 'merge', 'stuntfox-merge.elf'), log, os.path.join(out, 'gba_ram.txt'))
+    if os.path.exists(os.path.join(out, 'pin_report.txt')):
+        os.remove(os.path.join(out, 'pin_report.txt'))
+    for s in srcs:
+        n = os.path.basename(s)[:-2]
+        ll = os.path.join(ir, n + '.ll')
+        run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections'] + inc + ['-S', '-emit-llvm', s, '-o', ll], log)
+        run(['opt', '-passes=instnamer', '-S', ll, '-o', ll], log)     # (named values: the rewrite adds and drops instructions)
+        src_ll = open(ll).read()
+        fns = set(re.findall(r'^(?:define|declare) [^@]*@([\w.$]+)\(', src_ll, re.M))
+        def to_rom(m):
+            # (not a table of functions: the guest form of an IWRAM function is Payback's code on the PS1)
+            if m.group(1) not in romconst or any(f in fns for f in re.findall(r'@([\w.$]+)', m.group(0)[len(m.group(1)) + 1:])):
+                return m.group(0)
+            r, d = m.group(2), 0                    # the type: up to the space after its brackets close
+            for q, ch in enumerate(r):
+                if ch in '[{<':
+                    d += 1
+                elif ch in ']}>':
+                    d -= 1
+                elif ch == ' ' and d == 0:
+                    break
+            return '@%s = external constant %s' % (m.group(1), r[:q])
+        txt, k = re.subn(r'^@([\w.]+) = (?:internal |private |dso_local |local_unnamed_addr |unnamed_addr )*constant (.*)$', to_rom, src_ll, flags=re.M)
+        open(ll, 'w').write(txt)
+        rw = os.path.join(ir, n + '.mem.ll')
+        log.write(run([sys.executable, os.path.join(HERE, 'irmem.py'), ll, rw, os.path.join(out, 'native_globals.txt'),
+                       os.path.join(out, 'rom_globals.txt')] + ([] if n in HOT else ['--outline']), log))
+        pn = os.path.join(ir, n + '.pin.ll')
+        run([sys.executable, os.path.join(HERE, 'pin.py'), rw, pn, os.path.basename(s), os.path.join(out, 'gba_ram.txt'),
+             os.path.join(out, 'pin_report.txt')], log)
+        lls.append(pn)
+    mem = os.path.join(ir, 'sfmem.ll')
+    run(['clang'] + CF + [opt] + os.environ.get('SFMEM_FLAGS', '').split() + ['-S', '-emit-llvm', os.path.join(HERE, 'sfmem.c'), '-o', mem], log)
+    port = os.path.join(ir, 'sfport.ll')
+    run(['clang'] + CF + [opt] + inc + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
+    prw = os.path.join(ir, 'sfport.mem.ll')
+    run(['opt', '-passes=instnamer', '-S', port, '-o', port], log)
+    run([sys.executable, os.path.join(HERE, 'irmem.py'), port, prw, os.path.join(out, 'native_globals.txt'), os.path.join(out, 'rom_globals.txt')], log)
+    linked = os.path.join(out, 'sf.bc')
+    run(['llvm-link', '-o', linked, mem, prw] + lls, log)
+    # the functions the guest enters: the ROM's patches (build.py names them) and Stunt Fox's assembly (interpreted; its relocations name
+    # them): kept whole (@llvm.used) though the optimiser inlines them, so that the guest reaches native code, never the GBA copy
+    want = set(re.findall(r"'([A-Za-z_]\w*)'", open(os.path.join(sfdir, 'build.py')).read()))
+    for o in os.listdir(os.path.join(gbadir, 'merge')):
+        if o.endswith('.s.o'):
+            for line in run(['llvm-objdump', '-r', os.path.join(gbadir, 'merge', o)], log).splitlines():
+                p = line.split()
+                if len(p) == 3 and re.match(r'^[A-Za-z_]\w*$', p[2]):
+                    want.add(p[2])
+    txt = run(['llvm-dis', linked, '-o', '-'], log)
+    have = set(re.findall(r'^define [^@]*@([\w.$]+)\(', txt, re.M))
+    keep = sorted(want & have)
+    um = re.search(r'^@llvm\.used = appending global \[(\d+) x ptr\] \[(.*)\], section "llvm.metadata"$', txt, re.M)
+    arr = ', '.join('ptr @%s' % n for n in keep)
+    if um:
+        txt = txt[:um.start()] + '@llvm.used = appending global [%d x ptr] [%s, %s], section "llvm.metadata"' % (int(um.group(1)) + len(keep), um.group(2), arr) + txt[um.end():]
+    else:
+        txt += '\n@llvm.used = appending global [%d x ptr] [%s], section "llvm.metadata"\n' % (len(keep), arr)
+    open(os.path.join(out, 'sf.keep.ll'), 'w').write(txt)
+    log.write('kept for the guest: %s\n' % ' '.join(keep))
+    linked = os.path.join(out, 'sf.keep.ll')
+    optd = os.path.join(out, 'sf.opt.bc')
+    run(['opt', opt.replace('-O', '-O') if opt != '-Oz' else '-Oz', linked, '-o', optd], log)
+    obj = os.path.join(out, 'sfnat.o')
+    run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections', '-mllvm', '-disable-mips-delay-filler', '-c', optd, '-o', obj], log)
+    # symbols: what the native object defines and needs
+    nm = run(['llvm-nm', obj], log)
+    defined, undef = {}, set()
+    for line in nm.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[0] == 'U':
+            undef.add(p[1])
+        elif len(p) == 3:
+            defined[p[2]] = p[1]
+    # every symbol of the module gets the prefix sfn_ (Stunt Fox's names meet the runtime's: sv_load, __bss_start, ...), bar the runtime's own
+    ren = os.path.join(out, 'sfnat_rename.txt')
+    with open(ren, 'w') as f:
+        for n in sorted(set(defined) | undef):
+            if n not in RUNTIME:
+                f.write('%s sfn_%s\n' % (n, n))
+    run(['llvm-objcopy', '--redefine-syms=' + ren, obj], log)
+    gsyms, gcount = gba_symbols(os.path.join(gbadir, 'merge', 'stuntfox-merge.elf'), log)
+    with open(os.path.join(out, 'gba_linker.txt'), 'w') as f:     # merge.ld's symbols (place.py: the native module's take their RAM values)
+        for n, (a, t) in sorted(gsyms.items()):
+            if LINKER.match(n):
+                f.write('%s 0x%08x\n' % (n, a))
+    stubs, absol, bad = [], [], []
+    for u in sorted(undef):
+        if u in RUNTIME or LINKER.match(u):
+            continue
+        if u in rom or (u in gsyms and gsyms[u][1] == 'A'):
+            absol.append((u, gsyms[u][0]))
+        elif u in gsyms and gsyms[u][1] in 'Tt' and u not in PORTED:
+            stubs.append((u, gsyms[u][0]))
+        else:
+            bad.append(u)
+    if bad:
+        raise SystemExit('natbuild: undefined and not provided: ' + ' '.join(bad))
+    ents = []
+    for n, t in defined.items():
+        if t in 'Tt' and n in gsyms and gcount[n] == 1 and gsyms[n][1] in 'Tt' and not n.startswith('__sf_') and gsyms[n][0] >> 24 != 3:
+            # (not Stunt Fox's IWRAM code: on the PS1 IWRAM keeps Payback's own code at those addresses, hot_install copies nothing)
+            ents.append((gsyms[n][0] & ~1, n))
+    ents.sort()
+    glob = [n for _, n in ents if defined[n] == 't']           # static in Stunt Fox, but the guest reaches it: the entry table needs it global
+    if glob:
+        run(['llvm-objcopy'] + ['--globalize-symbol=sfn_' + n for n in sorted(set(glob))] + [obj], log)
+    with open(os.path.join(out, 'sfnat_gen.c'), 'w') as f:
+        f.write('/* generated by ps1/merged/natbuild.py: guest addresses from the private GBA build; never committed */\n')
+        f.write('typedef unsigned int u32; typedef unsigned long long u64;\n')
+        f.write('u64 sf_guest_call(u32 t, const u32 *a);\n')
+        for n, a in stubs:
+            f.write('u64 sfn_%s(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, u32 a7) { u32 a[8] = {a0, a1, a2, a3, a4, a5, a6, a7}; '
+                    'return sf_guest_call(0x%08xu, a); }\n' % (n, a))
+        names = sorted({n for _, n in ents})
+        for n in names:
+            f.write('extern char sfn_%s[];\n' % n)
+        f.write('const u32 sfnat_nent = %d;\nconst u32 sfnat_ent[][2] = {\n' % len(ents))
+        for a, n in ents:
+            f.write('  {0x%08xu, (u32)sfn_%s},\n' % (a, n))
+        f.write('};\n')
+    with open(os.path.join(out, 'sfnat_syms.ld'), 'w') as f:
+        for n, a in absol:
+            f.write('sfn_%s = 0x%08x;\n' % (n, a))
+    # input sections and their sizes (placement)
+    hdr = run(['llvm-readelf', '-S', '-W', obj], log)
+    secs = []
+    for line in hdr.splitlines():
+        m = re.match(r'\s*\[\s*\d+\]\s+(\S+)\s+(\S+)\s+\S+\s+\S+\s+([0-9a-f]+)\s+\S+\s+(\S*)\s+\S+\s+\S+\s+(\d+)', line)
+        if m and 'A' in m.group(4):
+            secs.append((m.group(1), m.group(2), int(m.group(3), 16), int(m.group(5))))
+    with open(os.path.join(out, 'sfnat_sections.txt'), 'w') as f:
+        for s in secs:
+            f.write('%s %s %d %d\n' % s)
+    tot = {}
+    for name, typ, size, al in secs:
+        k = name.split('.')[1] if name.count('.') else name
+        tot[k] = tot.get(k, 0) + size
+    print('natbuild: %d files, entries %d, guest stubs %d (%s), ROM symbols %d' % (len(srcs), len(ents), len(stubs),
+                                                                              ' '.join(n for n, _ in stubs), len(absol)))
+    print('natbuild: section bytes ' + ' '.join('%s=%d' % kv for kv in sorted(tot.items())))
+
+
+if __name__ == '__main__':
+    main()

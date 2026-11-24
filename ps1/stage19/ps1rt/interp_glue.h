@@ -174,8 +174,14 @@ static RTCOLD void intro_fix_init(void){
 }
 /* ip_hle: called by the interpreter for a branch/call target t (and at its entry): 1 if the guest routine at t was performed here (pc = lr) */
 static void ov_copy(u32 src,u32 n,u8*dst){ while(n){ u32 off=src&0x01ffffffu, c=4096-(off&4095); if(c>n) c=n; const u8*p=rom_page(off>>12)+(off&4095); for(u32 k=0;k<c;k++) dst[k]=p[k]; src+=c; dst+=c; n-=c; } }
+#ifdef MERGED_NATIVE
+#include "../merged/sfglue.h"      /* B2: Stunt Fox's C runs natively (sf_hle) */
+#endif
 u32 ip_hle(IS*s,u32 t){
   u32 a=t&~1u;
+#ifdef MERGED_NATIVE
+  if(sf_hle(s,t)) return 1;
+#endif
   if(a==RAW_TIMER){
     u32 hi=ip_rd(0x0400010cu,2), lo=ip_rd(0x04000108u,2), r1=hi<<16, r0=r1+lo;
     s->r[0]=r0; s->r[1]=r1; s->r[2]=lo; s->r[3]=0x04000108u;

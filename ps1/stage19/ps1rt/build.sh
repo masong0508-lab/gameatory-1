@@ -140,18 +140,27 @@ PY
         run "interp-asm-$PASS" "$PS1_CC" $F -c ../interp/interp_asm.s -o "$WORK/interp_asm.o"
         IPO="$WORK/interp.o $WORK/interp_asm.o"; CFL_IP=-I../interp
     else IPO=; CFL_IP=-DNO_INTERP; fi
-    run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP $PZI ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
+    run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP $PZI ${SFNAT:+-I$SFNAT} ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
     if [ "$EXEPACK" = 1 ]; then ASF=-Wa,-defsym,EXEPACK=1; else ASF=; fi
     run "startup-$PASS" "$PS1_CC" $F $ASF -c crt0.s -o "$WORK/crt0.o"
     run "symbols-$PASS" "$PS1_CC" $F -c "$WORK/syms.c" -o "$WORK/syms.o"
     run "blobs-$PASS" "$PS1_CC" $F -c "$WORK/blobs.s" -o "$WORK/blobs.o"
-    run "renderer-$PASS" "$PS1_CC" $SFF -c "$SF3SRC" -o "$WORK/sf3.o"
-    run "renderer-sections-$PASS" "$PS1_OBJCOPY" --prefix-alloc-sections=.sf "$WORK/sf3.o"
-    run "ragdoll-$PASS" "$PS1_CC" $RDF -I../rd -c ../rd/doll.c -o "$WORK/doll.o"
-    run "ragdoll-sections-$PASS" "$PS1_OBJCOPY" --prefix-alloc-sections=.dl "$WORK/doll.o"
     run "renderer-data-$PASS" "$PS1_CC" $F -I../out -c ../sf/sfdata.s -o "$WORK/sfdata.o"
-    run "link-$PASS" "$PS1_LD" --defsym=ip_stacks=${IPSTK:-0x8002c000} $IPEXT -T "$LINK_SCRIPT" \
-        "$WORK/crt0.o" "$WORK/rt.o" $IPO "$WORK/syms.o" "$WORK/blobs.o" "$WORK/sf3.o" "$WORK/doll.o" "$WORK/sfdata.o" \
+    if [ -n "${SFNAT:-}" ]; then
+        # Milestone B stage B2 (-DMERGED_NATIVE): native Stunt Fox (ps1/merged/natbuild.py -> $SFNAT) in place of sf3 and doll.c, linked by the
+        # script ps1/merged/place.py wrote; sf3stub.c answers the runtime's references to the two
+        run "sfnat-gen-$PASS" "$PS1_CC" $F -c "$SFNAT/sfnat_gen.c" -o "$WORK/sfnat_gen.o"
+        run "sf3stub-$PASS" "$PS1_CC" $F -c ../merged/sf3stub.c -o "$WORK/sf3stub.o"
+        DRAWO="$SFNAT/sfnat.o $WORK/sfnat_gen.o $WORK/sf3stub.o $WORK/sfdata.o"; LINK_SCRIPT=$SFNAT/ps1_native.ld; SYMLD="-T $SFNAT/sfnat_syms.ld"
+    else
+        run "renderer-$PASS" "$PS1_CC" $SFF -c "$SF3SRC" -o "$WORK/sf3.o"
+        run "renderer-sections-$PASS" "$PS1_OBJCOPY" --prefix-alloc-sections=.sf "$WORK/sf3.o"
+        run "ragdoll-$PASS" "$PS1_CC" $RDF -I../rd -c ../rd/doll.c -o "$WORK/doll.o"
+        run "ragdoll-sections-$PASS" "$PS1_OBJCOPY" --prefix-alloc-sections=.dl "$WORK/doll.o"
+        DRAWO="$WORK/sf3.o $WORK/doll.o $WORK/sfdata.o"; SYMLD=
+    fi
+    run "link-$PASS" "$PS1_LD" --defsym=ip_stacks=${IPSTK:-0x8002c000} $IPEXT $SYMLD -T "$LINK_SCRIPT" \
+        "$WORK/crt0.o" "$WORK/rt.o" $IPO "$WORK/syms.o" "$WORK/blobs.o" $DRAWO \
         ${DOLLDEF:+--defsym=__doll_addr=$DOLLDEF} -o "$WORK/payback.elf"
     # every compiled function must consist of R3000A (MIPS I + COP0 + GTE) instructions only: the build fails otherwise
     run "mips1-lint-$PASS" python3 ../tools/mips1_lint.py "$WORK/payback.elf"
