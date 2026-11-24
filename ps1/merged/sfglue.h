@@ -69,6 +69,8 @@ static u64 sf_native_call(u32 fn, const u32 *a, u32 gsp){
   sf_depth--; sf_gsp=keep_gsp;
   return r;
 }
+/* __builtin_return_address(0) in native Stunt Fox (natbuild.py): the guest's lr of the entry being run */
+void *__sf_guest_lr(void){ return (void*)sf_last_lr; }
 /* ip_hle's first question: is t a Stunt Fox function compiled natively?  then run it and return to the guest lr */
 extern const u32 sfnat_niw; extern const u32 sfnat_iw[][2];
 static int sf_hle(IS*s,u32 t){

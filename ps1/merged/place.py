@@ -43,8 +43,8 @@ def main():
         else:
             where['R1'].append(s[0])
     r1 = sum((s[2] + 15) & ~15 for s in secs if s[0] in set(where['R1'])) + sum((s[2] + 15) & ~15 for s in ro)
-    g = open(natdir + '/sfnat_gen.c').read()            # the entry table (8 bytes an entry) and the guest stubs (about 100 bytes each)
-    r1 += 8 * int(re.search(r'sfnat_nent = (\d+)', g).group(1)) + 128 * g.count('sf_guest_call(0x') + 0x200
+    g = open(natdir + '/sfnat_gen.c').read()            # the entry table (8 bytes an entry), the guest stubs (12 bytes each) and sf_gstub
+    r1 += 8 * int(re.search(r'sfnat_nent = (\d+)', g).group(1)) + 12 * g.count('  j sf_gstub') + 256 + 0x200
     stack_lo, top = 0x80119000, 0x8011c000
     lo = stack_lo - r1
     k = (lo - cold_host) // 16384          # the cold group that holds lo: native code starts at its start
