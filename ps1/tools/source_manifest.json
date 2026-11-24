@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "4235f22be8bc50e58cd1313a59d7734e323829527a223570a15b4d9e1ed83807"
+      "sha256": "0228bdbf25f6ad9bb7a6fe744d8a36d721fb7ae5314bba6ed74aa1e0908d4667"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -192,7 +192,7 @@
     {
       "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "49a51a8d7db96fcf28fc6bad24365d0639f6b6bf05d788133068f92f8bd36ede"
+      "sha256": "88f9c4b0918a83fc8e949e1ae90087ce11d011ee0f489dd37556247f33cb164a"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "54d29637b4ba4d344e46e28a98be3c91a192a981077a86ed9612a80176dd77be"
+      "sha256": "534affc89a2efc25a4388996ab93aa79594a6335fe9c12b0d69d25ec743e5e85"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -797,7 +797,7 @@
     {
       "source": "stage19/tools12/build_msb.sh",
       "target": "tools12/build_msb.sh",
-      "sha256": "3038efd75bf193794239a912a91dadfb04e56f8a22ca68c826d9c37cc968b775"
+      "sha256": "69c1207975c422c6e35e35e86dee548d19ec21d09a06774193ec72c63b54bc8b"
     },
     {
       "source": "stage19/tools12/translate_msb.sh",
@@ -813,6 +813,71 @@
       "source": "stage19/t/pause_pages_msb.txt",
       "target": "t/pause_pages_msb.txt",
       "sha256": "04c1d6397de9161b6716f490338a99eaa3084f4e31e9cab9588902deb4ab737a"
+    },
+    {
+      "source": "merged/README.md",
+      "target": "merged/README.md",
+      "sha256": "4c5022955870c2bb9af00aa8715bb4718098eb9306c6437d5168088c7f4d06b8"
+    },
+    {
+      "source": "merged/irmem.py",
+      "target": "merged/irmem.py",
+      "sha256": "d2fa9835ec2ce2abf9f12079f01ab84a10c546792c7afa180687d8697492fb63"
+    },
+    {
+      "source": "merged/natbuild.py",
+      "target": "merged/natbuild.py",
+      "sha256": "8e897724cf6e499702c7f16d2833fb0eed928c4156820436da82f52c3f6a20db"
+    },
+    {
+      "source": "merged/pin.py",
+      "target": "merged/pin.py",
+      "sha256": "8f78d4ee0e0e5236c7e390d84359e0f95d88bac41f32e85eecab5d1765831f86"
+    },
+    {
+      "source": "merged/place.py",
+      "target": "merged/place.py",
+      "sha256": "7059783b0e352f30afc440e48be46972e8f6dfaba522d75b3f6213e3b094c97d"
+    },
+    {
+      "source": "merged/sf3stub.c",
+      "target": "merged/sf3stub.c",
+      "sha256": "e5823b75e59dd52713fa7e4fec25fb7646476ffda06817eca805be05273af6ba"
+    },
+    {
+      "source": "merged/sfglue.h",
+      "target": "merged/sfglue.h",
+      "sha256": "5ae26f0c0cf784c467205005c95d3c6582a156dce1714acba15190a6a919ebf1"
+    },
+    {
+      "source": "merged/sfmem.c",
+      "target": "merged/sfmem.c",
+      "sha256": "8715a5a9bc7d9600cf94945df5afbbf63004c253e88d35f0fe00f2dd4048ea7f"
+    },
+    {
+      "source": "merged/sfport.c",
+      "target": "merged/sfport.c",
+      "sha256": "a3431eb78f80e82706e025679874d7d1b47a0ce13ff42ab1997f10c5f5db8876"
+    },
+    {
+      "source": "merged/include/gba.h",
+      "target": "merged/include/gba.h",
+      "sha256": "ca0ca39e8169ef987a3f455af0a642605f88380151af2b9074ef4d6b4d0c5eaf"
+    },
+    {
+      "source": "merged/libc/stdint.h",
+      "target": "merged/libc/stdint.h",
+      "sha256": "8d01d486df4e3eb40ae9d2e5646792cb0b063b20e39d0b46c08852c64ac5b656"
+    },
+    {
+      "source": "merged/libc/stdlib.h",
+      "target": "merged/libc/stdlib.h",
+      "sha256": "7c7dfb862fbd4063378bb2086e49db0857322c3de8cb9d570f175da1d253a682"
+    },
+    {
+      "source": "merged/libc/string.h",
+      "target": "merged/libc/string.h",
+      "sha256": "7fd31974101393090073ae091773433ba85a0eda4e86f187cdb45c91cbc0654d"
     }
   ],
   "patches": [
