@@ -152,7 +152,7 @@
     {
       "source": "stage19/ps1rt/clk.h",
       "target": "ps1rt/clk.h",
-      "sha256": "7ebe9ccfbc2dc55224c1aa8c9ddf875560f05e37424101c512d451be647035f3"
+      "sha256": "5ace7665bb96a0f87741c2197e3c1f03e99a22a37659f2e49d6a919135926f17"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
@@ -202,7 +202,7 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "a2c10db33f98e852515d8928847f8b07f24aaf2f02f0ac5289788a274f3648b0"
+      "sha256": "e6e642f9e5e646eab18afd6e883c281cfbd0b4faa1b80b7920890c93241ea567"
     },
     {
       "source": "stage19/ps1rt/ps1.ld",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "c6188fedb36b2a1fbdee2beec52ee272d1290cd067463447cc17b3941d50c660"
+      "sha256": "2b9bc738ff87e09db42c82871f2f26644a08ba0b8e3d5043d7e05a6f9fce9ee8"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -327,7 +327,7 @@
     {
       "source": "stage19/sf/sf3.c",
       "target": "sf/sf3.c",
-      "sha256": "b08c6f2e740c116284126788815cf8949e838af8e496a0baf9b7f12319ca9a49"
+      "sha256": "e488249e005f6e91be208bffc763df3668eaf3a05d6023994eb21396cd25ee9b"
     },
     {
       "source": "stage7/integration/sf/sf3_head.c",
@@ -517,7 +517,7 @@
     {
       "source": "stage19/tools12/build.sh",
       "target": "tools12/build.sh",
-      "sha256": "8f01f1fccf78a3b45c9de9680e7571ef9d69a25b9b991266081caa9cca8a10d0"
+      "sha256": "e37d4935a1f4247ad7a5e78a8ed01433659e39f5cc5106e55e1df17669784945"
     },
     {
       "source": "stage16/merge/tools12/cmp2.py",
