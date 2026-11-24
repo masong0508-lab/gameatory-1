@@ -9,7 +9,8 @@ if src.endswith('.txt'):
     order=[int(t,16) for line in open(src) for t in line.split('#',1)[0].split()]
     assert len(order)==len(set(order)),'duplicate page in %s'%src
     assert len(order)>=N,'%s lists %d pages, %d wanted'%(src,len(order),N)
-    assert all(0<=p<2048 for p in order),'page outside the 8 MiB / 2048-page window'
+    lim=int(os.environ.get('ROMPAGES','2048'))     # Milestone B: 4096 for the 16 MiB merged ROM
+    assert all(0<=p<lim for p in order),'page outside the %d-page window'%lim
     pg={p:len(order)-i for i,p in enumerate(order)}
 else:
     pg=pickle.load(open(src,'rb'))
