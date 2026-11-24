@@ -17,8 +17,17 @@ The merged game now finishes its final act with a three-card epilogue, returns
 to Fox Station, and keeps completed chapters open for postgame travel and jobs.
 The station's **SPACE WALKS** board exposes Beacon Patrol, Moon Survey and
 Orbital Relay, with first-clear records and replay rewards. Campaign EEPROM
-saves now retain the purchased jet pack, all 31 game settings, ragdoll and radio
+saves retain the purchased jet pack, all game settings, ragdoll and radio
 choices, including continuing a stopped campaign after a cold boot.
+
+The new optional **Tree detail** row (Normal, Medium, Simple) caps decorative
+crown geometry independently of the existing Trees and lamps distance setting.
+Normal preserves the previous near/middle/far appearance. The lower settings
+retain tree placement, reach, trunk, fog and collision; they reduce only the
+submitted decorative polygons or their vertex counts. The choice fits the two
+formerly reserved bits of the existing options word, without enlarging the
+campaign image. Private device/FPS validation is required before claiming a
+speed improvement.
 
 See [completion milestone and validation](../docs/completion-milestone.md) for
 controls, save behavior, exact validation scope and remaining port work.

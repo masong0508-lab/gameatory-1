@@ -4,6 +4,7 @@
 #include "render.h"
 #include "palette.h"
 #include "loops.h"
+#include "tree_lod.h"
 #ifndef MERGE
 #define pl_cover 0
 #define pl_on 0
@@ -12,6 +13,7 @@
 #ifdef MERGE
 #include "tex.h"
 #include "planet.h"
+#include "settings.h"
 static TexFloor ground = {65536, 65536, 0};      /* (the tiles: this map's, world_draw) */
 /* Payback's own colour for a tile seen from afar (light 0..3), as a raw palette index */
 static int tile_color(int id, int l, int fallback)
@@ -409,8 +411,6 @@ static inline int in_the_way(V3 p, s32 halfw)
 #else
 #define in_the_way(p, halfw) ((p).z < 64)
 #endif
-#define TREE_NEAR 2600            /* trees nearer than this get all their pieces, nearer than TREE_MID most */
-#define TREE_MID 4200
 #ifdef MERGE
 #define DASH_FAR 6000              /* centre line dashes nearer than this */
 #define ZEBRA_FAR 3500             /* zebra crossings nearer than this */
@@ -604,9 +604,15 @@ static void draw_tree(const Tree *t)
     if (r < t->r << 2)
         r = t->r << 2;
     int tz = p.z;
-    /* detail by distance: all of it near, the old two-piece shape far (the same shapes' cost per frame as
-       before: a few near trees, many far ones) */
-    int near = tz < TREE_NEAR, mid = tz < TREE_MID;
+    /* The same natural distance tiers as before, with an optional geometry
+       cap. Trees still use the same visibility/range tests above; furniture,
+       fences, textures, collision and world placement are unchanged. */
+#ifdef MERGE
+    int detail = tree_detail_lod(tz, opt_tree_detail);
+#else
+    int detail = tree_detail_lod(tz, SF_TREE_NORMAL);
+#endif
+    int near = detail == SF_TREE_NORMAL, mid = detail != SF_TREE_SIMPLE;
     /* pieces are submitted last-drawn first (same depth key: the last submitted is drawn first) */
     if (t->kind) {
         /* a fir: three tiers of triangles, each with its left half lit, on a trunk */
