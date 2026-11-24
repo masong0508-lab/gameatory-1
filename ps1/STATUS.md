@@ -495,6 +495,87 @@ as rc8.
 Open: the intro films; Credits at stock take 2.4x the GBA's time; the pause
 return at stock is 0.6 s walked but 1.4 s in the PR #23 probe.
 
+## Stage19 rc10: the final release of the original game
+
+rc10 is rc9 (c8bf431) plus speed wave 2 and is the final release of the original Payback port (the Star-FlyBack
+mods come next, on top of it). Speed is in emulated time (core frames / 59.94); stock = SwanStation 100 % CPU and
+1x CD, recommended = `CPU_Overclock=400`, `CDROM_ReadSpeedup=10`, `CDROM_SeekSpeedup=0`. Where the time went at
+stock before the changes: `rc10/PROFILE.md` in the work area (one level picture 1,399 hblank lines on foot, a quarter
+of it the CPU waiting for the GPU and the vertical blank; a menu picture 774 lines, mostly a polled VRAM read-back).
+
+| | Change | Flag (all on in `tools12/build.sh`, `RC10F=` turns them off) |
+| --- | --- | --- |
+| D | The 2D layer's full-screen backdrop is read back from VRAM by DMA2, one block per strip, instead of a polled word loop | `PP_RBDMA` |
+| U | CLUT and OBJ tile uploads only when the palette or the 16 KiB of tiles changed (hash) | `PP_DIRTY` |
+| R | Blits read ROM pages that are already in RAM directly | `PP_ROMDIRECT` |
+| I | The ring replay `ppu_flush` lives in the renderer region (runtime room for D/U/R) | `PP_INSF` |
+| A | Asynchronous level picture: `present()` sends the 3D list and returns; the next present finishes it (2D layer, `pres_finish`) and the flip is done at a poll point that falls in the first 16 lines of a vertical blank (renderer loops, `io_read`, the ring replay), or the old way (`fl_sync`) before anything is drawn into the shown buffer. Every GP0 command waits for DMA2 first | `PRES_ASYNC` |
+| Q | The limiter's elapsed time is rounded up to whole 2-frame steps from 5 units on (was 6), so an iteration of 5 units costs no game time | `RTC_QUANT_MIN=5` |
+
+Tried and not taken: a carry of the rounded-down remainder into the next limiter read (`RTC_CARRY`: 16.8 pictures/s on
+foot but the game clock fell to 24 ticks/s, because the game's own wait reads restart from the shown time).
+
+Memory (rc9 in brackets): runtime ends `0x80027250`, 3,504 bytes free (1,136); `.rtcold` 8 free (76); ragdoll
+2,140 free (2,140); renderer ends `0x801aff30`, 208 free (6,304: the ring replay and the poll points moved in).
+
+Speed, SwanStation, emulated time (level rows: ticks/s / 3D pictures/s; the GBA runs 30 ticks/s; the car rows drive
+whichever car the session finds, kind in brackets, so they are not comparable between rows):
+
+| build | settings | language s | title s | power-on to level s | on foot | idle | tank | car | menus pictures/s (language/title/game menu) |
+|---|---|---|---|---|---|---|---|---|---|
+| rc10 | stock | 11.08 | 18.44 | 27.58 | 27.34 / 13.85 | 28.47 / 14.03 | 29.65 / 14.79 | 26.19 / 12.41 (k7) | 22.0 / 15.1 / 21.8 |
+| rc9 | stock | 11.14 | 18.57 | 27.81 | 27.39 / 12.00 | 28.49 / 11.25 | 29.17 / 13.27 | 28.23 / 9.23 (k3) | 19.9 / 12.0 / 19.9 |
+| rc10 | 150 %, CD 1x | 11.01 | 17.15 | 24.09 | 27.72 / 18.82 | 27.97 / 22.52 | 26.23 / 18.80 | 29.21 / 14.53 (k16) | 34.1 / 20.1 / 34.4 |
+| rc9 | 150 %, CD 1x | 11.01 | 17.17 | 24.94 | 27.54 / 14.12 | 28.87 / 14.33 | 28.85 / 14.35 | 28.59 / 13.77 (k9) | 29.9 / 15.0 / 29.9 |
+| rc10 | 150 %, CD 2x | 8.54 | 14.43 | 21.14 | 27.95 / 18.30 | 28.42 / 15.50 | 28.07 / 15.31 | 26.97 / 13.47 (k7) | 34.1 / 20.1 / 34.4 |
+| rc9 | 150 %, CD 2x | 8.61 | 14.45 | 21.59 | not run (state not saved) | | 29.59 / 14.77 | 27.95 / 13.59 (k13) | 29.9 / 15.0 / 29.9 |
+| rc10 | 200 %, CD 1x | 11.54 | 17.57 | 23.67 | 26.34 / 24.52 | 29.27 / 28.67 | 29.55 / 28.53 | 26.97 / 25.49 (k0) | 34.4 / 29.8 / 34.4 |
+| rc9 | 200 %, CD 1x | 11.61 | 17.67 | 24.24 | 27.24 / 16.90 | 27.69 / 16.24 | 29.29 / 15.98 | 27.07 / 16.94 (k10) | 30.0 / 20.0 / 30.0 |
+| rc10 | 200 %, CD 2x | 9.21 | 14.95 | 21.15 | 28.45 / 27.24 | 28.79 / 27.82 | 29.05 / 26.69 | 24.50 / 18.88 (k15) | 34.4 / 29.8 / 34.4 |
+| rc9 | 200 %, CD 2x | 9.28 | 15.10 | 21.27 | 27.39 / 24.22 | 27.74 / 21.57 | 28.97 / 15.88 | 28.45 / 14.07 (k3) | 30.0 / 20.0 / 29.9 |
+| rc10 | 300 %, CD 1x | 13.01 | 18.94 | 24.31 | 28.75 / 27.95 | 28.82 / 28.09 | 27.77 / 26.65 | 25.63 / 23.84 (k1) | 59.9 / 30.5 / 59.9 |
+| rc10 | 300 %, CD 2x | 10.68 | 16.38 | 21.65 | 28.30 / 26.94 | 28.85 / 28.14 | 29.89 / 29.77 | session found no car | 59.9 / 30.5 / 59.9 |
+| rc10 | recommended | 1.94 | 6.27 | 9.48 | 29.95 / 29.95 | 29.95 / 29.95 | 29.89 / 29.75 | session found no car | 59.9 / 59.9 / 59.9 |
+| rc9 | recommended | 1.94 | 6.26 | 9.56 | 29.87 / 29.79 | 29.90 / 29.87 | 29.61 / 28.93 | 29.65 / 29.47 (k6) | 59.9 / 30.0 / 59.9 |
+
+Targets of this round at stock, and where they stand:
+- 24 3D pictures/s at 29+ ticks/s on foot, idle, tank and car: not reached. 13.9 / 14.0 / 14.8 / 12.4 pictures/s
+  (rc9 12.0 / 11.3 / 13.3 / 9.2), about 10 short. The game's limiter steps in 2-frame units, so 24 pictures/s needs
+  most iterations within 33 ms = 526 hblank lines; the renderer's own CPU work is 420 lines and the guest logic 200,
+  so 100 % CPU cannot get there without a renderer about twice as fast. From 200 % CPU the level runs at 24 to 29
+  pictures/s; 300 % with CD 2x is within 1 to 3 pictures/s of the GBA; 400 % (recommended) is the GBA's 30/30.
+- Menus 30+ pictures/s: not reached at stock (22 / 15 / 22, rc9 20 / 12 / 20); reached from 150 % (34 / 20 / 34;
+  the title animates at its own rate) and 300 % (60 / 30 / 60).
+- Pause return under 30 frames: reached walked on SwanStation (level clock 22, picture 5 frames after Cross; rc9
+  31 / 36); not in the tank (53 / 63; rc9 66 / 88), in the PR #23 probe (clock 72, first playable picture 88; rc9
+  48 / 84) or on Beetle (92 / 99; rc9 60 / 70). The rest is the CD: the pages the pause menu pushed out are read
+  again one by one after the return. Recommended: 14 / 17 walked, probe 8 / 10.
+- Route to the level no slower than rc9: 27.58 s (rc9 27.81 s); pad route 13/13 at stock and recommended on both cores.
+- Credits closer to the GBA's 132 s: SwanStation stock 300 s (rc9 320 s), Beetle 340 s (380 s), recommended 100 s
+  (100 s). Still CPU: 11.7 M interpreter steps.
+
+Verified on the final rc10 discs: the static gates (`mips1_lint` 56,797 words, gpuwait 15/15, loaddelay 0,
+`prepare --check`, unit tests, `check_native` with clang 18, `check_intro_site`, `disp_patch_check`,
+`verify_inputs`, `rtcold_proof`, `tools/check.py`); disc layout and `chdman verify` of both discs; boot to the
+title on both cores (the same 5 expected FAILs as rc9: logos and film are the skipped film overlay); pad route
+13/13 at stock and recommended on both cores; `in_level` on SwanStation, Beetle and recommended: every check of
+the game passes, the FAILs are the rig's (SwanStation and Beetle: the steering walks the man into a wall after
+a respawn; recommended: the state starts facing a wall so Cross cannot move him far, and the picture classifier
+calls the tank view a menu: pictures viewed, the city is drawn); tank on both cores, the sports car (k9), the
+helicopter; quit from foot and from the tank, a second level; flicker in the level and while driving on both cores
+(0 changes without a flip, 0 black), in the menus (1,811 / 1,813 picture changes, 0 without a flip, 0 black;
+counted against `g_flips`: against `g_pres` 438 / 423 changes look "extra" because a present now starts, and
+counts, before the previous picture's flip has been sampled), the 11-map scan (6,602 changes, 0 without a flip,
+0 black); memory card save and cold-boot load on both cores, rc8's and rc9's cards load; music (level / menus):
+SwanStation 80 % / 97 % (rc9 90 % / 98 %; this walk read 11 ROM pages, each pauses the radio), recommended 97 % /
+94 %, Beetle 72 % / 95 %; Credits to the title on SwanStation, Beetle and recommended; the pause numbers above;
+30-minute soaks at stock (27.6 ticks/s) and recommended (no fault; the "3D missing" stretches are the man at grey
+walls, pictures viewed); the Europe disc to the title on both cores (the bin rebuilt for the test has the release's
+SHA-256).
+Known, not changed: the intro films are skipped (Cross still skips); a Cross tap shorter than a guest frame can be
+lost in the pause menu (as rc8/rc9); the PR #23 probe on Beetle now reaches the level (rc9 did not) and reports the
+clock 5 ticks on between its Start press and its check in the pause menu (21 -> 26), probably the frames the game runs before it pauses; not looked into further.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
