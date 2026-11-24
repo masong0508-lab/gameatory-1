@@ -505,76 +505,125 @@ of it the CPU waiting for the GPU and the vertical blank; a menu picture 774 lin
 
 | | Change | Flag (all on in `tools12/build.sh`, `RC10F=` turns them off) |
 | --- | --- | --- |
-| D | The 2D layer's full-screen backdrop is read back from VRAM by DMA2, one block per strip, instead of a polled word loop | `PP_RBDMA` |
-| U | CLUT and OBJ tile uploads only when the palette or the 16 KiB of tiles changed (hash) | `PP_DIRTY` |
+| D | The 2D layer's full-screen backdrop is read back from VRAM by DMA2 (16-word blocks, as for uploads) instead of a polled word loop | `PP_RBDMA` |
+| U | CLUT and OBJ tile uploads only when the palette (exact compare) or the 16 KiB of tiles (two position-dependent hashes) changed | `PP_DIRTY` |
 | R | Blits read ROM pages that are already in RAM directly | `PP_ROMDIRECT` |
 | I | The ring replay `ppu_flush` lives in the renderer region (runtime room for D/U/R) | `PP_INSF` |
-| A | Asynchronous level picture: `present()` sends the 3D list and returns; the next present finishes it (2D layer, `pres_finish`) and the flip is done at a poll point that falls in the first 16 lines of a vertical blank (renderer loops, `io_read`, the ring replay), or the old way (`fl_sync`) before anything is drawn into the shown buffer. Every GP0 command waits for DMA2 first | `PRES_ASYNC` |
+| A | Asynchronous level picture: `present()` sends the 3D list and returns; the next present finishes it (2D layer, `pres_finish`) and the flip is done at a poll point that falls in the first 16 lines of a vertical blank (renderer loops, `io_read`, the ring replay), or the old way (`fl_sync`) before anything is drawn into the shown buffer; a picture stays on screen for at least two vertical blanks (`FL_MINL`). Every GP0 command waits for DMA2 first | `PRES_ASYNC` |
 | Q | The limiter's elapsed time is rounded up to whole 2-frame steps from 5 units on (was 6), so an iteration of 5 units costs no game time | `RTC_QUANT_MIN=5` |
 
 Tried and not taken: a carry of the rounded-down remainder into the next limiter read (`RTC_CARRY`: 16.8 pictures/s on
 foot but the game clock fell to 24 ticks/s, because the game's own wait reads restart from the shown time).
 
-Memory (rc9 in brackets): runtime ends `0x80027250`, 3,504 bytes free (1,136); `.rtcold` 8 free (76); ragdoll
-2,140 free (2,140); renderer ends `0x801aff30`, 208 free (6,304: the ring replay and the poll points moved in).
+Review fixes (7f139f6; the release below is built from it):
+- Frame pacing (`PRES_ASYNC`, medium). The first rc10 build flipped a waiting level picture at the first vertical blank a poll
+  point saw, so after a late flip the next picture could replace it after one 60 Hz frame: 4-13 % of the level pictures with
+  an overclock were shown for a single frame (rc9: 0 % at 200 %), a visible judder at the recommended settings. Now
+  `fl_poll` and `fl_sync` flip only when the shown picture has been up for at least two vertical blanks (`FL_MINL` 400 lines
+  since the last display-start change; flips land within 16 lines after a blank begins, so one blank apart is 247-279 lines,
+  two blanks 510-542, PAL 297-329 / 610-642). `fl_nhold` counts the blanks passed up. Measured with per-frame video
+  hashing (`rc10/qa/tools/rv.py`, the review's tool): pictures shown for exactly one frame 0.0-0.1 % at every setting on
+  both cores (tables below); before the fix, on the review's states, 200 % CD 2x 9.9 % walking / 12.9 % idle, 400 % 2.6-6.1 %,
+  Beetle 400 % 7-8 %.
+- OBJ tile change detector (`PP_DIRTY`, medium). The first hash (rotate by 5 and xor, plus a sum) repeated every 32 words, so
+  a 16x16 sprite's tiles moved or swapped by 4 tiles kept the hash and the texture upload was skipped. Now djb2 (h*33+w) and
+  sdbm (h*65599+w), shifts and adds only; `ps1/tests/test_objhash.py` checks the review's two cases and random whole-tile
+  moves and swaps against a copy of the C expression. Menu speed unchanged (22.0 / 15.1 / 21.8 at stock).
+- Read-back DMA (`PP_RBDMA`, low): `pp_vread_rows` now uses the same 16-word blocks plus one remainder block as the uploads
+  (`gpu_dma_x`), not one block of up to 9,600 words.
+- Release notes (low): speeds are now given per core and as measured ranges (below and `ps1/RELEASE.md`).
 
-Speed, SwanStation, emulated time (level rows: ticks/s / 3D pictures/s; the GBA runs 30 ticks/s; the car rows drive
-whichever car the session finds, kind in brackets, so they are not comparable between rows):
+Memory (rc9 in brackets): runtime ends `0x800272d0`, 3,376 bytes free (1,136); `.rtcold` 8 free (76); ragdoll
+2,140 free (2,140); renderer ends `0x801aff30`, 208 free (6,304: the ring replay and the poll points moved in).
+Budget for the Star-FlyBack mods (review, low): `.sf` and `.rtcold` are full. The largest block that can move is
+`ppu_flush` (5,884 bytes in `.sf`, more than the runtime's 3,376 free), so the mod work has to start by making room:
+e.g. build without `PP_INSF` and move other runtime code out, or give `.sf` part of the draw-ring slack after measuring
+it. No mod code was added in rc10.
+
+Speed, SwanStation, emulated time (level rows: ticks/s / 3D pictures/s from the rig's scenes; the GBA runs 30 ticks/s;
+the car rows drive whichever car the session finds, kind in brackets, so they are not comparable between rows; rc9 rows
+from the first rc10 table, rc9 was not rebuilt):
 
 | build | settings | language s | title s | power-on to level s | on foot | idle | tank | car | menus pictures/s (language/title/game menu) |
 |---|---|---|---|---|---|---|---|---|---|
-| rc10 | stock | 11.08 | 18.44 | 27.58 | 27.34 / 13.85 | 28.47 / 14.03 | 29.65 / 14.79 | 26.19 / 12.41 (k7) | 22.0 / 15.1 / 21.8 |
+| rc10 | stock | 11.08 | 18.44 | 27.58 | 28.10 / 13.82 | 28.62 / 14.17 | 29.67 / 14.77 | 25.85 / 12.11 (k7) | 22.0 / 15.1 / 21.8 |
 | rc9 | stock | 11.14 | 18.57 | 27.81 | 27.39 / 12.00 | 28.49 / 11.25 | 29.17 / 13.27 | 28.23 / 9.23 (k3) | 19.9 / 12.0 / 19.9 |
-| rc10 | 150 %, CD 1x | 11.01 | 17.15 | 24.09 | 27.72 / 18.82 | 27.97 / 22.52 | 26.23 / 18.80 | 29.21 / 14.53 (k16) | 34.1 / 20.1 / 34.4 |
+| rc10 | 150 %, CD 1x | 11.01 | 17.15 | 24.09 | 27.29 / 20.90 | 28.00 / 22.62 | 26.87 / 17.54 | 29.17 / 14.43 (k16) | 34.1 / 20.1 / 34.4 |
 | rc9 | 150 %, CD 1x | 11.01 | 17.17 | 24.94 | 27.54 / 14.12 | 28.87 / 14.33 | 28.85 / 14.35 | 28.59 / 13.77 (k9) | 29.9 / 15.0 / 29.9 |
-| rc10 | 150 %, CD 2x | 8.54 | 14.43 | 21.14 | 27.95 / 18.30 | 28.42 / 15.50 | 28.07 / 15.31 | 26.97 / 13.47 (k7) | 34.1 / 20.1 / 34.4 |
+| rc10 | 150 %, CD 2x | 8.54 | 14.43 | 21.14 | 27.79 / 17.25 | 28.12 / 14.92 | 24.42 / 14.75 | 28.03 / 18.42 (k13) | 34.1 / 20.1 / 34.4 |
 | rc9 | 150 %, CD 2x | 8.61 | 14.45 | 21.59 | not run (state not saved) | | 29.59 / 14.77 | 27.95 / 13.59 (k13) | 29.9 / 15.0 / 29.9 |
-| rc10 | 200 %, CD 1x | 11.54 | 17.57 | 23.67 | 26.34 / 24.52 | 29.27 / 28.67 | 29.55 / 28.53 | 26.97 / 25.49 (k0) | 34.4 / 29.8 / 34.4 |
+| rc10 | 200 %, CD 1x | 11.54 | 17.57 | 23.77 | 28.77 / 27.04 | 28.54 / 26.05 | 25.16 / 20.58 | 26.59 / 24.18 (k0) | 34.4 / 29.7 / 34.4 |
 | rc9 | 200 %, CD 1x | 11.61 | 17.67 | 24.24 | 27.24 / 16.90 | 27.69 / 16.24 | 29.29 / 15.98 | 27.07 / 16.94 (k10) | 30.0 / 20.0 / 30.0 |
-| rc10 | 200 %, CD 2x | 9.21 | 14.95 | 21.15 | 28.45 / 27.24 | 28.79 / 27.82 | 29.05 / 26.69 | 24.50 / 18.88 (k15) | 34.4 / 29.8 / 34.4 |
+| rc10 | 200 %, CD 2x | 9.21 | 14.95 | 21.02 | 28.95 / 27.07 | 28.69 / 26.57 | 29.21 / 27.31 | session found no car | 34.4 / 29.7 / 34.4 |
 | rc9 | 200 %, CD 2x | 9.28 | 15.10 | 21.27 | 27.39 / 24.22 | 27.74 / 21.57 | 28.97 / 15.88 | 28.45 / 14.07 (k3) | 30.0 / 20.0 / 29.9 |
-| rc10 | 300 %, CD 1x | 13.01 | 18.94 | 24.31 | 28.75 / 27.95 | 28.82 / 28.09 | 27.77 / 26.65 | 25.63 / 23.84 (k1) | 59.9 / 30.5 / 59.9 |
-| rc10 | 300 %, CD 2x | 10.68 | 16.38 | 21.65 | 28.30 / 26.94 | 28.85 / 28.14 | 29.89 / 29.77 | session found no car | 59.9 / 30.5 / 59.9 |
-| rc10 | recommended | 1.94 | 6.27 | 9.48 | 29.95 / 29.95 | 29.95 / 29.95 | 29.89 / 29.75 | session found no car | 59.9 / 59.9 / 59.9 |
+| rc10 | 300 %, CD 1x | 13.01 | 18.94 | 24.31 | 27.94 / 26.52 | 29.12 / 28.49 | 29.87 / 29.77 | 27.11 / 25.71 (k5) | 59.9 / 30.5 / 59.9 |
+| rc10 | 300 %, CD 2x | 10.68 | 16.38 | 21.65 | 28.09 / 26.70 | 29.09 / 28.47 | 29.89 / 29.77 | 28.93 / 28.15 (k6) | 59.9 / 30.5 / 59.9 |
+| rc10 | recommended | 1.94 | 6.27 | 9.48 | 29.95 / 29.97 | 29.95 / 29.95 | 29.89 / 29.73 | session found no car | 59.9 / 59.3 / 59.9 |
 | rc9 | recommended | 1.94 | 6.26 | 9.56 | 29.87 / 29.79 | 29.90 / 29.87 | 29.61 / 28.93 | 29.65 / 29.47 (k6) | 59.9 / 30.0 / 59.9 |
 
+Pacing, 60 s from the same level states, every video frame hashed (`rv.py`: ticks/s / picture changes seen in the video
+per second / share of pictures shown for exactly one 60 Hz frame; walk = Cross with a Left turn every 6 s; 0 changes
+without a flip and 0 black frames in every run):
+
+| core | settings | walk | idle | tank driving |
+|---|---|---|---|---|
+| SwanStation | stock | 26.12 / 12.57 / 0.0 % | 28.02 / 13.69 / 0.0 % | 28.32 / 12.70 / 0.0 % |
+| SwanStation | 150 %, CD 1x | 26.11 / 19.31 / 0.0 % | 27.82 / 26.44 / 0.0 % | |
+| SwanStation | 150 %, CD 2x | 27.02 / 14.59 / 0.1 % | 27.69 / 15.83 / 0.1 % | |
+| SwanStation | 200 %, CD 1x | 27.62 / 24.64 / 0.0 % | 28.27 / 27.27 / 0.0 % | |
+| SwanStation | 200 %, CD 2x | 27.94 / 24.09 / 0.0 % | 28.54 / 27.59 / 0.0 % | |
+| SwanStation | 300 %, CD 1x | 27.47 / 26.17 / 0.0 % | 28.06 / 27.17 / 0.0 % | |
+| SwanStation | 300 %, CD 2x | 27.46 / 25.87 / 0.0 % | 28.35 / 27.44 / 0.0 % | |
+| SwanStation | recommended | 29.95 / 29.97 / 0.1 % | 29.95 / 29.97 / 0.1 % | 29.94 / 29.89 / 0.0 % |
+| Beetle | stock | 28.14 / 11.24 / 0.0 % | 29.72 / 14.80 / 0.0 % | 27.26 / 10.77 / 0.0 % |
+| Beetle | 400 %, CD 10x | 28.67 / 28.21 / 0.0 % | 29.37 / 29.05 / 0.0 % | 28.11 / 26.84 / 0.0 % |
+
+So the game speed per core and setting is: stock 26-29.7 ticks/s (87-99 % of the GBA; walking 87-94 %), 200 % 27.6-29.0,
+recommended 29.9-29.95 on SwanStation and 28.1-29.4 on Beetle at 400 % (27-29 pictures/s there). The level clock stands
+still in the pause menu on both cores (rv pause runs: e.g. 224 for 12 s at SwanStation stock, 1128 on Beetle).
+
 Targets of this round at stock, and where they stand:
-- 24 3D pictures/s at 29+ ticks/s on foot, idle, tank and car: not reached. 13.9 / 14.0 / 14.8 / 12.4 pictures/s
-  (rc9 12.0 / 11.3 / 13.3 / 9.2), about 10 short. The game's limiter steps in 2-frame units, so 24 pictures/s needs
-  most iterations within 33 ms = 526 hblank lines; the renderer's own CPU work is 420 lines and the guest logic 200,
-  so 100 % CPU cannot get there without a renderer about twice as fast. From 200 % CPU the level runs at 24 to 29
-  pictures/s; 300 % with CD 2x is within 1 to 3 pictures/s of the GBA; 400 % (recommended) is the GBA's 30/30.
+- 24 3D pictures/s at 29+ ticks/s on foot, idle, tank and car: not reached. 12.6-14.8 pictures/s (rc9 9.2-13.3), about
+  10 short. The game's limiter steps in 2-frame units, so 24 pictures/s needs most iterations within 33 ms = 526 hblank
+  lines; the renderer's own CPU work is 420 lines and the guest logic 200, so 100 % CPU cannot get there without a
+  renderer about twice as fast. From 200 % CPU the level runs at 24 to 27 pictures/s; 300 % within 1 to 4 pictures/s
+  of the GBA; 400 % (recommended) is the GBA's 30/30 on SwanStation.
 - Menus 30+ pictures/s: not reached at stock (22 / 15 / 22, rc9 20 / 12 / 20); reached from 150 % (34 / 20 / 34;
   the title animates at its own rate) and 300 % (60 / 30 / 60).
-- Pause return under 30 frames: reached walked on SwanStation (level clock 22, picture 5 frames after Cross; rc9
-  31 / 36); not in the tank (53 / 63; rc9 66 / 88), in the PR #23 probe (clock 72, first playable picture 88; rc9
-  48 / 84) or on Beetle (92 / 99; rc9 60 / 70). The rest is the CD: the pages the pause menu pushed out are read
-  again one by one after the return. Recommended: 14 / 17 walked, probe 8 / 10.
+- Pause return under 30 frames: not reached on the final discs. SwanStation stock walked: clock 35, first changed picture
+  3 frames after Cross (the menu leaving; the moving level follows the clock), tank 83 / 121, PR #23 probe 73 / 90,
+  Beetle 69 / 75 (probe 84 / 92); recommended 12 / 15 (probe 7 / 9). rc9: 31 / 36, tank 66 / 88, probe 48 / 84,
+  Beetle 60 / 70. The time is the CD: after the return the pages the pause menu pushed out are read again one by one
+  (9-12 misses of about 11 frames each), and which pages those are changes from run to run.
 - Route to the level no slower than rc9: 27.58 s (rc9 27.81 s); pad route 13/13 at stock and recommended on both cores.
 - Credits closer to the GBA's 132 s: SwanStation stock 300 s (rc9 320 s), Beetle 340 s (380 s), recommended 100 s
   (100 s). Still CPU: 11.7 M interpreter steps.
 
-Verified on the final rc10 discs: the static gates (`mips1_lint` 56,797 words, gpuwait 15/15, loaddelay 0,
-`prepare --check`, unit tests, `check_native` with clang 18, `check_intro_site`, `disp_patch_check`,
-`verify_inputs`, `rtcold_proof`, `tools/check.py`); disc layout and `chdman verify` of both discs; boot to the
-title on both cores (the same 5 expected FAILs as rc9: logos and film are the skipped film overlay); pad route
-13/13 at stock and recommended on both cores; `in_level` on SwanStation, Beetle and recommended: every check of
-the game passes, the FAILs are the rig's (SwanStation and Beetle: the steering walks the man into a wall after
-a respawn; recommended: the state starts facing a wall so Cross cannot move him far, and the picture classifier
-calls the tank view a menu: pictures viewed, the city is drawn); tank on both cores, the sports car (k9), the
-helicopter; quit from foot and from the tank, a second level; flicker in the level and while driving on both cores
-(0 changes without a flip, 0 black), in the menus (1,811 / 1,813 picture changes, 0 without a flip, 0 black;
-counted against `g_flips`: against `g_pres` 438 / 423 changes look "extra" because a present now starts, and
-counts, before the previous picture's flip has been sampled), the 11-map scan (6,602 changes, 0 without a flip,
-0 black); memory card save and cold-boot load on both cores, rc8's and rc9's cards load; music (level / menus):
-SwanStation 80 % / 97 % (rc9 90 % / 98 %; this walk read 11 ROM pages, each pauses the radio), recommended 97 % /
-94 %, Beetle 72 % / 95 %; Credits to the title on SwanStation, Beetle and recommended; the pause numbers above;
-30-minute soaks at stock (27.6 ticks/s) and recommended (no fault; the "3D missing" stretches are the man at grey
-walls, pictures viewed); the Europe disc to the title on both cores (the bin rebuilt for the test has the release's
-SHA-256).
+Verified on the final rc10 discs (built from 7f139f6; `rc10/logs/v5.log`): the static gates (`mips1_lint` 56,827
+words, gpuwait 15/15, loaddelay 0, `prepare --check`, 74 unit tests, `check_native` with clang 18,
+`check_intro_site`, `disp_patch_check`, `verify_inputs`, `rtcold_proof`, `tools/check.py`); disc layout and
+`chdman verify` of both discs; boot to the title on both cores (the same 5 expected FAILs as rc9: logos and film are
+the skipped film overlay); pad route 13/13 at stock and recommended on both cores; `in_level` on SwanStation (34/1),
+Beetle (33/2) and recommended (32/2): every game check passes; the FAILs are the rig's: the picture classifier calls
+the tank view a menu (the saved pictures show the city drawn around the tank) and at recommended the state faces a
+wall; on Beetle the man was pushed 377 units during the idle wait (an idle run of 1,500 frames from the same state
+shows two pushes at clock 1280 and 1399, health unchanged: the city's traffic, no input); tank on both cores and at
+recommended, the sports car (k9), the helicopter (k5: no parked k5 in the state, as rc9); quit from foot (both cores)
+and from the tank (stock and recommended), a second level; flicker in the level and while driving on both cores (0
+changes without a flip, 0 black); menus 2,178 / 2,189 (SwanStation) and 2,175 / 2,186 (Beetle) picture changes /
+flips, 0 without a flip, 0 black (the `g_pres`-based `flicker.py` reports 527 / 511 "extra": a present now starts
+before the previous flip is sampled); the 11-map scan (6,605 changes, 0 without a flip, 0 black; `maps.py` map 1 as
+rc9); memory card save and cold-boot load on both cores, rc8's and rc9's cards load; music (level / menus):
+SwanStation 83 % / 97 %, recommended 95 % / 94 %, Beetle 69 % / 95 %; Credits to the title on SwanStation, Beetle and
+recommended; the pause numbers above; 30-minute soaks at stock and recommended and 15 minutes on Beetle (no fault, no
+black picture, no lost 2D command; the "3D missing" stretches are close walls and grey plazas, the saved pictures show
+the city); the Europe disc to the title on both cores (the bin rebuilt for the test has the release's SHA-256); the
+TEST_assist disc reaches the level by itself (5 lives, as rc9's test build).
 Known, not changed: the intro films are skipped (Cross still skips); a Cross tap shorter than a guest frame can be
-lost in the pause menu (as rc8/rc9); the PR #23 probe on Beetle now reaches the level (rc9 did not) and reports the
-clock 5 ticks on between its Start press and its check in the pause menu (21 -> 26), probably the frames the game runs before it pauses; not looked into further.
+lost in the pause menu (as rc8/rc9). The PR #23 probe FAILs on Beetle with the clock 21 -> 26: the probe reads the
+clock before it presses Start, and the game runs on until the pause menu is up (on Beetle 60 frames after the press,
+`pdiag`); once the menu is shown the clock stands still on both cores (rv pause runs above), so this is the probe's
+order of reads, not a running clock.
 
 ## What the existing stages actually contain
 
