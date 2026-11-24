@@ -58,6 +58,7 @@ int cp_postgame(void);             /* the finished chapter stays open, with imme
 int cp_travel(int c);
 void cp_open_at(int line);         /* the same, on one of its lines */
 void cp_open(void);                /* the campaign's quick menu (the station's own menu opens it) */
+int cp_quick_open(void);           /* a quick-menu page owns the station HUD layer */
 int cp_pw_apply(const char *code); /* a typed code: 1 and the campaign continues from it, 0 wrong */
 
 #endif

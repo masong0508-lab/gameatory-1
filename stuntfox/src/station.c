@@ -1255,7 +1255,12 @@ static void talk_panel(void)
 
 void st_hud(void)
 {
-    if (s2f.paused)
+    /* The campaign overlay is drawn after this hook. Keep the 3D room as
+       its backdrop, but suppress the room's own labels and interaction
+       prompts while the modal menu owns input. Otherwise a crew label can
+       be cut in half by the panel. st_sig already includes cp_sig, so both
+       buffered pictures are redrawn when the menu closes. */
+    if (s2f.paused || cp_quick_open())
         return;
     const StRoom *rm = st_room(stw.room);
     st_draw_labels();

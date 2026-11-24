@@ -258,11 +258,31 @@ int main(void)
     /* The station's SAVE...: the note says how the save went once it has (the header's word), and the B that closes the
        menu is the menu's own (the station would otherwise change room on it). */
     for (int i = 0; i < 400 && sw.busy; i++) cp_tick();
+    CHECK(!cp_quick_open());
     cp_open_at(2); card();
+    CHECK(cp_quick_open());
     CHECK(sw.busy && C.sv == 1 && seen("SAVING...") && seen("SAVING"));
     for (int i = 0; i < 400 && sw.busy; i++) cp_tick();
     card(); CHECK(C.sv == 2 && seen("SAVED") && !seen("SAVING...") && !strcmp(msg, "SAVED"));
     CHECK(cp_dock_keys(KEY_B, KEY_B, 1) && !C.q);
+    CHECK(!cp_quick_open());
+
+    /* All quick-menu pages own the room's HUD until the actual close, not
+       just the main menu. Back from a child page keeps the overlay active. */
+    cp_open_at(3);
+    CHECK(cp_quick_open() && C.q == Q_CODE);
+    cp_dock_keys(KEY_B, KEY_B, 1);
+    CHECK(cp_quick_open() && C.q == Q_MAIN);
+    cp_dock_keys(KEY_B, KEY_B, 1);
+    CHECK(!cp_quick_open());
+    cp_open_at(1);
+    CHECK(cp_quick_open() && C.q == Q_MAIN);
+    cp_dock_keys(KEY_A, KEY_A, 1);
+    CHECK(cp_quick_open() && C.q == Q_TRAVEL);
+    cp_dock_keys(KEY_B, KEY_B, 1);
+    CHECK(cp_quick_open() && C.q == Q_MAIN);
+    cp_dock_keys(KEY_B, KEY_B, 1);
+    CHECK(!cp_quick_open());
 
     /* The station writes to a stopped campaign's image (a talk heard, the flag
        it raises) and nothing seals it again. CONTINUE must go on with that

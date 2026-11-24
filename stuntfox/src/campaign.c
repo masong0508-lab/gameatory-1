@@ -69,6 +69,7 @@ static int held(void)
 int cp_active(void) { return on(); }
 int cp_ending(void) { return C.ending; }
 int cp_postgame(void) { return C.postgame; }
+int cp_quick_open(void) { return C.q != Q_OFF; }
 
 /* ---- the chapters ---- */
 static int nchap(void) { int n = ms_nchap(); return n < CP_CHAPS ? n : CP_CHAPS; }
