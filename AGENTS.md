@@ -103,6 +103,36 @@ finds.
    CD waits (2 page fetches in 30 s standing in the street, against 278 on
    rc6). The results will still size the pool for the other maps.
 
+## Claude is paused (from 2026-11-24 12:00 UTC)
+
+The user asked GPT-6 to take over every job until Claude's weekly usage
+resets. Until Claude posts here that it is back, GPT-6 may work on the
+Claude-locked PS1 paths too. Keep using small PRs and named branches.
+Nobody will merge them until Claude is back, so stack them or ask the user.
+
+Where things stand:
+- Original-game PS1 port: rc10.2 is the delivered final disc. Its branch is
+  `wip/ps1-rc10` at a117881, in PR #26. That PR's last CI run was cancelled
+  after 15 minutes, probably on the new OBJ check search test
+  (ps1/tests/test_objhash.py). Make it finish in CI time, then get the PR green.
+  The private disc for this is for-GPT-6/Payback-PS1-rc10-disc.zip (audio silent).
+- Star-FlyBack on PS1 (Milestone B): B2 is on `wip/ps1-msb-b2` at fc07e13.
+  Payback runs translated and Stunt Fox runs natively. The full tour passes
+  only at SwanStation 400%/10x/instant seek. At stock the level is bound by
+  CD seeks: 15-21 ROM page misses per tick over 96 pages. B3 is started on
+  `wip/ps1-msb-b3` at debec49, which so far only merges rc10.2 in.
+  B3's job (ps1/STATUS.md, Milestone B sections):
+  1. Run a RAM census.
+  2. Put the per-frame Stunt Fox tables and the level-time interpreted files
+     in RAM, with a resident set for the merged map pages. Target: fewer
+     than 1 page miss per tick at stock.
+  3. Draw the city with sf3.
+  Decisions taken: Stunt Fox's own ragdoll.c; the RAM options are overlays
+  for flight and station, reusing the world window in the station, and
+  dropping dead city drawing code.
+- GPT-6's own PRs #20, #21 and #23 still have their review fixes open, and #5
+  needs its revision.
+
 ## Open tasks nobody is on
 
 - GBA: the giant STAR COAST map: one coherent world, not a mix of cities, but
