@@ -654,8 +654,11 @@ from b760a90 under the same names (`payback_rc10*`).
 - Verified on the rebuilt discs (`rc10/logs/v6.log`, gates `rc10/logs/gates101.out`): static gates as above (56,867 words,
   0 R3000A faults, 0 load-delay hazards, gpuwait 15/15, 81 unit tests, `check_native`, `verify_inputs`, `rtcold_proof`,
   `tools/check.py`), disc layout and `chdman verify` of both discs; boot to the title on both cores (the same 5 expected
-  FAILs); pad route 13/13 at stock and recommended on both cores; `in_level` SwanStation 34/1 and Beetle 34/1 (the rig's
-  tank-view classifier FAIL, as rc10); tank on both cores and recommended 7/7; level flicker both cores 2/2; menu flicker
+  FAILs); pad route 13/13 at stock and recommended on both cores; `in_level` SwanStation 34/1 (the rig's tank-view
+  classifier FAIL, as rc10); on Beetle the full session passed its 22 checks up to the vehicle step, then the walk of 87
+  cells to the parked tank across traffic cost the two lives the death step had left: the game's GAME OVER screen, drawn
+  correctly, and the rig stopped on the missing player (`runs/r101_be_inlevel_np`); without the death step 31/1, the same
+  classifier FAIL (`runs/r101_be_inlevel_veh`; the 5f34116 discs: 34/1); tank on both cores and recommended 7/7; level flicker both cores 2/2; menu flicker
   against `g_flips` 2,178 / 2,189 (SwanStation) and 2,175 / 2,186 (Beetle), 0 without a flip, 0 black (identical to
   rc10); memory card save and cold-boot load on both cores; TEST_assist reaches the level by itself.
 - Speed, SwanStation, emulated time: menus at stock 21.97 / 15.10 / 21.84 pictures/s (rc10 21.97 / 15.07 / 21.84),
