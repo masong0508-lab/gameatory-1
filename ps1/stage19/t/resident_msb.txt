@@ -1,0 +1,6 @@
+# Milestone B (merged Star-FlyBack ROM, tools12/build_msb.sh): t/resident62.txt with the pages of Payback's map column table
+# (0x081b0000..0x082f6de8 in the original) moved with it to 0x08800000 + offset (payback-mod rom.py NEW_BASE), the first 61 (pg_fr takes 4 KiB of the ragdoll region).  Page numbers only.
+099 09b 09e 09f 0a0 0a2 0bd 0be 0bf 0c0 0cd 0ce 193 1aa 1ab 1ac
+800 802 804 80f 810 815 816 817 818 819 81a 81b 81c 30b 30c 326
+327 328 354 355 359 365 3fe 636 63e 63f 640 65e 65f 666 667 668
+669 66a 66b 66c 68d 68e 68f 690 691 692 693 695 6f7

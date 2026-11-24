@@ -25,9 +25,9 @@
       "sha256": "d88379a88847f888171cb12f736ba5edcaa5e475108a7547b36763649ff9be90"
     },
     {
-      "source": "stage7/integration/disc.py",
+      "source": "stage19/disc.py",
       "target": "disc.py",
-      "sha256": "5deab3cc42b7de8ff76d4ddd5bbd75f3fb0b8be1d1792a2cbeedf24280ebad1e"
+      "sha256": "7a20faed682adfddabfebbea222e8e2a32a3ee5cea43acf6391c3b49184e6b91"
     },
     {
       "source": "stage16/merge/endsz.sh",
@@ -120,9 +120,9 @@
       "sha256": "fe9bcbf58265b1c975390ae36174d5b4d1a6e95f9d607461d23eae62e054811e"
     },
     {
-      "source": "stage7/integration/mkps1.py",
+      "source": "stage19/mkps1.py",
       "target": "mkps1.py",
-      "sha256": "8e615431ff949d5447cbe9845ec1bbe1237cb699f54018c4c802ae7ce3bcf52d"
+      "sha256": "59372bb408776448646be96349ffb2fe6de18d54b1e14e343920de78ca236851"
     },
     {
       "source": "stage7/integration/mkresident.py",
@@ -140,14 +140,14 @@
       "sha256": "864279772c8ced4ec5c8224a8171c54876e2c38b58ba50897cbc93615782c63b"
     },
     {
-      "source": "stage7/integration/prune.py",
+      "source": "stage19/prune.py",
       "target": "prune.py",
-      "sha256": "8b64c0e0165f6853c962549838c37af46d6bb0e522f74693f5692f09000d5236"
+      "sha256": "b9f61895d6a65449daa3d70cda437dd4a1a1d4e85247cee5a8fab111577ff0b3"
     },
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "4007d21a04fa26ed0740c8be978d5d126a6024e58a33106c5f2afd2cb45e3b8f"
+      "sha256": "4235f22be8bc50e58cd1313a59d7734e323829527a223570a15b4d9e1ed83807"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -192,7 +192,7 @@
     {
       "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "785ebbb4a22d135a038f0d2b955ab953167e8f6f2ab920556aac5480202009bb"
+      "sha256": "0defe12f0a01d8be784b84f26d05bb7020c29f2e95ca10696080350a37f103bd"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",
@@ -202,7 +202,7 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "00223ae3e69b5e2e75b0ae537e70a7614ca18a79a37dc5b3f274a8bb35c61b42"
+      "sha256": "36335787445da23bfaa89ef64af8881f540f9c0c2743942bcfdbb888b9d937fd"
     },
     {
       "source": "stage19/ps1rt/ps1.ld",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "2b9bc738ff87e09db42c82871f2f26644a08ba0b8e3d5043d7e05a6f9fce9ee8"
+      "sha256": "54d29637b4ba4d344e46e28a98be3c91a192a981077a86ed9612a80176dd77be"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -402,7 +402,7 @@
     {
       "source": "stage19/t/mkrompages.py",
       "target": "t/mkrompages.py",
-      "sha256": "4b7b37f91db76d39c8f976689538faac4639a3ef94708a1f592944a34e9be1a7"
+      "sha256": "b3140b2a34bb2dee5bbb2b886d760956699003009021a9428dc7b4581b8858af"
     },
     {
       "source": "stage16/merge/t/mksim13.sh",
@@ -465,9 +465,9 @@
       "sha256": "4be1230936ebe9b6bf76c2a56e6f752747b5b0249e8f124b931dbdaf0b0086f8"
     },
     {
-      "source": "stage7/integration/t2m.py",
+      "source": "stage19/t2m.py",
       "target": "t2m.py",
-      "sha256": "9d245719255e96b7e71e970cd2b0b5856950362b8984f8ce7a312d3458b4b96d"
+      "sha256": "a51cfe086068898fdcf19d4c5911b0ca36d7fe9c52e2202b2844a95cd08d5b82"
     },
     {
       "source": "stage7/integration/tools/mksf3.py",
@@ -772,7 +772,7 @@
     {
       "source": "tools/check_intro_site.py",
       "target": "tools/check_intro_site.py",
-      "sha256": "1fc989b8bd60f0b6a243952662e10c367426e4a2f4f7b344777e1ef14e16caab"
+      "sha256": "1c35c843d50652a4871ad7000205661a0d475619f52669115d9efb3c8e955bf7"
     },
     {
       "source": "tools/disp_patch_check.py",
@@ -793,16 +793,29 @@
       "source": "stage19/t/pause_pages.txt",
       "target": "t/pause_pages.txt",
       "sha256": "b2ee5b068bfce27827e428dbaf1c5877a11a8c1ae60167e33a074baf13c6f7ba"
+    },
+    {
+      "source": "stage19/tools12/build_msb.sh",
+      "target": "tools12/build_msb.sh",
+      "sha256": "bd344b0419cda1268e6f75c847240d93c944d0724cfbf1810be4ad3f75f3caae"
+    },
+    {
+      "source": "stage19/tools12/translate_msb.sh",
+      "target": "tools12/translate_msb.sh",
+      "sha256": "9ef8ee34963dd7ddbf3905082adf62db0b55da65efac21a35fc35468770bde0b"
+    },
+    {
+      "source": "stage19/t/resident_msb.txt",
+      "target": "t/resident_msb.txt",
+      "sha256": "856ad79216245d46ca09212abd42966eb32163776f98f4c202ba75699f8d74a6"
+    },
+    {
+      "source": "stage19/t/pause_pages_msb.txt",
+      "target": "t/pause_pages_msb.txt",
+      "sha256": "3b2afdbd14931b98c199741c4e879c173f951c22c9ef60cdbc16db920e20b5cf"
     }
   ],
   "patches": [
-    {
-      "source": "stage10/patches/mkps1.py.patch",
-      "target": "mkps1.py",
-      "sha256": "2d4f9036f67d6282f16712231bd74c382838930c3fe0d51ebbb2281b5e297694",
-      "input_sha256": "8e615431ff949d5447cbe9845ec1bbe1237cb699f54018c4c802ae7ce3bcf52d",
-      "result_sha256": "9e1c17735ff6554d4cb1169e749cddfe518083da9c38049f55743127b8af82aa"
-    },
     {
       "source": "stage12/patches/t_sim4.py.patch",
       "target": "t/sim4.py",
