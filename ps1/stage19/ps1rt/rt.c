@@ -1025,6 +1025,25 @@ static void flush_icache(void){ register u32 t1 __asm__("$9")=0x44;   /* kernel 
 static u32 cold_m5;   /* 0 not yet, 1 read, 2 never (a level had started first: the level clock ran or the renderer was on) */
 /* every BG palette entry is black (the backdrop too): M5's test for the boot's black screen in cd_fetch */
 static int pal_bg_zero(void){ const volatile u32*p=(const volatile u32*)PAL; u32 o=0; for(u32 i=0;i<128;i++) o|=p[i]; return !(o&0x7fff7fffu); }
+#ifdef MERGED_NATIVE
+/* B2: Payback's CUBE_BeginModify (0x0803c3bc) copies a level cell into one of 200 slots of 64 bytes at 0x02003f24 before changing it, unless the
+   cell's pointer already is a copy: "pointer <= 0x07ffffff" on the GBA (RAM below the ROM).  Translated with model P that pointer is the host
+   address 0x801b.., above the constant: every call made a new copy and the slots were never given back (rc10 too: all 199 taken a few seconds
+   into a level).  Stunt Fox's polygon pool lies over those slots (render.c pool_floor), so in a car or the Arwing it had no room and the 3D
+   picture stopped.  The translated test (cold group, COLD.BIN offset 0x6c764) becomes "not a ROM pointer (0x08000000..0x09ffffff)": the same
+   answer for every GBA pointer, and right for host pointers.  Patched only when the five words are the ones expected; b2_cellfix counts it. */
+static u32 b2_cellfix;
+static void b2_coldfix(void){
+  volatile u32*w=(volatile u32*)(COLD_HOST+0x6c764u);
+  if((u32)w+20>SF_NAT_LO) return;
+  if(w[0]==0x3c1007ffu&&w[1]==0x3610ffffu&&w[2]==0x02405821u&&w[3]==0x0212082bu&&w[4]==0x1020014bu){
+    w[0]=0x3c10f800u;      /* lui  $16,0xf800        r0 = -0x08000000 */
+    w[1]=0x02128021u;      /* addu $16,$16,$18       r0 = r2 - 0x08000000 */
+    w[3]=0x00108642u;      /* srl  $16,$16,25        0 for a ROM pointer */
+    w[4]=0x1600014bu;      /* bnez $16,(the same skip): not ROM: already a copy */
+    b2_cellfix++; }
+}
+#endif
 __attribute__((noinline)) static void cold_all(void){
   if(cold_m5) return;
   cold_m5=2; if(*(volatile u32*)(EW+0x1e00) || sf3_ok) return;
@@ -1032,7 +1051,8 @@ __attribute__((noinline)) static void cold_all(void){
 #ifdef MERGED_NATIVE
   { u32 ng=(SF_NAT_LO-COLD_HOST)>>14, ns=ng*8<COLD_SECS_N?ng*8:COLD_SECS_N;      /* B2: only the groups below native Stunt Fox */
     cd_read(CD_COLD_LBA,ns,(u8*)COLD_HOST);
-    for(u32 k=0;k<(ns+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1; }
+    for(u32 k=0;k<(ns+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1;
+    b2_coldfix(); }
 #else
   cd_read(CD_COLD_LBA,COLD_SECS_N,(u8*)COLD_HOST);
   for(u32 k=0;k<(COLD_SECS_N+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1;
@@ -1091,6 +1111,9 @@ found:;
 #endif
     cd_read(CD_COLD_LBA+k*8,left<8?left:8,(u8*)dst);
     cold_loaded[k]=1; cold_loads++; loaded=1; }
+#ifdef MERGED_NATIVE
+  if(loaded) b2_coldfix();
+#endif
   if(loaded){ last_cold_pres=g_pres; flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
   CF_PERM(COLD_HOST+(g1+1)*16384u<=SF_WORLD_LO);     /* every group of the span ends below the world window: never dropped (present()) */
   return host;

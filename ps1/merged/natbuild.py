@@ -245,8 +245,8 @@ def main():
         f.write('typedef unsigned int u32; typedef unsigned long long u64;\n')
         f.write('u64 sf_guest_call(u32 t, const u32 *a);\n')
         for n, a in stubs:
-            f.write('u64 sfn_%s(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, u32 a7) { u32 a[8] = {a0, a1, a2, a3, a4, a5, a6, a7}; '
-                    'return sf_guest_call(0x%08xu, a); }\n' % (n, a))
+            f.write('u64 sfn_%s(%s) { u32 a[16] = {%s}; '      # sixteen words, as sfglue.h's SF_NARG (a V3 by value is three)
+                    'return sf_guest_call(0x%08xu, a); }\n' % (n, ', '.join('u32 a%d' % i for i in range(16)), ', '.join('a%d' % i for i in range(16)), a))
         names = sorted({n for _, n in ents + iw})
         for n in names:
             f.write('extern char sfn_%s[];\n' % n)
