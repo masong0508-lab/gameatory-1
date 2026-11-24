@@ -165,9 +165,9 @@
       "sha256": "839a7848763547a4b2cd36b879d56098a209b014ac13c6cd2a5a075dc94a92f8"
     },
     {
-      "source": "stage16/merge/ps1rt/hw_card.h",
+      "source": "stage19/ps1rt/hw_card.h",
       "target": "ps1rt/hw_card.h",
-      "sha256": "0cfdbd4633d4282111f4d01a3273e227ca2988be9825f144149d80d914e43af7"
+      "sha256": "2ee2328761d315906e739584bb945178b5e76e260276d4cf6c6734f5d5c56c0f"
     },
     {
       "source": "stage19/ps1rt/hw_cdda.h",
@@ -192,7 +192,7 @@
     {
       "source": "stage19/ps1rt/interp_glue.h",
       "target": "ps1rt/interp_glue.h",
-      "sha256": "0defe12f0a01d8be784b84f26d05bb7020c29f2e95ca10696080350a37f103bd"
+      "sha256": "49a51a8d7db96fcf28fc6bad24365d0639f6b6bf05d788133068f92f8bd36ede"
     },
     {
       "source": "stage7/integration/ps1rt/mkfont.py",
@@ -797,7 +797,7 @@
     {
       "source": "stage19/tools12/build_msb.sh",
       "target": "tools12/build_msb.sh",
-      "sha256": "bd344b0419cda1268e6f75c847240d93c944d0724cfbf1810be4ad3f75f3caae"
+      "sha256": "3038efd75bf193794239a912a91dadfb04e56f8a22ca68c826d9c37cc968b775"
     },
     {
       "source": "stage19/tools12/translate_msb.sh",
@@ -807,12 +807,12 @@
     {
       "source": "stage19/t/resident_msb.txt",
       "target": "t/resident_msb.txt",
-      "sha256": "856ad79216245d46ca09212abd42966eb32163776f98f4c202ba75699f8d74a6"
+      "sha256": "1b7d2e726f3160b46994e9949bcccbf0df4ca1feef85a9a83cafe95e0b34432b"
     },
     {
       "source": "stage19/t/pause_pages_msb.txt",
       "target": "t/pause_pages_msb.txt",
-      "sha256": "3b2afdbd14931b98c199741c4e879c173f951c22c9ef60cdbc16db920e20b5cf"
+      "sha256": "04c1d6397de9161b6716f490338a99eaa3084f4e31e9cab9588902deb4ab737a"
     }
   ],
   "patches": [

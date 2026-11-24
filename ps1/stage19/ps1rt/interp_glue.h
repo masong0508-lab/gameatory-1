@@ -19,7 +19,13 @@ u32 ip_slab[IP_MAXD][32];
 u32 ip_cs_stk[IP_MAXD*12];
 #endif
 u32 ip_cs_sp=(u32)ip_cs_stk;
+#ifdef MERGED
+#define IP_STACKS ((u8*)0x8002c000)      /* Milestone B: ip_stacks stays 0x8002c000, but the 4096-entry ROM page table ends at 0x8002e000: the 8 depths x 1 KiB are 0x8002e000..0x80030000 */
+#define IP_CANARY_AT ((volatile u32*)0x8002e000u)    /* lowest word of the stack area, just above rom_pg[0xfff]: a stack that reaches it would write the page table next */
+#define IP_CANARY 0x5afe57acu
+#else
 #define IP_STACKS ((u8*)0x8002c000)      /* 16 depths x 1 KiB, between the ROM page table (0x8002a000..0x8002c000) and the blob (0x80030000) */
+#endif
 #define IP_RECN 64      /* must match the .rept in interp_asm.s */
 u32 ip_rec[IP_RECN][2], ip_rec_n, ip_rec_hi; extern void ip_stubs(void); extern const unsigned RT_BX_HOST;
 u32 ip_res_push(u32 S,u32 L){
@@ -131,6 +137,9 @@ static u32 film_miss(u32 addr){
   interp_target=a; return (u32)interp_enter;
 }
 /* boot: the words the intro fix relies on, or an error screen (never a silent fallback) */
+#ifdef MERGED
+static __attribute__((noinline)) void iwk_init(void);
+#endif
 static RTCOLD void intro_fix_init(void){
   const volatile u32*w=(const volatile u32*)(IW+(OV_BASE&0x7fffu)); ov_w[0]=w[0]; ov_w[1]=w[1];
   const volatile u32*miss=(const volatile u32*)(RT_BLOB+8);
@@ -155,7 +164,7 @@ static RTCOLD void intro_fix_init(void){
   if(bad) fatal_screen("INTRO FIX: runtime words differ, check ",bad<<28|n<<16|nk<<8|nid);
   ov_nsl=nk;
 #ifdef MERGED
-  (void)site; (void)jst; dbg("INTRO FIX: intro translated, overlay hash slots "); dec(nk); dbg("\n"); return;
+  (void)site; (void)jst; dbg("INTRO FIX: intro translated, overlay hash slots "); dec(nk); dbg("\n"); iwk_init(); return;
 #endif
   site[0]=0x3c190000u|(INTRO_JOIN>>16);                  /* lui $25,0x0802 */
   site[1]=0x08000000u|(((RT_BLOB+8)>>2)&0x03ffffffu);    /* j RT_MISS */
@@ -190,8 +199,42 @@ u32 ip_stub_lookup(u32 t){ for(u32 k=0;k<STUBTAB_N;k++) if(STUBTAB[2*k]==t) retu
 #else
 u32 ip_stub_lookup(u32 t){ if(t==INTRO_JOIN) return 0; for(u32 k=0;k<STUBTAB_N;k++) if(STUBTAB[2*k]==t) return (u32)ip_sthunks+24*k; return 0; }
 #endif       /* ip_sthunks: one RT_STUB thunk per stub id, in the runtime (the translated entry may sit in a cold group that is not loaded) */
+#ifdef MERGED
+/* Milestone B: Star-FlyBack copies its own ARM code over parts of Payback's IWRAM image (stuntfox merge.c hot_install) and patches single words of it
+   (hot_words).  The hot hash and the cold table still hold Payback's translations at those addresses (SF's model_draw 0x03006930 is a hash key, five
+   more keys lie inside SF's code), so a lookup by address alone would leave the interpreter for Payback's old code.  At boot (IWRAM = the image the
+   translation was made from, boot.bin) every IWRAM key of both tables keeps the two halfwords at its address; ip_lookup answers 0 (interpret what is
+   there now) for a key whose halfwords differ.  The overlay-1 area keeps its own test (ov_stale), which comes first.  Payback itself changes two
+   keys at the title (0x03000d78 holds data, 0x03005a90 is an immediate it patches; rc10 shows the same words): an interpreted jump there now runs
+   what IWRAM holds, as the GBA does.  Calls from translated code are not affected. */
+#define IWK_MAX 96         /* 35 keys in B1 (hash and cold table); a fuller table stops at boot with an error screen */
+static u16 iwk_o[IWK_MAX]; static u32 iwk_w[IWK_MAX]; u32 iwk_n, iwk_stale_n;
+static u32 iwk_word(u32 o){ const volatile u16*p=(const volatile u16*)(IW+o); return p[0]|((u32)p[1]<<16); }
+static void iwk_add(u32 g){
+  if(g-0x03000000u>=0x7ffcu) return; u32 o=g&0x7ffeu, k=0;
+  while(k<iwk_n&&iwk_o[k]<o) k++;
+  if(k<iwk_n&&iwk_o[k]==o) return;
+  if(iwk_n>=IWK_MAX) fatal_screen("IWRAM KEY TABLE FULL: ",iwk_n);
+  for(u32 j=iwk_n;j>k;j--){ iwk_o[j]=iwk_o[j-1]; iwk_w[j]=iwk_w[j-1]; }
+  iwk_o[k]=(u16)o; iwk_w[k]=iwk_word(o); iwk_n++;
+}
+static __attribute__((noinline)) void iwk_init(void){
+  const u32*t=(const u32*)HASH_HOST; for(u32 i=0;i<HASH_NSLOTS;i++) if(t[2*i]) iwk_add(t[2*i]);
+  const u32*ct=(const u32*)coldtab; for(u32 i=0;i<ct[0];i++) iwk_add(ct[1+4*i]);
+  *IP_CANARY_AT=IP_CANARY;
+  dbg("IWRAM keys "); dec(iwk_n); dbg("\n");
+}
+static int iwk_stale(u32 t){
+  if(t-0x03000000u>=0x7ffcu) return 0; u32 o=t&0x7ffeu, lo=0, hi=iwk_n;
+  while(lo<hi){ u32 m=(lo+hi)>>1; if(iwk_o[m]<o) lo=m+1; else if(iwk_o[m]>o) hi=m; else return iwk_word(o)!=iwk_w[m]; }
+  return 0;
+}
+#endif
 u32 ip_lookup(u32 t){
   ov_sync(); if(ov_stale(t)) return 0;
+#ifdef MERGED
+  if(iwk_stale(t)&&!ip_stub_lookup(t)){ iwk_stale_n++; return 0; }      /* (a prune stub keeps its thunk: never interpreted) */
+#endif
   u32 h=hot_lookup(t); if(h) return h; h=ip_stub_lookup(t); if(h) return h; return cold_find(t); }
 #ifdef IP_NORM_ALL
 static void ip_norm(IS*s){ for(int i=0;i<13;i++) s->r[i]=ip_map(s->r[i]); }
@@ -219,9 +262,15 @@ void ip_swi(IS*s,u32 n){
 }
 u32 interp_top(IS*g){
   if(ip_depth>=IP_MAXD) gpu_panic("INTERP depth overflow: ",ip_depth);
+#ifdef MERGED
+  if(*IP_CANARY_AT!=IP_CANARY) gpu_panic("INTERP stack reached the ROM page table: ",ip_depth);
+#endif
   u32 t=g->pc&~1u; g->pc=t|(ip_arm_code(t)?0:1); ip_enters++; ip_hle(g,g->pc); if(ip_depth>ip_depth_max) ip_depth_max=ip_depth;
   { u32 k; for(k=0;k<ip_nseen;k++) if(ip_seen[k]==t) break; if(k==ip_nseen&&ip_nseen<64){ ip_seen[ip_nseen++]=t; dbg("INTERP guest "); hex(t); dbg("depth "); dec(ip_depth); dbg("\n"); } }
   u32 h=interp_run(g);
+#ifdef MERGED
+  if(*IP_CANARY_AT!=IP_CANARY) gpu_panic("INTERP stack reached the ROM page table: ",ip_depth);
+#endif
 #ifdef IP_NORM_ALL
   ip_norm(g);
 #endif
