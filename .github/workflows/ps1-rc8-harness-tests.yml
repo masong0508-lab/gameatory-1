@@ -1,0 +1,41 @@
+name: PS1 rc8 private-matrix harness source tests
+
+on:
+  push:
+    paths:
+      - 'ps1/qa/run_rc8_matrix.py'
+      - 'ps1/qa/console_soak.py'
+      - 'ps1/qa/map_flicker.py'
+      - 'ps1/qa/flicker_evidence.py'
+      - 'ps1/qa/test_flicker_evidence.py'
+      - 'ps1/qa/test_rc8_retest.py'
+      - '.github/workflows/ps1-rc8-harness-tests.yml'
+  pull_request:
+    paths:
+      - 'ps1/qa/run_rc8_matrix.py'
+      - 'ps1/qa/console_soak.py'
+      - 'ps1/qa/map_flicker.py'
+      - 'ps1/qa/flicker_evidence.py'
+      - 'ps1/qa/test_flicker_evidence.py'
+      - 'ps1/qa/test_rc8_retest.py'
+      - '.github/workflows/ps1-rc8-harness-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rom-free-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Parse source-only QA commands
+        run: python3 -m compileall -q ps1/qa
+      - name: Validate rc8 run plan, core options and coverage qualifiers
+        run: |
+          python3 -m unittest discover -s ps1/qa -p 'test_rc8_retest.py' -v
+          python3 -m unittest discover -s ps1/qa -p 'test_flicker_evidence.py' -v
