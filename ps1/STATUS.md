@@ -506,7 +506,7 @@ of it the CPU waiting for the GPU and the vertical blank; a menu picture 774 lin
 | | Change | Flag (all on in `tools12/build.sh`, `RC10F=` turns them off) |
 | --- | --- | --- |
 | D | The 2D layer's full-screen backdrop is read back from VRAM by DMA2 (16-word blocks, as for uploads) instead of a polled word loop | `PP_RBDMA` |
-| U | CLUT and OBJ tile uploads only when the palette (exact compare) or the 16 KiB of tiles (two position-dependent hashes) changed | `PP_DIRTY` |
+| U | CLUT and OBJ tile uploads only when the palette (exact compare) or the 16 KiB of tiles (two position-dependent checks, rc10.1: one of them nonlinear) changed | `PP_DIRTY` |
 | R | Blits read ROM pages that are already in RAM directly | `PP_ROMDIRECT` |
 | I | The ring replay `ppu_flush` lives in the renderer region (runtime room for D/U/R) | `PP_INSF` |
 | A | Asynchronous level picture: `present()` sends the 3D list and returns; the next present finishes it (2D layer, `pres_finish`) and the flip is done at a poll point that falls in the first 16 lines of a vertical blank (renderer loops, `io_read`, the ring replay), or the old way (`fl_sync`) before anything is drawn into the shown buffer; a picture stays on screen for at least two vertical blanks (`FL_MINL`). Every GP0 command waits for DMA2 first | `PRES_ASYNC` |
@@ -528,7 +528,8 @@ Review fixes (7f139f6; the release below is built from it):
 - OBJ tile change detector (`PP_DIRTY`, medium). The first hash (rotate by 5 and xor, plus a sum) repeated every 32 words, so
   a 16x16 sprite's tiles moved or swapped by 4 tiles kept the hash and the texture upload was skipped. Now djb2 (h*33+w) and
   sdbm (h*65599+w), shifts and adds only; `ps1/tests/test_objhash.py` checks the review's two cases and random whole-tile
-  moves and swaps against a copy of the C expression. Menu speed unchanged (22.0 / 15.1 / 21.8 at stock).
+  moves and swaps against a copy of the C expression. Menu speed unchanged (22.0 / 15.1 / 21.8 at stock). Both were still
+  linear: replaced in rc10.1 (below).
 - Read-back DMA (`PP_RBDMA`, low): `pp_vread_rows` now uses the same 16-word blocks plus one remainder block as the uploads
   (`gpu_dma_x`), not one block of up to 9,600 words.
 - Release notes (low): speeds are now given per core and as measured ranges (below and `ps1/RELEASE.md`).
@@ -624,6 +625,51 @@ lost in the pause menu (as rc8/rc9). The PR #23 probe FAILs on Beetle with the c
 clock before it presses Start, and the game runs on until the pause menu is up (on Beetle 60 frames after the press,
 `pdiag`); once the menu is shown the clock stands still on both cores (rv pause runs above), so this is the probe's
 order of reads, not a running clock.
+
+### rc10.1: OBJ tile check without linear cancellation (review of PR #26)
+
+The PP_DIRTY check above (djb2 h*33+w and sdbm h*65599+w) was linear with odd multipliers: adding 2^31 to any two of the
+4,096 tile words changed neither hash (review: `a=[0]*4096; b[0]^=b[32]^=0x80000000`, both 0x016a1505), so the 16 KiB
+upload was skipped and stale sprite graphics could follow. Fixed in 5f34116 + b760a90; the release discs are rebuilt
+from b760a90 under the same names (`payback_rc10*`).
+- Real change tracking is not possible cheaply: the translated code writes OBJ VRAM with plain stores to host addresses
+  (t2m relocates the guest's 0x06xxxxxx constants to the VRAM shadow at 0x80181000), so no write passes the runtime.
+- `pp_objck` (ppu12.h): check A per pair of words `a=G(a+w0); a=G((a+w1)*0x9e3779b1)`, `G(x)=x^(x>>15)` (nonlinear: the
+  shift feeds bit 31 into the next add and multiply) and check B = djb2 per word, the independent second check that is
+  the safety net; 64 bits compared, upload when either differs. Every step of A and B is a bijection of its state, so a
+  change of any one word always changes both. Hand-scheduled MIPS I loop (one MULTU per two words, B in its shadow):
+  28.3-28.8 hblank lines per call at stock against 34.2-34.5 for the rc10 hash (OBJH_PROF test build); uploads as rc10
+  (none in the menus, 8 per minute walking).
+- A timed forced upload was built and measured and not taken: the title menu's present sits on a vertical-blank boundary,
+  and a full upload every 4 / 8 / 16 presents cost 14.17 / 14.63 / 14.87 title pictures/s at stock (rc10 15.07) and
+  47.6 / 52.9 / 55.9 at the recommended settings (rc10 59.34), each forced upload making its present miss a blank (a
+  hitch); one 16-row block per present in turn 13.03 / 54.6. The first rc10.1 commit (sdbm as B, forced upload every 4)
+  fell to 12.77 / 39.77 and was replaced before release.
+- `ps1/tests/test_objhash.py` cuts `pp_objck` and the upload decision out of ppu12.h, runs the C on the host and the MIPS
+  loop under Unicorn (checked against the C and a Python model): the review's fixture, bit-31 pairs at every distance from
+  word 0, 3,000 random bit-31 pairs/triples, 3,000 single-bit flips, 3,000 multi-word changes, tile moves and swaps,
+  3,000 changes built to cancel A (B must see each), the upload decision. Mutating the asm, dropping G, or deciding on
+  B alone makes it fail.
+- Memory: runtime ends `0x80027370`, 3,216 bytes free (rc10 3,376); ragdoll 2,140 and renderer 208 free, unchanged.
+- Verified on the rebuilt discs (`rc10/logs/v6.log`, gates `rc10/logs/gates101.out`): static gates as above (56,867 words,
+  0 R3000A faults, 0 load-delay hazards, gpuwait 15/15, 81 unit tests, `check_native`, `verify_inputs`, `rtcold_proof`,
+  `tools/check.py`), disc layout and `chdman verify` of both discs; boot to the title on both cores (the same 5 expected
+  FAILs); pad route 13/13 at stock and recommended on both cores; `in_level` SwanStation 34/1 and Beetle 34/1 (the rig's
+  tank-view classifier FAIL, as rc10); tank on both cores and recommended 7/7; level flicker both cores 2/2; menu flicker
+  against `g_flips` 2,178 / 2,189 (SwanStation) and 2,175 / 2,186 (Beetle), 0 without a flip, 0 black (identical to
+  rc10); memory card save and cold-boot load on both cores; TEST_assist reaches the level by itself.
+- Speed, SwanStation, emulated time: menus at stock 21.97 / 15.10 / 21.84 pictures/s (rc10 21.97 / 15.07 / 21.84),
+  recommended 59.94 / 59.94 / 59.94 (rc10 59.94 / 59.34 / 59.94); power-on to level 27.58 s (27.58). Level rows move
+  with the route the code timing gives (each disc saves its own level state): stock foot 27.05 / 13.72, idle
+  28.22 / 13.92, tank 29.65 / 14.81, car 25.77 / 12.25 (rc10 28.10 / 13.82, 28.62 / 14.17, 29.67 / 14.77,
+  25.85 / 12.11); recommended foot 29.95 / 29.94, idle 29.95 / 29.95, tank 29.83 / 29.43 (rc10 29.95 / 29.97,
+  29.95 / 29.95, 29.89 / 29.73). Side by side from one power-on route each on data-only test discs (rc10 rebuilt, which
+  reproduces the rc10 rows exactly, against rc10.1), eight 60 s level windows: 13.79 against 13.62 pictures/s mean
+  (-1.2 %; single windows -5.9 % to +1.3 %, while one build alone spreads 12.6-14.7 between windows; the
+  CPU work of the check itself fell by 5.7 lines per present).
+- Per-frame pacing (`rv.py`, 60 s): pictures shown for one frame 0.0-0.2 %, 0 changes without a flip, 0 black, SwanStation
+  stock walk / idle / tank / pause 12.62 / 13.72 / 12.02 / 10.07 pictures/s, recommended 29.97 / 29.97 / 29.85 / 24.14;
+  Beetle stock 12.10 / 14.39 / 10.12, recommended 28.60 / 29.05 / 24.86 (walk / idle / tank).
 
 ## What the existing stages actually contain
 
