@@ -3,6 +3,10 @@
 rc10 is the last release of the plain Payback port (branch `rc10`, see `STATUS.md`, section "Stage19 rc10"). The
 Star-FlyBack mods are built on top of it later.
 
+rc10.1 (same file names, rebuilt): sprite graphics could stay stale after certain changes of the sprite tiles (the
+change check could miss two changes that cancelled); the check is now nonlinear plus an independent second check.
+Nothing else changed; speed as rc10. Replace the rc10 files with these.
+
 ## The files
 
 | file | what it is |
