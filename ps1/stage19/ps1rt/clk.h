@@ -189,20 +189,20 @@ static void on_timer_read(u32 ra,u32 k){
   sp_timer(ra);
 #endif
 #ifdef RTC_PRESENT
-  if(sf3_ok&&ra==LIM_RA_ELAPSED){
-    if(c3_have6()){ SP_INC(SP_TRIG_C3); ppu_flush(); present(); return; }   /* the iteration's world frame is drawn: show it, and charge it to elapsed */
+  if(LVL_ON&&ra==LIM_RA_ELAPSED){
+    if(PIC_READY()){ SP_INC(SP_TRIG_C3); ppu_flush(); present(); return; }   /* the iteration's world frame is drawn: show it, and charge it to elapsed */
     SP_INC(SP_C3MISS); }
 #endif
 #ifdef RTC_PMAX
-  { u32 t=clk_now32(); if(disp_on&&t-pic_t>PMAX_LINES&&t-pic_try>PMAX_LINES&&!(sf3_ok&&c3_have6())){ pic_try=t; SP_INC(SP_TRIG_PMAX); ppu_flush(); present(); } }
+  { u32 t=clk_now32(); if(disp_on&&t-pic_t>PMAX_LINES&&t-pic_try>PMAX_LINES&&!PMAX_HOLD()){ pic_try=t; SP_INC(SP_TRIG_PMAX); ppu_flush(); present(); } }
 #endif
   (void)ra; (void)k; }
 /* a VCOUNT or DISPSTAT read in the level: no virtual-vblank presents there any more, so a level screen that only polls VCOUNT (pause)
    or a long effect wait would keep its picture without this */
 static void on_vcount_read(void){
 #ifdef RTC_PMAX
-  if(!sf3_ok) return;
-  { u32 t=clk_now32(); if(disp_on&&t-pic_t>PMAX_LINES&&t-pic_try>PMAX_LINES&&!c3_have6()){ pic_try=t; SP_INC(SP_TRIG_PMAX); ppu_flush(); present(); } }
+  if(!LVL_ON) return;
+  { u32 t=clk_now32(); if(disp_on&&t-pic_t>PMAX_LINES&&t-pic_try>PMAX_LINES&&!PMAX_VHOLD()){ pic_try=t; SP_INC(SP_TRIG_PMAX); ppu_flush(); present(); } }
 #endif
 }
 /* any IO read: the draw ring must be replayed before it laps (256 entries); C3 flushes once per iteration only */

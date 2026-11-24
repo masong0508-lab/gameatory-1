@@ -126,6 +126,14 @@ def main():
     open(os.path.join(out, 'native_globals.txt'), 'w').write('\n')
     lls = []
     gba_ram_objects(os.path.join(gbadir, 'merge', 'stuntfox-merge.elf'), log, os.path.join(out, 'gba_ram.txt'))
+    # the GBA build's .data initial image (every file's, the interpreted ones' too): place.py fills the native image's bytes that no native
+    # variable covers from it, and datacheck.py compares the linked image with it (build directory only, never committed)
+    run(['llvm-objcopy', '-O', 'binary', '--only-section=.data', os.path.join(gbadir, 'merge', 'stuntfox-merge.elf'),
+         os.path.join(out, 'gba_data.bin')], log)
+    for line in run(['llvm-readelf', '-S', '-W', os.path.join(gbadir, 'merge', 'stuntfox-merge.elf')], log).splitlines():
+        m = re.match(r'\s*\[\s*\d+\]\s+\.data\s+\S+\s+([0-9a-f]+)\s+\S+\s+([0-9a-f]+)', line)
+        if m:
+            open(os.path.join(out, 'gba_data.txt'), 'w').write('0x%s 0x%s\n' % (m.group(1), m.group(2)))
     if os.path.exists(os.path.join(out, 'pin_report.txt')):
         os.remove(os.path.join(out, 'pin_report.txt'))
     for s in srcs:

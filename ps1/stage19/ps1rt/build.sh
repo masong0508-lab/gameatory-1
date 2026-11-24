@@ -170,6 +170,8 @@ PY
     # the dispatch boot patch words (rt.c dsp_new, PLAN.md Stage 2) decode to the blob stubs they assume; without dispatch code nothing is checked
     run "disp-patch-check-$PASS" python3 ../tools/disp_patch_check.py "$WORK/payback.elf"
     run "binary-$PASS" "$PS1_OBJCOPY" -O binary "$WORK/payback.elf" "$WORK/payback.bin"
+    # B2: the .data image merge.c start() copies at every level start holds every Stunt Fox file's GBA initial values (native and interpreted)
+    if [ -n "${SFNAT:-}" ]; then run "sfdata-check-$PASS" python3 ../merged/datacheck.py "$WORK/payback.elf" "$WORK/payback.bin" "$SFNAT" "../out/$PRD/payback_P.map"; fi
     if [ "$EXEPACK" = 1 ]; then
         # the packer checks its own result (an unpack model from garbage RAM must give the image back) and fails the build otherwise
         run "exe-$PASS" python3 exepack.py "$WORK/payback.bin" "$WORK/payback.elf" "$WORK/$NAME.exe"

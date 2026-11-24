@@ -600,6 +600,22 @@ static u8 io[0x400]; static u32 io_vc, io_nread, io_tm[4], io_nd, io_keys=0x3ff,
 volatile u32 sim_keys=0x3ff;
 #endif
 static u32 pad_gba=0x3ff; static void present(void); static void ppu_flush(void); static void pp_dispcnt(u32 v); static int sf3_ok;
+#ifdef MERGED_NATIVE
+/* B2 review: no sf3, so sf3_ok stays 0; the level-time modes (one ROM page pool, the pause block, presents at the limiter) key on a level
+   running instead: the level clock advanced between two pictures with the entity table there (as SF3_DEFER's start test); off again when the
+   guest left it (entity count -1, clock still, three pictures).  A new picture is a page flip (DISPCNT bit 4: Payback flips the page Stunt
+   Fox drew), the native counterpart of sf3's world-frame mark (c3_have6) */
+static int nat_lvl; static u32 nat_flips, nat_flips_shown;
+#define LVL_ON (nat_lvl)
+#define PIC_READY() (nat_flips!=nat_flips_shown)
+#define PMAX_HOLD() 0            /* (Stunt Fox's own loops may not reach Payback's limiter: the 100 ms fallback always presents) */
+#define PMAX_VHOLD() 0
+#else
+#define LVL_ON (sf3_ok)
+#define PIC_READY() c3_have6()
+#define PMAX_HOLD() (sf3_ok&&c3_have6())
+#define PMAX_VHOLD() c3_have6()
+#endif
 /* stage 13 pad path: the pad is polled once per GBA frame in which the guest reads KEYINPUT (lazily, at most once per frame), and again at present() when the guest did not.  pad_latch = OR of the
    raw pad words seen since the last present, so a tap shorter than one present (16 GBA frames) still reaches the radio / map switch / bail-out edge detectors (pad_new_extra, radio_poll). */
 static u32 pad_gf=0xffffffffu, pad_latch, pad_lastp, pad_new_extra, pad_gpolls;
@@ -678,9 +694,9 @@ static u32 g_vf;       /* virtual frames (VCOUNT line 160, SWI 5): the menu pres
 #define VF g_gframes
 #endif
 #ifdef RTC_PRESENT
-#define VF_PRESENT() (!sf3_ok&&(VF&(PRESENT_MENU-1))==0)      /* the level presents at its limiter (C3) */
+#define VF_PRESENT() (!LVL_ON&&(VF&(PRESENT_MENU-1))==0)      /* the level presents at its limiter (C3) */
 #else
-#define VF_PRESENT() ((VF&(sf3_ok?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0)
+#define VF_PRESENT() ((VF&(LVL_ON?(PRESENT_EVERY-1):(PRESENT_MENU-1)))==0)
 #endif
 static void adv_lines(u32 n){ IO_ADV(n*1232); while(n--){ io_vc=io_vc>=227?0:io_vc+1; if(io_vc==160){ VF++; ppu_flush(); if(VF_PRESENT()){ SP_INC(SP_TRIG_ADV); present(); } } } }
 static void adv_poll(void){ io_acc+=96; if(io_acc>=1232){ io_acc-=1232; adv_lines(1); } }
@@ -914,6 +930,9 @@ void io_write(u32 off,u32 size,u32 val){
   if(off>=0x100&&off<0x110) tm_write_check();
 #endif
   if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick();
+#ifdef MERGED_NATIVE
+    { static u32 d0; u32 d=io16(0); if((d^d0)&0x10) nat_flips++; d0=d; }
+#endif
 #ifdef SPEEDPROF
     { static u32 d0; u32 d=io16(0); if((d^d0)&0x10) SP_INC(SP_FLIPS); d0=d; }   /* page flips: the GBA reference counts menu iterations this way */
 #endif
@@ -932,6 +951,14 @@ u32 dsp_nmiss, dsp_nmrd, dsp_nrom, dsp_nmwr, dsp_nfill;
 #else
 #define DSP_PROF(x) ((void)0)
 #endif
+#ifdef MERGED_NATIVE
+#include "sfnat_place.h"
+/* B2 review: the slow path takes a host address only where native Stunt Fox keeps code, data or its stack (R1 and the native stack, R2,
+   0x80180000.. with R3 and the guest RAM images); interpreted Stunt Fox code reaches its data through them.  Any other host address (the
+   runtime, the page table, the kernel) is refused and counted, as before B2 */
+static u32 nat_wild_n; extern u8 __doll_start[], __dlbss_start[];
+#define NAT_HOST(ea) ((ea)-SF_NAT_LO<SF_NAT_STACK_TOP+16u-SF_NAT_LO || (ea)-(u32)__doll_start<(u32)__dlbss_start-(u32)__doll_start || (ea)-0x80180000u<0x80000u)
+#endif
 u32 h_memrd(u32 ea,u32 kind){
   DSP_PROF((dsp_nmrd++, dsp_nrom+=((ea>>24)==8||(ea>>24)==10||(ea>>24)==12)));    /* TEST-ONLY: every call, and the ROM reads among them */
   static const u8 SZ[5]={1,1,2,2,4}; u32 size=SZ[kind]; u32 v; ea=vram_over(ea);
@@ -943,7 +970,8 @@ u32 h_memrd(u32 ea,u32 kind){
   else if((ea>>24)==13) v=1;
   else if(ea-0x8017f000u<0x400) v=io_read(ea-0x8017f000u,size);
 #ifdef MERGED_NATIVE
-  else if(ea>=0x80000000u&&ea<0x80200000u){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }    /* B2: native Stunt Fox's data and stack too */
+  else if(NAT_HOST(ea)){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }    /* B2: native Stunt Fox's data and stack too */
+  else if(ea>=0x80000000u&&ea<0x80200000u){ if(nat_wild_n++<8){ dbg("BADRD host "); hex(ea); dbg("\n"); } v=0; }
 #else
   else if(ea>=0x80180000u&&ea<0x80200000u){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }
 #endif
@@ -963,7 +991,8 @@ u32 h_memwr(u32 ea,u32 size,u32 val){
   ea=vram_over(ea); DSP_PROF(dsp_nmwr++);
   if(ea-0x8017f000u<0x400) io_write(ea-0x8017f000u,size,val);
 #ifdef MERGED_NATIVE
-  else if(ea>=0x80000000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
+  else if(NAT_HOST(ea)){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
+  else if(ea>=0x80000000u&&ea<0x80200000u){ if(nat_wild_n++<8){ dbg("BADWR host "); hex(ea); dbg("\n"); } }
 #else
   else if(ea>=0x80180000u&&ea<0x80200000u){ for(u32 k=0;k<size;k++) ((volatile u8*)ea)[k]=val>>(8*k); }
 #endif
@@ -993,7 +1022,6 @@ static int sf3_ok; static u32 sf3_cfl, sf3_cfl_clk; static u32 sf3_tried, sf3_le
 static int sim_cold_overlap(u32 lo,u32 hi){ return hi>(u32)__ppu_start && lo<0x80200000u; }
 #endif
 #ifdef MERGED_NATIVE
-#include "sfnat_place.h"
 static u32 cold_nat_n;
 #endif
 static u8 cold_loaded[COLDGROUPS]; static u32 cold_loads, cold_calls, cold_conflicts; static u32 sf3_retry, last_cold_pres, sf3_clk0;   /* stage 12: renderer switched off by an overlay load (pause menu code) comes back once the level clock runs again (pause over) and no cold group was loaded for 6 presents */
@@ -1796,6 +1824,22 @@ static void present(void){
 #if defined(RTC_PRESENT)||defined(SPEEDPROF)
   c3_seen6=0; c3_scan=DL[0];   /* a world frame begun from here on belongs to the next picture */
 #endif
+#ifdef MERGED_NATIVE
+  nat_flips_shown=nat_flips;   /* a page flipped from here on is the next picture */
+  { static u32 lc, nl; u32 c=*(volatile u32*)(EW+0x1e00); s32 ne=*(volatile s16*)(IW+0xc);
+    if(!nat_lvl){ if(c && ne>=0 && lc && c!=lc){ nat_lvl=1; nl=0; dbg("B2 level running, level clock "); dec(c); dbg("\n"); } }
+    else if(ne==-1 && c==lc){ if(++nl>=3){ nl=0; nat_lvl=0; dbg("B2 level left, level clock "); dec(c); dbg("\n"); } }
+    else nl=0;
+    lc=c;
+#ifdef PCACHE1
+    if(nat_lvl){ rom_pool=1;            /* stage 20, as with sf3: a level runs: resident pages and slots become one CLOCK pool, for good */
+#ifdef POOL_THRASH
+      pool_menu=0;
+#endif
+    }
+#endif
+  }
+#endif
 #if defined(SF3_DEFER) && !defined(MERGED_NATIVE)     /* (B2: no sf3; Stunt Fox draws its own picture into the page) */
   /* title-boot disc: the renderer's data window is shared with menu-only overlay code (cold tier 1), so the renderer starts when the level does */
   /* rc7: after the guest left a level (present() below turns the renderer off) the start is armed again: a new level is running once its clock
@@ -1864,10 +1908,10 @@ static void present(void){
 #endif
     radio_poll(lat,np);
 #ifdef PZBLOCK
-    if((np&8u) && sf3_ok){ u32 c=*(volatile u32*)(EW+0x1e00); if(c && *(volatile s16*)(IW+0xc)>=0){ pz_arm=1; pz_arm_clk=c; } }   /* Start in a running level */
+    if((np&8u) && LVL_ON){ u32 c=*(volatile u32*)(EW+0x1e00); if(c && *(volatile s16*)(IW+0xc)>=0){ pz_arm=1; pz_arm_clk=c; } }   /* Start in a running level */
 #endif
 #if defined(PZBLOCK)&&defined(PZ_START)
-    if((np&8u) && sf3_ok) pz_start();   /* TEST: Start in a level reads the block at once */
+    if((np&8u) && LVL_ON) pz_start();   /* TEST: Start in a level reads the block at once */
 #endif
     }
 #ifdef PADDBG

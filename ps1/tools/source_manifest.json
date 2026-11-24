@@ -147,12 +147,12 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "0228bdbf25f6ad9bb7a6fe744d8a36d721fb7ae5314bba6ed74aa1e0908d4667"
+      "sha256": "39e7f90ee8234af1bd40683e8eea7c627ff531c3b421eec932ddaaab4dc4f2c2"
     },
     {
       "source": "stage19/ps1rt/clk.h",
       "target": "ps1rt/clk.h",
-      "sha256": "5ace7665bb96a0f87741c2197e3c1f03e99a22a37659f2e49d6a919135926f17"
+      "sha256": "c5432c5f0c7a86d65c4c9bd0a724d20ed5ecc6ddb58feb0ba5fc5a82e2d982b5"
     },
     {
       "source": "stage19/ps1rt/crt0.s",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "e056797f97702ea81dc061fa92ebb4a6eac0747c359599dc06cfbee268ae355e"
+      "sha256": "2f623482939620382920cabc16d03081de7675c6f97cce18f6a5dd5afa9a31a7"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "9c0fbb1ecdcfe34cb0220541acf7016b9930120ae6c007dc4bcd20129e7f7aa1"
+      "sha256": "6a34172e8d3af72318a3d3555ae0cd6df956f1c9589a6b8afdefaab6860e4498"
     },
     {
       "source": "merged/irmem.py",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "46c7463dfda7a2280180b2ae2e1a59ed79270837c7d60f31684c000412173468"
+      "sha256": "5852c54aa2735874557a11de425a3e3635521d8c89e82f17ce2516ff42e6a53a"
     },
     {
       "source": "merged/pin.py",
@@ -835,9 +835,14 @@
       "sha256": "8f78d4ee0e0e5236c7e390d84359e0f95d88bac41f32e85eecab5d1765831f86"
     },
     {
+      "source": "merged/datacheck.py",
+      "target": "merged/datacheck.py",
+      "sha256": "4ff230d7237f6d7640afa2c2b2263f868968314e395733c2e683d1d3ecebb8f3"
+    },
+    {
       "source": "merged/place.py",
       "target": "merged/place.py",
-      "sha256": "586eb5e7912c2de9c8774b84a75983aa16217141c5363b0f51afb4e902351aa1"
+      "sha256": "49a480adbfd55001c01552a3ea6ead0d438c6f0ffb774405e9f6b0ca9390c507"
     },
     {
       "source": "merged/sf3stub.c",

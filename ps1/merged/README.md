@@ -19,6 +19,7 @@ The generated files (`sfnat.o`, `sfnat_gen.c`, linker scripts) live only in the 
 | `sfport.c` | C ports of the ARM assembly that the C calls on hot paths: `fill.s`, `rechash.s` and `texrun.s` (the tile span loops). |
 | `sfglue.h` | The runtime side, included by `interp_glue.h`. It covers guest to native (`sf_hle` in `ip_hle`), native to guest (`sf_guest_call`), the native stack, and the slow paths `sf_rd` and `sf_wr`. |
 | `place.py` | It sets where native code goes in RAM and writes `ps1_native.ld` and `sfnat_place.h`. |
+| `datacheck.py` | A build check run by `build.sh`: the `.data` image equals the GBA build's, the chooser call sites of `sf_pick_rand` stay interpreted. It prints the free bytes of R1. |
 | `sf3stub.c` | An empty unit. sf3 and `doll.c` are not linked in B2. |
 
 ## Memory model
@@ -48,7 +49,11 @@ name in the GBA ELF's symbol table, including gcc's and clang's split statics. T
 - Payback's pointers into Stunt Fox's data stay valid.
 - The lockstep check with mGBA can compare variables by address.
 
-`.data` keeps its GBA layout and its initial image, which `merge.c start()` copies as on the GBA. Read-only data that the
+`.data` keeps its GBA layout and its initial image, which `merge.c start()` copies as on the GBA at every level start. The image
+holds every file's variables, also those of the files interpreted from the ROM (`settings.c`, `spacegame.c`, `spacewalk.c`,
+`campaign.c` and others): `natbuild.py` takes the GBA build's `.data` bytes (`gba_data.bin`, build directory only), and `place.py`
+fills from them every byte that no native variable covers. Without that, the start of a level set those variables to 0 (0 credits,
+0 missiles, 0 shield, auto-aim off). `datacheck.py` fails the build if any byte of the linked image differs from the GBA build's. Read-only data that the
 ROM holds at a unique GBA address is read from the ROM, not linked again. The exceptions are the renderer's per-pixel tables
 (`erecip`, `sin_table`, `rtab`, `pb_avg`, `font_tiles`).
 
@@ -61,6 +66,10 @@ ROM holds at a unique GBA address is read from the ROM, not linked again. The ex
 - **What is excluded.** Stunt Fox's IWRAM functions (`0x03...`) are never entries. On the PS1 those addresses hold
   Payback's own IWRAM code, because `hot_install` copies nothing. `natbuild.py` keeps every function that the ROM patches
   or the interpreted assembly name (`@llvm.used`), so the guest never falls back to the GBA copy.
+- **Return address.** `__builtin_return_address(0)` in native code is the guest lr of the entry (`sfglue.h`). That is a guest
+  address only when the caller runs in the interpreter. Translated code passes a host return address. `merge.c sf_pick_rand`
+  tells its two callers in Payback's chooser apart this way. Their call sites (0x0803cf6a and 0x0803cf74) lie in cold group 43,
+  above `SF_NAT_LO`, so they are interpreted. `datacheck.py` fails the build if a layout change makes them translated.
 - **Native to guest.** `sf_guest_call` calls the translated entry if there is one, otherwise the interpreter. A call into
   Stunt Fox's assembly (`pb_music`, `radio_seg`) goes through a generated stub.
 
@@ -68,3 +77,12 @@ ROM holds at a unique GBA address is read from the ROM, not linked again. The ex
 
 `tools12/build_msb.sh NAME -DMERGED_NATIVE` with `SFNAT=<natbuild output>` set. `build.sh` then links `sfnat.o`,
 `sfnat_gen.o` and `sf3stub.o` with `ps1_native.ld` in place of sf3 and `doll.c`. Without `SFNAT`, the B1 build is unchanged.
+
+## Runtime modes in a level
+
+Without sf3, `sf3_ok` stays 0. Under `-DMERGED_NATIVE`, `rt.c` therefore keys its level-time modes on `nat_lvl` instead. `nat_lvl` is
+set when the level clock advances between two pictures while the entity table is there. It is cleared when the guest leaves the
+level: the entity count is -1 and the clock stands still for three pictures. The modes are the one ROM page pool (`rom_pool`), the
+arming of the pause block, presents at Payback's limiter, and the 100 ms fallback. A new picture is a page flip (DISPCNT bit 4). The
+slow path (`h_memrd`/`h_memwr`) takes a host address only inside native Stunt Fox's regions and the guest RAM images. It refuses any
+other host address and counts it in `nat_wild_n`, with a `BADRD host` or `BADWR host` line on the TTY.
