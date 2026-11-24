@@ -26,8 +26,10 @@ def remap(orig, limit, drop_last=()):
             for q in range((lo + SH) >> 12, ((hi + SH - 1) >> 12) + 1):
                 n = min(hi + SH, (q + 1) * 4096) - max(lo + SH, q * 4096)
                 score[q] = score.get(q, 0) + n
-            if a < T0:                                  # the rest of the page stays
+            if a < T0:                                  # unchanged prefix
                 score[p] = score.get(p, 0) + (T0 - a)
+            if b > T1:                                  # unchanged tail (e.g. adjacent asset)
+                score[p] = score.get(p, 0) + (b - T1)
         else:
             score[p] = score.get(p, 0) + 4096
     keep = sorted(score, key=lambda q: (-score[q], q))[:limit]
