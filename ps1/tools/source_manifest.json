@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "2f623482939620382920cabc16d03081de7675c6f97cce18f6a5dd5afa9a31a7"
+      "sha256": "f8c1f29d7c5ac65d63280ba8d4a04e8f941713c3dc9394540cab53d2436b6621"
     },
     {
       "source": "stage19/rd/doll.c",

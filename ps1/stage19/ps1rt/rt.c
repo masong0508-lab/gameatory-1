@@ -484,12 +484,13 @@ static void pz_present(void){
 /* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
    gread ... (or inline the whole miss path into them) */
 #ifdef PGPROF
-u8 pg_prof[4096];       /* TEST-ONLY (B2 page lists): disc fetches by ROM page, saturating */
+u8 pg_prof[4096];       /* TEST-ONLY: requested physical ROM fetches by page, saturating.
+                          A CLOCK soft remap is a RAM hit, NOT a CD seek. */
+#define PGPROF_MISS(pg) do { if((pg)<ROM_NPG&&pg_prof[(pg)]<255) pg_prof[(pg)]++; } while(0)
+#else
+#define PGPROF_MISS(pg) ((void)0)
 #endif
 static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
-#ifdef PGPROF
-  if(pg<4096&&pg_prof[pg]<255) pg_prof[pg]++;
-#endif
   { u32 f1=pg_fr[pg]; if(f1){ rom_pg[pg]=pool_frame(f1-1); rom_soft++; return rom_pg[pg]; } }   /* read again after the hand unmapped it: no disc read */
 #ifdef POOL_THRASH
   if(!rom_pool || pool_menu){ u32 k=0; while(k<16 && ev_ring[k]!=pg+1) k++;
@@ -526,7 +527,7 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
     for(u32 k=0;k<2;k++) pool_drop(pool_rp+s+k);
     cd_read(CD_ROM_LBA+lo*2,4,PCACHE+s*4096);
     for(u32 k=0;k<2;k++) pool_set(pool_rp+s+k,lo+k);
-    rom_miss_count++; rom_pairs++; rom_miss_last=pg<<12;
+    PGPROF_MISS(pg); rom_miss_count++; rom_pairs++; rom_miss_last=pg<<12;
     return rom_pg[pg];
   }
 #endif
@@ -543,7 +544,7 @@ rd:
   cd_read(CD_ROM_LBA+pg*2,2,d);
 #endif
   pool_set(f,pg);
-  rom_miss_count++; rom_miss_last=pg<<12;
+  PGPROF_MISS(pg); rom_miss_count++; rom_miss_last=pg<<12;
   return d;
 }
 #else
