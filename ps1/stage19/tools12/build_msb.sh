@@ -8,7 +8,8 @@
 #                the image, the intro translated (prune.py without id 3, interp_glue.h), pg_fr in the ragdoll region
 #   MERGED=1     ps1rt/build.sh accepts the 16 MiB ROM and checks the intro site the merged way; ROM.BIN on the disc is the merged ROM (song 3 zeroed by
 #                stuntfox's mkmusic.drop_song)
-#   61 resident ROM pages (t/resident_msb.txt), the pause block t/pause_pages_msb.txt (both: the original lists, map column pages moved to 0x08800000+)
+#   61 resident ROM pages (t/resident_msb.txt), the pause block t/pause_pages_msb.txt (both: the original lists with the pages of the map column
+#                table, 0x081aa8e0.. moved by 0x655720 to 0x08800000, remapped by ps1/msb/mkpagelists_msb.py)
 # TEST discs only until Milestone B's B7 (PLAN.md).
 set -euo pipefail
 : "${ROM:?set ROM to the merged Star-FlyBack ROM (16 MiB)}"
