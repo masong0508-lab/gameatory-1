@@ -241,12 +241,8 @@ static PP_SECT void ppu_flush(void){
 static u32 pp_col(u32 v,u32 br){ if(br>=32) return v; u32 r=(v&31)*br/32, g=((v>>5)&31)*br/32, b=((v>>10)&31)*br/32; return r|(g<<5)|(b<<10); }
 #ifdef PP_DIRTY
 static u32 pp_clut_br, pp_nclut, pp_nobjup;   /* rc10: brightness of the CLUTs in VRAM (0 = none yet), CLUT and OBJ uploads (counters for the rig) */
-/* rc10.1: the two 32-bit checks (A, B) of the OBJ tiles last uploaded into each texture (4 bpp, 8 bpp; A = 0: never uploaded) and the presents
-   since that upload (pp_obj_age: forced upload at PP_OBJ_REFRESH, see pp_obj); pp_nobjforce = uploads that only the refresh asked for */
-static u32 pp_obj_ha[2], pp_obj_hb[2], pp_obj_age[2], pp_nobjforce;
-#ifndef PP_OBJ_REFRESH
-#define PP_OBJ_REFRESH 4u
-#endif
+/* rc10.1: the two 32-bit checks (A, B) of the OBJ tiles last uploaded into each texture (4 bpp, 8 bpp; A = 0: never uploaded) */
+static u32 pp_obj_ha[2], pp_obj_hb[2];
 #ifdef OBJH_PROF
 u32 objh_n, objh_lines, objh_old_lines, objh_up_n, objh_up_lines;   /* TEST-ONLY: hash calls and their RC1 lines (new and the rc10 hash), uploads and their lines */
 #endif
@@ -276,18 +272,18 @@ static __attribute__((noinline)) void pp_q4(const int*vx,const int*vy,int u0,int
      A, per pair of words: a=G(a+w0); a=G((a+w1)*0x9e3779b1) with G(x)=x^(x>>15).  G is the nonlinear part: it brings bit 31 (and every
        high bit) down into the bits the next add carries through and the multiply spreads, so no word difference passes unchanged to the
        next word (the rc10 checks were linear: a bit-31 flip moved the state by exactly 2^31, which a second bit-31 flip took back).
-     B, per word: sdbm b=b*65599+w (linear), the independent second check.  A could still be cancelled by a change that exactly undoes the
+     B, per word: djb2 b=b*33+w (linear), the independent second check.  A could still be cancelled by a change that exactly undoes the
        state difference of an earlier one (any 32-bit chain can); B, linear with a different structure, sees those (test_objhash.py builds
        them and checks), and A sees B's even numbers of bit-31 flips.
      Every step of A and of B is a bijection of its state for fixed words, so a change of any ONE word always changes both.
-   The C is the definition (host builds, ps1/tests/test_objhash.py).  On the PS1 the same steps are scheduled by hand: clang turns the sdbm
-   shifts into a multiply of its own and reads LO right after each MULTU; here one MULTU serves two words and B's shifts, the pointer step
-   and the next two loads run while it is busy (rc10 check 34 lines per call at stock, this one fewer: STATUS.md rc10.1).  MIPS I: a loaded
+   The C is the definition (host builds, ps1/tests/test_objhash.py).  On the PS1 the same steps are scheduled by hand: clang turns the djb2
+   shift-and-add into a multiply of its own and reads LO right after each MULTU; here one MULTU serves two words and B's shifts, the pointer step
+   and the next two loads run while it is busy: 28.3-28.8 hblank lines per call at stock, the rc10 check 34.2-34.5 (OBJH_PROF).  MIPS I: a loaded
    word is used two or more instructions later, no MULTU within two instructions of MFLO; the loop reads two words past the end
    (VRAM+0x18000, PS1 RAM, unused). */
 static __attribute__((noinline)) void pp_objck(const u32*t,u32*out){
 #if defined(__mips__)
-  u32 a=0x811c9dc5u, b=0, w0, w1, x, y; const u32*e=t+4096; u32 k=0x9e3779b1u;
+  u32 a=0x811c9dc5u, b=5381u, w0, w1, x; const u32*e=t+4096; u32 k=0x9e3779b1u;
   __asm__ volatile(".set push\n.set noreorder\n"
     " lw %[w0],0(%[p])\n"
     " lw %[w1],4(%[p])\n"
@@ -296,16 +292,12 @@ static __attribute__((noinline)) void pp_objck(const u32*t,u32*out){
     " xor %[a],%[a],%[x]\n"
     " addu %[a],%[a],%[w1]\n"
     " multu %[a],%[k]\n"
-    " sll %[x],%[b],6\n"
-    " sll %[y],%[b],16\n"
-    " addu %[x],%[x],%[y]\n"
-    " subu %[x],%[x],%[b]\n"
-    " addu %[b],%[x],%[w0]\n"
-    " sll %[x],%[b],6\n"
-    " sll %[y],%[b],16\n"
-    " addu %[x],%[x],%[y]\n"
-    " subu %[x],%[x],%[b]\n"
-    " addu %[b],%[x],%[w1]\n"
+    " sll %[x],%[b],5\n"
+    " addu %[b],%[b],%[x]\n"
+    " addu %[b],%[b],%[w0]\n"
+    " sll %[x],%[b],5\n"
+    " addu %[b],%[b],%[x]\n"
+    " addu %[b],%[b],%[w1]\n"
     " addiu %[p],%[p],8\n"
     " lw %[w0],0(%[p])\n"
     " lw %[w1],4(%[p])\n"
@@ -314,11 +306,11 @@ static __attribute__((noinline)) void pp_objck(const u32*t,u32*out){
     " bne %[p],%[e],1b\n"
     " xor %[a],%[a],%[x]\n"
     ".set pop\n"
-    : [a]"+r"(a),[b]"+r"(b),[p]"+r"(t),[w0]"=&r"(w0),[w1]"=&r"(w1),[x]"=&r"(x),[y]"=&r"(y) : [e]"r"(e),[k]"r"(k) : "hi","lo","memory");
+    : [a]"+r"(a),[b]"+r"(b),[p]"+r"(t),[w0]"=&r"(w0),[w1]"=&r"(w1),[x]"=&r"(x) : [e]"r"(e),[k]"r"(k) : "hi","lo","memory");
   out[0]=a|1u; out[1]=b;
 #else
-  u32 a=0x811c9dc5u, b=0;
-  for(u32 i=0;i<4096;i+=2){ u32 w0=t[i], w1=t[i+1]; a+=w0; a^=a>>15; a+=w1; a*=0x9e3779b1u; a^=a>>15; b=w0+(b<<6)+(b<<16)-b; b=w1+(b<<6)+(b<<16)-b; }
+  u32 a=0x811c9dc5u, b=5381u;
+  for(u32 i=0;i<4096;i+=2){ u32 w0=t[i], w1=t[i+1]; a+=w0; a^=a>>15; a+=w1; a*=0x9e3779b1u; a^=a>>15; b=b*33u+w0; b=b*33u+w1; }
   out[0]=a|1u; out[1]=b;
 #endif
 }
@@ -343,11 +335,14 @@ static void pp_obj(void){
      PS1 VRAM belong to the 2D layer alone).  The guest writes OBJ VRAM with plain stores (its VRAM pointers are host addresses), DMA3 and the
      BIOS copies, so nothing marks the tiles dirty: two position-dependent checks of the whole tile memory decide.
      rc10.1 (review of PR #26): the rc10 checks djb2 (h*33+w) and sdbm (h*65599+w) were both linear with odd multipliers, so adding 2^31 to any
-     two words changed neither (two bit-31 flips cancelled).  Now check A (nonlinear, pp_objck above) and check B (sdbm), both compared; upload
-     when either differs.  Safety net: a texture is uploaded anyway once it was shown PP_OBJ_REFRESH presents from the same upload, so a change
-     both checks could miss lasts at most PP_OBJ_REFRESH-1 presents.  ps1/tests/test_objhash.py cuts pp_objck and the decision below out of
-     this file, runs the C on the host and the MIPS loop under Unicorn: the review's fixture, bit-31 pairs at every distance and random
-     pairs/triples, single-bit flips, multi-word changes, tile moves and swaps, changes built to cancel A, the forced refresh. */
+     two words changed neither (two bit-31 flips cancelled).  Now check A (nonlinear, pp_objck above) and check B (djb2), both compared; upload
+     when either differs: B is the safety net, a cheap second check independent of A (64 bits compared in all).  A timed refresh was measured
+     and not taken: the title menu's present sits at a vertical-blank boundary (15.07 pictures/s at stock, 59.34 at the recommended settings),
+     and a full upload every 4 / 8 / 16 presents cost 14.17 / 14.63 / 14.87 pictures/s at stock and 47.6 / 52.9 / 55.9 recommended (each
+     forced upload's GPU work made that present miss its blank: a visible hitch), one 16-row block per present in turn 13.03 / 54.6.
+     ps1/tests/test_objhash.py cuts pp_objck and the decision below out of this file, runs the C on the host and the MIPS loop under Unicorn:
+     the review's fixture, bit-31 pairs at every distance and random pairs/triples, single-bit flips, multi-word changes, tile moves and
+     swaps, changes built to cancel A (B must see them), the upload decision. */
   { const u32*t=(const u32*)(VRAM+0x14000);
 #ifdef OBJH_PROF
     u32 q0_=RC1_VAL; { u32 hh=5381u, hs=0; for(u32 i=0;i<4096;i++){ u32 w=t[i]; hh=(hh<<5)+hh+w; hs=w+(hs<<6)+(hs<<16)-hs; } __asm__ volatile(""::"r"(hh),"r"(hs)); }
@@ -357,12 +352,8 @@ static void pp_obj(void){
 #ifdef OBJH_PROF
     objh_lines+=(RC1_VAL-q1_)&0xffff; objh_n++;
 #endif
-    int use[2]={use4,use8};
-    for(int k=0;k<2;k++) if(use[k]){
-      if(ha==pp_obj_ha[k]&&hb==pp_obj_hb[k]&&++pp_obj_age[k]<PP_OBJ_REFRESH){ use[k]=0; continue; }
-      if(ha==pp_obj_ha[k]&&hb==pp_obj_hb[k]) pp_nobjforce++;
-      pp_obj_ha[k]=ha; pp_obj_hb[k]=hb; pp_obj_age[k]=0; }
-    use4=use[0]; use8=use[1];
+    if(use4&&ha==pp_obj_ha[0]&&hb==pp_obj_hb[0]) use4=0; else if(use4){ pp_obj_ha[0]=ha; pp_obj_hb[0]=hb; }
+    if(use8&&ha==pp_obj_ha[1]&&hb==pp_obj_hb[1]) use8=0; else if(use8){ pp_obj_ha[1]=ha; pp_obj_hb[1]=hb; }
     if(use4|use8) pp_nobjup++; }
 #ifdef OBJH_PROF
   u32 qu_=RC1_VAL;

@@ -3,9 +3,9 @@ skipped, so a change it misses shows stale sprite graphics.
 
 History.  rc10 (first): rotate-by-5/xor plus a sum repeated every 32 words (tiles moved or swapped by one 16x16 sprite kept the hash).
 rc10 review fix: djb2 (h*33+w) and sdbm (h*65599+w); both linear with odd multipliers, so adding 2^31 to any two words cancelled
-(PR #26 review: a=[0]*4096, b[0]^=b[32]^=0x80000000 -> both 0x016a1505).  rc10.1: check A = (a+w)*0x9e3779b1, a^=a>>15 per word
-(nonlinear: the shift feeds bit 31 into the next multiply) plus check B = sdbm as an independent second check, compared as 64 bits,
-plus a forced upload after PP_OBJ_REFRESH unchanged presents.
+(PR #26 review: a=[0]*4096, b[0]^=b[32]^=0x80000000 -> both 0x016a1505).  rc10.1: check A, per pair of words a=G(a+w0); a=G((a+w1)*0x9e3779b1), G(x)=x^(x>>15)
+(nonlinear: the shift feeds bit 31 into the next add and multiply) plus check B = djb2 as an independent second check, compared as 64 bits,
+(B is the safety net: a cheap check independent of A; a timed forced upload was measured and not taken, see ppu12.h).
 
 The C is tied to the test in two ways: the hash loop and the upload decision are cut out of ppu12.h by text, compiled with the host
 C compiler and called (every case below runs the C), and a Python model of the hash is checked against that C.  Synthetic data only."""
@@ -28,22 +28,20 @@ def c_parts():
     fm = re.search(r'(/\* PP_OBJCK BEGIN.*?/\* PP_OBJCK END \*/)', s, re.S)
     i = s.index('#ifdef PP_DIRTY\n  /* rc10: the 16 KiB of OBJ tiles')
     seg = s[i:s.index('if(use4|use8) pp_nobjup++;', i)]
-    dm = re.search(r'(u32 ck\[2\]; pp_objck\(t,ck\); u32 ha=ck\[0\], hb=ck\[1\];).*?(int use\[2\]=\{use4,use8\};.*?use4=use\[0\]; use8=use\[1\];)', seg, re.S)
-    rm = re.search(r'#define PP_OBJ_REFRESH (\d+)u', s)
-    assert fm and dm and rm, 'ppu12.h pp_objck / pp_obj PP_DIRTY block not found'
-    return fm.group(1), dm.group(1) + '\n' + dm.group(2), int(rm.group(1))
+    dm = re.search(r'(u32 ck\[2\]; pp_objck\(t,ck\); u32 ha=ck\[0\], hb=ck\[1\];).*?(if\(use4&&.*?pp_obj_hb\[1\]=hb; \})', seg, re.S)
+    assert fm and dm, 'ppu12.h pp_objck / pp_obj PP_DIRTY block not found'
+    return fm.group(1), dm.group(1) + '\n' + dm.group(2)
 
 
-HDR = 'typedef unsigned int u32;\n#define PP_OBJ_REFRESH %du\nstatic u32 pp_obj_ha[2], pp_obj_hb[2], pp_obj_age[2], pp_nobjforce;\n'
+HDR = 'typedef unsigned int u32;\nstatic u32 pp_obj_ha[2], pp_obj_hb[2];\n'
 
 
 def build_lib():
-    fn, dec, refresh = c_parts()
-    src = (HDR % refresh + fn + '\n'
+    fn, dec = c_parts()
+    src = (HDR + fn + '\n'
            'void objhash(const u32*t,u32*out){ pp_objck(t,out); }\n'
            'int decide(const u32*t,int use4,int use8){ ' + dec + ' return use4|(use8<<1); }\n'
-           'void reset(void){ for(int k=0;k<2;k++){ pp_obj_ha[k]=pp_obj_hb[k]=pp_obj_age[k]=0; } pp_nobjforce=0; }\n'
-           'u32 nforce(void){ return pp_nobjforce; }\n')
+           'void reset(void){ for(int k=0;k<2;k++){ pp_obj_ha[k]=pp_obj_hb[k]=0; } }\n')
     d = Path(tempfile.mkdtemp(prefix='objhash'))
     (d / 'h.c').write_text(src)
     cc = shutil.which('cc') or shutil.which('gcc') or shutil.which('clang')
@@ -51,8 +49,7 @@ def build_lib():
     lib = ctypes.CDLL(str(d / 'h.so'))
     lib.objhash.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)]
     lib.decide.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.c_int, ctypes.c_int]
-    lib.nforce.restype = ctypes.c_uint32
-    return lib, refresh
+    return lib
 
 
 def build_mips():
@@ -64,9 +61,9 @@ def build_mips():
         return None
     if not clang or not lld:
         return None
-    fn, _, refresh = c_parts()
+    fn, _ = c_parts()
     d = Path(tempfile.mkdtemp(prefix='objhash_mips'))
-    (d / 'm.c').write_text(HDR % refresh + fn + '\nvoid entry(const u32*t,u32*o){ pp_objck(t,o); }\n')
+    (d / 'm.c').write_text(HDR + fn + '\nvoid entry(const u32*t,u32*o){ pp_objck(t,o); }\n')
     f = ('--target=mipsel-none-elf -march=mips1 -mno-abicalls -mfp32 -msoft-float -fno-pic -O2 -ffreestanding -G0 -mno-gpopt '
          '-mllvm -disable-mips-delay-filler -DPP_DIRTY').split()
     subprocess.run([clang] + f + ['-c', '-o', str(d / 'm.o'), str(d / 'm.c')], check=True)
@@ -77,7 +74,7 @@ def build_mips():
     return (d / 'm.bin').read_bytes(), entry
 
 
-LIB, REFRESH = build_lib()
+LIB = build_lib()
 MIPS = build_mips()
 ARR = ctypes.c_uint32 * N
 
@@ -95,13 +92,13 @@ def G(x):
 
 def model(t, upto=None):
     """Python model of pp_objck; with upto (even) the state of A before word upto"""
-    a, b = 0x811c9dc5, 0
+    a, b = 0x811c9dc5, 5381
     for i in range(0, N if upto is None else upto, 2):
         w0, w1 = t[i], t[i + 1]
         a = G((a + w0) & M)
         a = G(((a + w1) * 0x9e3779b1) & M)
-        b = (w0 + (b << 6) + (b << 16) - b) & M
-        b = (w1 + (b << 6) + (b << 16) - b) & M
+        b = (b * 33 + w0) & M
+        b = (b * 33 + w1) & M
     return a if upto is not None else (a | 1, b)
 
 
@@ -237,19 +234,18 @@ class ObjHash(unittest.TestCase):
             if x != base:
                 self.differ(x, base, 'tile move/swap')
 
-    def test_upload_decision_and_refresh(self):
+    def test_upload_decision(self):
         LIB.reset()
         t = ARR(*[7] * N)
-        self.assertEqual(LIB.decide(t, 1, 1), 3)                           # first use: both uploaded
-        for i in range(1, REFRESH):
-            self.assertEqual(LIB.decide(t, 1, 0), 0, 'present %d' % i)    # unchanged: skipped ...
-        self.assertEqual(LIB.decide(t, 1, 0), 1)                           # ... until the refresh forces one
-        self.assertEqual(LIB.nforce(), 1)
+        self.assertEqual(LIB.decide(t, 1, 1), 3)                           # first use: both textures uploaded
+        for i in range(50):
+            self.assertEqual(LIB.decide(t, 1, 1), 0, 'present %d' % i)    # unchanged: skipped
         u = ARR(*([7] * (N - 1) + [8]))
-        self.assertEqual(LIB.decide(u, 1, 1), 3)                           # changed: both
+        self.assertEqual(LIB.decide(u, 1, 0), 1)                           # changed: the texture in use
+        self.assertEqual(LIB.decide(u, 1, 1), 2)                           # the 8 bpp one still holds the old tiles
         self.assertEqual(LIB.decide(u, 1, 1), 0)
-        self.assertLessEqual(REFRESH, 4)                                   # at most 3 presents of a missed change (0.25 s at 12 pictures/s)
-
+        v = list(u); v[0] ^= 0x80000000; v[32] ^= 0x80000000                # the review's change
+        self.assertEqual(LIB.decide(ARR(*v), 1, 1), 3)
 
 if __name__ == '__main__':
     unittest.main()
