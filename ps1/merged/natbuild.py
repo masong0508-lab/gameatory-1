@@ -10,18 +10,14 @@ usage: natbuild.py STUNTFOX_DIR GBA_BUILD_DIR OUT_DIR
                  ROM), sfnat_sections.txt (input section sizes, for the placement) and natbuild.log.
 Steps: copy the sources into OUT_DIR/b (gba.h replaced by ps1/merged/include/gba.h; tex.c's target("arm") attributes dropped in the copy),
 clang -Os -emit-llvm per file, irmem.py (guest memory model), llvm-link with sfmem.c, opt -Os (inlines the helpers), codegen for MIPS-I."""
-import os, re, shutil, subprocess, sys
+import os, re, shutil, subprocess, sys, json
+from b3_profile import choose_profile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# the files compiled natively (B2 default): the renderer and what runs every frame in a city.  The rest (the space game, station,
-# missions, settings, campaign ...) is interpreted from the ROM: native code costs RAM that the cold groups and the ROM pages need
-# (place.py; all files natively leave 20 cold groups interpreted and the menus at 0.5 pictures a second)
-NATIVE = 'render tex citydraw model fx physics world draw2d merge ragdoll car ship props s2core space'
-KEEP_NATIVE = {'erecip', 'sin_table', 'rtab', 'pb_avg', 'font_tiles'}   # read-only tables read per pixel or span: native copies
+# B3 adds a measured, size-gated native candidate for per-frame code/tables.
+# SFNAT_PROFILE=b2 retains the previous hybrid configuration for comparisons.
 SKIP = {'main.c', 'hud.c'}                       # build.py MERGE_SKIP (C files)
 GEN_NATIVE = ['pbtables.c', 'tables.c']
-# files whose loads and stores test the address inline (the per-pixel and per-polygon code); the rest call the out-of-line copies (RAM)
-HOT = set(os.environ.get('SFNAT_HOT', 'render tex citydraw model fx sfport physics world draw2d').split())          # generated tables compiled in (pb_shade is written; sin_table is hot)
 GEN_ROM = ['consttab.c', 'logo.c', 'merge_sig.c', 'pbmip.c', 'planetdata.c']   # read where they lie in the ROM (RAM is short)
 # functions written in C for the PS1 in place of Stunt Fox's ARM assembly (sfport.c); the other assembly functions run in the interpreter
 PORTED = {'fill_trap', 'rec_hash', 'tex_hrun', 'tex_hrun4', 'tex_vrun', 'tex_mrun1', 'tex_vrun4', 'tex_mrun', 'tex_walk'}
@@ -103,12 +99,14 @@ def main():
     open(tex, 'w').write(t2)
     inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', '/usr/lib/llvm-18/lib/clang/18/include',
            '-DMERGE', '-DPS1', '-I' + os.path.join(b, 'src'), '-I' + os.path.join(b, 'build', 'gen')]
-    only = set(os.environ.get('SFNAT_ONLY', NATIVE).split())   # (the rest stays interpreted from the ROM; SFNAT_ONLY=all: every file)
-    if only == {'all'}:
-        only = set()
+    profile, only, keep_native, hot = choose_profile()
     srcs = sorted(os.path.join(b, 'src', f) for f in os.listdir(os.path.join(b, 'src'))
                   if f.endswith('.c') and f not in SKIP and (not only or f[:-2] in only))
     srcs += [os.path.join(b, 'build', 'gen', f) for f in GEN_NATIVE]
+    # An explicit typo must not silently reduce native coverage.
+    if only - {os.path.basename(s)[:-2] for s in srcs}:
+        raise SystemExit('natbuild: unknown native file(s): ' +
+                         ' '.join(sorted(only - {os.path.basename(s)[:-2] for s in srcs})))
     ir = os.path.join(out, 'ir')
     os.makedirs(ir, exist_ok=True)
     # the ROM tables: their globals are read at their guest addresses
@@ -120,8 +118,11 @@ def main():
     # read-only data that the ROM holds at a known address (a unique name of the GBA build): read from there (rom_pg pages, sfglue.h
     # sf_rd), not linked a second time into the PS1's RAM; the hot tables of the renderer stay native
     gs, gc = gba_symbols(os.path.join(gbadir, 'merge', 'stuntfox-merge.elf'), log)
-    romconst = {n for n, (a, t) in gs.items() if gc[n] == 1 and a >> 24 == 8 and t in 'rRtT' and n not in KEEP_NATIVE}
+    romconst = {n for n, (a, t) in gs.items() if gc[n] == 1 and a >> 24 == 8 and t in 'rRtT' and n not in keep_native}
     rom |= romconst | {n for n, (a, t) in gs.items() if t == 'A' and a >> 24 in (8, 9)}   # (and the blobs the GBA link places: s2_blob, st_blob)
+    # Selected native scalar tables must never be classified as guest ROM
+    # globals by irmem. All generated assets remain in the private build.
+    rom -= keep_native
     open(os.path.join(out, 'rom_globals.txt'), 'w').write('\n'.join(sorted(rom)) + '\n')
     open(os.path.join(out, 'native_globals.txt'), 'w').write('\n')
     lls = []
@@ -165,7 +166,7 @@ def main():
         open(ll, 'w').write(txt)
         rw = os.path.join(ir, n + '.mem.ll')
         log.write(run([sys.executable, os.path.join(HERE, 'irmem.py'), ll, rw, os.path.join(out, 'native_globals.txt'),
-                       os.path.join(out, 'rom_globals.txt')] + ([] if n in HOT else ['--outline']), log))
+                       os.path.join(out, 'rom_globals.txt')] + ([] if n in hot else ['--outline']), log))
         pn = os.path.join(ir, n + '.pin.ll')
         run([sys.executable, os.path.join(HERE, 'pin.py'), rw, pn, os.path.basename(s), os.path.join(out, 'gba_ram.txt'),
              os.path.join(out, 'pin_report.txt')], log)
@@ -305,6 +306,15 @@ def main():
     print('natbuild: %d files, entries %d, guest stubs %d (%s), ROM symbols %d' % (len(srcs), len(ents), len(stubs),
                                                                               ' '.join(n for n, _ in stubs), len(absol)))
     print('natbuild: section bytes ' + ' '.join('%s=%d' % kv for kv in sorted(tot.items())))
+    kept = sorted(n for n in keep_native if n in defined and defined[n] in 'rR')
+    report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
+                  requested_native_tables=sorted(keep_native), linked_native_tables=kept,
+                  native_entries=len(ents), iwram_entries=len(iw),
+                  guest_stubs=len(stubs), section_bytes=tot)
+    with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
+        json.dump(report, f, indent=2, sort_keys=True)
+        f.write('\n')
+    print('natbuild: profile %s, resident scalar tables %s' % (profile, ' '.join(kept)))
 
 
 if __name__ == '__main__':

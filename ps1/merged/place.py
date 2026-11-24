@@ -17,6 +17,8 @@ With sf3 and the PS1 ragdoll solver off (B2: Stunt Fox draws its own picture and
 Writes the linker script (ps1rt/ps1.ld with those regions) and sfnat_place.h (SF_NAT_LO, the native stack)."""
 import re
 import sys
+import json
+from b3_profile import align_up, pack_text, upper_bound
 
 EW = 0x801b0000
 def host(g): return EW + g - 0x02000000
@@ -28,23 +30,16 @@ def main():
     for line in open(natdir + '/sfnat_sections.txt'):
         n, t, size, al = line.split()
         secs.append((n, t, int(size), max(1, int(al))))
-    text = sorted([s for s in secs if s[0].startswith('.text')], key=lambda s: -s[2])
-    ro = [s for s in secs if s[0].startswith('.rodata')]
+    ro = [s for s in secs if s[0].startswith(('.rodata', '.lit'))]
     caps = {'R3': 0x801b0000 - 0x80199000 - 0x2400 - 0x1800, 'R2': 0x8017a000 - 0x80165000 - 0x1000 - 0x40}
-    used = {'R3': 0, 'R2': 0}
-    where = {'R3': [], 'R2': [], 'R1': []}
-    for s in text:
-        a = (s[2] + 3) & ~3
-        for r in ('R3', 'R2'):
-            if used[r] + a + 16 <= caps[r]:
-                used[r] += a
-                where[r].append(s[0])
-                break
-        else:
-            where['R1'].append(s[0])
-    r1 = sum((s[2] + 15) & ~15 for s in secs if s[0] in set(where['R1'])) + sum((s[2] + 15) & ~15 for s in ro)
+    where, used = pack_text(secs, caps)
+    r1 = upper_bound([s for s in secs if s[0] in set(where['R1'])]) + upper_bound(ro)
     g = open(natdir + '/sfnat_gen.c').read()            # the entry table (8 bytes an entry), the guest stubs (12 bytes each) and sf_gstub
-    r1 += 8 * int(re.search(r'sfnat_nent = (\d+)', g).group(1)) + 12 * g.count('  j sf_gstub') + 256 + 0x200
+    # Include the IWRAM dispatch table as well as the normal entries, the
+    # sentinel, generated stubs and a conservative code/alignment margin.
+    nent = int(re.search(r'sfnat_nent = (\d+)', g).group(1))
+    niw = int(re.search(r'sfnat_niw = (\d+)', g).group(1))
+    r1 += 8 * (nent + niw + 1) + 12 * g.count('  j sf_gstub') + 256 + 0x200
     stack_lo, top = 0x80119000, 0x8011c000
     lo = stack_lo - r1
     k = (lo - cold_host) // 16384          # the cold group that holds lo: native code starts at its start
@@ -67,7 +62,12 @@ def main():
         elif n.startswith(('.data', '.bss', '.sdata', '.sbss', '.scratch', '.radio')) and n not in ('.data', '.bss', '.sdata', '.sbss'):
             unp.append(n)
     pins.sort()
-    D0, D1, B1 = 0x0203d004, 0x0203d400, 0x0203d400 + 0x22cc
+    # Do not assume a prior cartridge's .data size after gameplay changes.
+    # The private ELF is authoritative, but must stay in merge.ld's keep.
+    D0, data_size = (int(x, 16) for x in open(natdir + '/gba_data.txt').read().split())
+    D1 = D0 + data_size
+    assert D0 == 0x0203d004 and D0 < D1 <= 0x0203ff90 and not (D1 & 3), 'GBA .data outside keep'
+    B1 = 0x0203ff90
     pl = []
     for ad, k, n in pins:
         nm = '.sfv_%08x' % ad
@@ -111,7 +111,8 @@ def main():
         gl.append('sfn_%s = 0x%08x;' % (n, host(v) if v >> 24 == 2 else v))
     gl = ' '.join(gl)
     unpinned = ' '.join('*sfnat.o(%s)' % n for n in unp)
-    r1 += sum((s[2] + 15) & ~15 for s in secs if s[0] in set(unp)) + (D1 - D0)
+    r1 += upper_bound([s for s in secs if s[0] in set(unp) or
+                      s[0] in ('.data', '.sdata', '.bss', '.sbss')]) + (D1 - D0) + 32
     lo = stack_lo - r1
     k = (lo - cold_host) // 16384
     nat_lo = cold_host + k * 16384
@@ -169,6 +170,12 @@ SECTIONS{ . = 0x80010000;
     print('place: .data image: %d bytes of interpreted files\' initial values in %d runs (GBA build), the rest from the native variables' % (nfill, ngap))
     print('place: R3 %d B (%d functions), R2 %d B (%d), R1 %d B from 0x%08x (cold groups from %d interpreted), stack 0x%08x..0x%08x'
           % (used['R3'], len(where['R3']), used['R2'], len(where['R2']), r1, nat_lo, k, stack_lo, top))
+    with open(natdir + '/b3_placement_census.json', 'w') as report:
+        json.dump(dict(projected_only=True, region_capacity=caps, text_used=used,
+                       R1_upper_bound_bytes=r1, R1_start=nat_lo,
+                       first_interpreted_cold_group=k, stack_reserved_bytes=top-stack_lo,
+                       gba_data_bytes=D1-D0), report, sort_keys=True, indent=2)
+        report.write('\n')
 
 
 if __name__ == '__main__':
