@@ -633,6 +633,8 @@ the repository). The discs are **test discs** until B7. The ROM, the translation
 
 ### B1: the merged ROM to the title with "Game options" (branch msb-b1)
 
+msb-b1 sits on the released rc10.1 (`b760a90`, the OBJ tile check without linear cancellation).
+
 How to build it:
 
 ```sh
@@ -645,7 +647,7 @@ What changed. Everything new is behind `-DMERGED`, `MERGED=1` or environment var
 `translate_msb.sh` set. With none of them set, the code is the same as rc10's.
 
 - Translation (`tools12/translate_msb.sh`; full copies of `disc.py`, `t2m.py`, `prune.py`, `mkps1.py` in stage19).
-  - `PB_DATA_SPANS` makes discovery treat Star-FlyBack's span `0x081b0000..0x082f6de8` as data. So does the rc7
+  - `PB_DATA_SPANS` makes discovery treat Star-FlyBack's code `0x081b0000..0x082f6de8` as data. So does the rc7
     overlay loader at `0x08077508`, which stays interpreted.
   - Result: 221,016 translated instructions, none of them inside the spans. Calls into SF go `RT_MISS`, then the
     interpreter.
@@ -658,76 +660,109 @@ What changed. Everything new is behind `-DMERGED`, `MERGED=1` or environment var
   - The hot blob is about 10 KiB longer, because the intro is translated. The level tier `pr_l` therefore uses
     `rank_S0` (172 functions) so that the world window stays at `0x800cd800`. The 44 `extra_touch` functions are
     interpreted in levels.
-- Runtime (`rt.c`, `interp_glue.h`, `ppu12.h`, `build.sh`, under `MERGED`):
+- Runtime (`rt.c`, `interp_glue.h`, `ppu12.h`, `hw_card.h`, `build.sh`, under `MERGED`):
   - a 16 MiB ROM window (`ROM_NPG` 4096);
   - `pg_fr[4096]` in the ragdoll region;
   - a fatal screen "ROM PAGE PAST THE IMAGE" (`rom_past_n`) instead of the old page mask;
   - open-bus answers for `0x09xxxxxx` (SF's radio probes `0x09500000`; counted in `rom_obus_n`);
   - interpreter **SWI 6 (Div)**: SF's ARM libgcc divide uses it. Without it the title card's fade never ran;
-  - **PPU mode 3** with the BLDY fade, for SF's title card.
-- `build_msb.sh` uses 61 resident ROM pages (`t/resident_msb.txt`) and the pause block `t/pause_pages_msb.txt`. Both
-  are rc10's lists with the map-column pages moved to `0x08800000+`. `check_intro_site.py --merged` is the merged-image
-  check.
+  - **PPU mode 3** with the BLDY fade, for SF's title card;
+  - **stale IWRAM keys**: SF copies its ARM code over parts of Payback's IWRAM image and patches single words of it. The
+    hot hash and the cold table still hold Payback's translations at those addresses. At boot every IWRAM key (35 in B1)
+    keeps the two halfwords at its address, and the interpreter's `ip_lookup` answers "interpret" for a key whose
+    halfwords differ now (`iwk_stale_n`). In a level these are exactly the six keys inside SF's code (`0x03005bd4`,
+    `0x03005f68`, `0x03005ff0`, `0x0300603c`, `0x030060f8`, and `0x03006930`, SF's `model_draw`). Payback itself changes
+    two keys at the title (`0x03000d78` holds data, `0x03005a90` is an immediate it patches; rc10 shows the same words).
+    Calls from translated code (direct calls, the BX hash) are not covered; B2's native SF removes the overlap;
+  - a **canary** at `0x8002e000`, the lowest word of the interpreter stacks: if a stack reaches the ROM page table the
+    game stops with "INTERP stack reached the ROM page table";
+  - its **own save file** `BESLES-99903STARFLY` ("STAR FLYBACK SAVE"). It never reads or writes rc10's
+    `BESLES-99902PAYBACK`.
+- `build_msb.sh` uses 61 resident ROM pages (`t/resident_msb.txt`) and the 59-page pause block
+  `t/pause_pages_msb.txt`. Payback's map column table starts at `0x081aa8e0` (payback-mod `mapcodec.COLUMN_BASE`) and
+  moves by `0x655720` to `0x08800000`. `ps1/msb/mkpagelists_msb.py` writes both lists from rc10's: an original table
+  page becomes the merged pages that hold its bytes, usually two. To stay at 61 and 59 pages, the pages that hold only a
+  0x720-byte tail are left out first. `check_intro_site.py --merged` is the merged-image check.
 
-rc10 is unchanged. Built from msb-b1 with rc10's `track_a_reuse.sh`, the result is byte-identical to the build from
-`b1de094`: ELF `e739a764...`, EXE `9b8f18e8...`.
+rc10 is unchanged. Built from msb-b1 with rc10's `track_a_reuse.sh` (`PADDBG` empty), the result is byte-identical to
+the shipped rc10.1 (`rc10/out`): ELF `9b11cf05...`, EXE `340246b8...`.
 
-Memory (B1 release ELF; rc10 `e739a764` in brackets):
+Memory (B1 release ELF; the shipped rc10.1 in brackets):
 
-| Region | Free in B1 | Free in rc10 |
+| Region | Free in B1 | Free in rc10.1 |
 |---|---|---|
-| Runtime | 4,080 B | 3,376 B |
-| `.rtcold` | 144 B | 8 B |
+| Runtime (below `0x80028000`) | 2,288 B | 3,216 B |
+| `.rtcold` | 136 B | 8 B |
 | Ragdoll region | 2,140 B | 2,140 B |
 | Renderer | 2,112 B | 208 B |
 
-`pg_fr` moved out of the renderer's BSS. The page cache is `0x8015d000..0x80165000` (28 slots).
+`pg_fr` moved out of the renderer's BSS. The page cache is `0x8015d000..0x80165000`, 8 slots of 4 KiB (the build log's
+"NSLOT=28" is mkrompages' candidate, not the linked cache).
 
 Measured in emulated time (core frames / 59.94), on the release disc `starflyback_ps1_b1`. Frames count from Cross on
 the language screen.
 
 | | SwanStation stock | SwanStation rec. | Beetle stock | Beetle rec. | GBA (mGBA) |
 |---|---|---|---|---|---|
-| Title, hands-off | 1,724 (28.8 s) | 1,033 (17.2 s) | 1,843 (30.7 s) | 1,212 (20.2 s) | 1,269 |
-| Title, pad route | 740 | 269 | 819 | 636 | |
-| Black gap, ZOO logo to SF card | 482 | 360 | 417 | 374 | 343 |
-| Black gap, card to title | 120 | 29 | 157 | 148 | 17 |
-| Cross on Game options to the SETTINGS page | 2,196 (36.6 s) | 432 | 2,118 | 562 | at most 46 |
-| Circle back to the title | 134 | 30 | 174 | 92 | |
+| Title, hands-off | 2,016 (33.6 s) | 1,072 (17.9 s) | 2,268 (37.8 s) | 1,548 (25.8 s) | 1,269 |
+| Title, pad route | 739 | 269 | 817 | 636 | |
+| Black gap, ZOO logo to SF card | 483 | 360 | 430 | 377 | 343 |
+| Black gap, card to title | 120 | 29 | 156 | 152 | 17 |
+| Cross on Game options to the SETTINGS page | 2,196 (36.6 s) | 440 (7.3 s) | 2,108 (35.2 s) | 576 (9.6 s) | at most 46 |
+| Circle back to the title | 188 | 48 | 258 | 62 | |
 
 On every run the title reads "Play game | Delete game | View intro | Credits | Control setup | Game options". The
-SETTINGS page matches mGBA's picture of the merged ROM. The mGBA captures are private.
+SETTINGS page matches mGBA's picture of the merged ROM. The mGBA captures are private. A setting changes and changes
+back, and Credits, Control setup, View intro and Delete game open and return.
 
-The following held on all 8 runs:
-- no short flash (shorter than 6 frames) at stock;
+The following held on every run:
+- no short flash (shorter than 6 frames) at stock, and no half-black picture;
 - no fatal screen and no `PORT ERROR`;
-- `rom_past_n` 0, `rom_obus_n` 2.
+- `rom_past_n` 0, `rom_obus_n` 2-4, `ip_undef` 0, `ip_depth_max` 1;
+- the title stays up for 36,000 frames at SwanStation stock without a flash or a fault.
 
-Known differences:
-- **Short black runs at SwanStation recommended.** There are 3 runs of 4-5 frames between the boot logos. rc10 has
-  the same 3, at the same frames. They are the GBA's own 18-20 frame fades, shortened by the overclock.
-- **Pictures changed without a present.** There are 9 changes in the logo fades and at the card and title. rc10 has 8,
-  at the same logo frames.
+Known differences and gaps:
+- **The settings page is barely usable at stock.** After Cross on Game options the title stays frozen for 36 s: 5-6
+  pictures in about 2,200 frames, while the opening reads 64 ROM pages and runs SF's draw and settings code in the
+  interpreter. On the page, 16 pictures came for 10,000 frames of random presses at SwanStation stock, about 10 s per
+  response, so presses run together and choices overshoot. At the recommended settings one response takes about 2.4 s.
+  The GBA answers within a frame. B2 must find where the time goes and show a picture (or the loading card) meanwhile.
+- **Short black runs at the recommended settings.** SwanStation shows 3 runs of 4-5 frames between the boot logos.
+  rc10 has the same 3, at the same frames: they are the GBA's own 18-20 frame fades, shortened by the overclock.
+- **Pictures changed without a present.** The rig's tracker counts 9 such changes in the hands-off intro at stock and
+  23 at the recommended settings, in the logo fades, the card and the title. rc10 has the same kind at the same logo
+  frames.
+- **Long dark gaps.** The GBA itself is dark for 343 frames between the ZOO logo and the card, and 17 before the title.
+  The PS1 is dark for 360-483 and 29-156 frames.
 - **The title's sprites are missing.** The STAR-FLYBACK logo (4 affine double-size semi-transparent 8 bpp sprites) and
   the flying ships are not drawn on the title. rc10's title lacks Payback's logo too, so this is not new in B1.
 - **The title menu is slow at stock.** It runs at about 10.6 guest frames/s, because SF's title hooks are interpreted.
-  Moving the cursor to Game options took about 3,100 frames with the rig's careful presses (about 90 frames at the
-  recommended settings).
+  A cursor step shows 16 frames after the tap.
 
-A level, tried once for B2 (not a B1 requirement):
-- The first level picture comes 672 frames (11.2 s) after the Play-game route starts at SwanStation stock, and 264
-  frames at recommended.
-- The level clock then stays at 1 (0 ticks/s). The renderer draws 2-3 frames and stops. The tty shows `GRIDCHK ...
-  MISMATCH`, because rc10's diagnostic reads the original's grid table.
+A level (not a B1 requirement) **hangs**:
+- Play game > slot > rampage > Play game. The first level frame comes 638 frames (10.6 s) after the route starts at
+  SwanStation stock, 252 at recommended, 716 / 430 on Beetle.
+- Then the guest stops completely: the level clock stays at 1, `g_gframes` does not move, and nothing new is
+  presented. The screen keeps the title's bridge backdrop with broken colours; no input helps and no error screen
+  appears.
+- Interpreter slab 0 cycles through `0x03003368..0x03003384`: the halving loop of SF's ARM `clip` in IWRAM, part of
+  `sf_frame`'s software renderer. Its exit conditions are never met, because its inputs come from Payback renderer
+  state that the pruned stubs (`gfx_world`, `gfx_view3d`) never compute. B2: SF's software renderer must not run on
+  the PS1 (route its calls to the sf3 path), and a runaway interpreter loop needs a watchdog or a fatal screen.
+- The tty shows `GRIDCHK ... MISMATCH`, because rc10's diagnostic reads the original's grid table.
+
+Not done (low): `interp_top` takes the ARM/Thumb state from ARMTAB, which does not list SF's ARM ROM code, because the
+SF span is data for discovery. A top-level interpreter entry into SF ARM code through a pointer that translated code
+calls would decode as Thumb. It was not seen (`ip_undef` 0), and every SF hook is a Thumb `bl` target.
 
 Static gates on the B1 ELF:
-- passed: `mips1_lint` (0 of 57,002), `loaddelay` (0), `gpuwait_classify`, `check_intro_site --merged`,
+- passed: `mips1_lint` (0 of 57,317), `loaddelay` (0), `gpuwait_classify`, `check_intro_site --merged`,
   `disp_patch_check`, `prepare.py --check`, unit tests, `check_native`;
-- `bioscalls`: the same services as rc10 (A(44h), A(3Ch)), with one fewer site because `intro_fix_init` patches
-  nothing. The rig tool needs a parse fix for llvm-objdump's `<sym+off>` operands; it fails on rc10's ELF too.
+- `bioscalls`: the same services as rc10 (A(44h), A(3Ch)). The rig tool needs a parse fix for llvm-objdump's
+  `<sym+off>` operands; it fails on rc10's ELF too.
 
 Song 3:
-- its 27 sample ranges and 48 patterns are zero in the disc's `ROM.BIN`;
+- its 27 sample ranges and 48 patterns are zero in the disc's `ROM.BIN`, which equals the merged ROM;
 - slot 3 holds song 4's tables;
 - the disc has the same 15 tracks as rc10.
 
