@@ -56,7 +56,7 @@ ROM holds at a unique GBA address is read from the ROM, not linked again. The ex
 
 - **Guest to native.** The ROM's patches call Stunt Fox functions by their GBA addresses. Translated code reaches them
   through `RT_MISS`, then `h_miss`, then `interp_enter`. Interpreted code reaches them by its branch. Both paths end in
-  `ip_hle`, where `sf_hle` checks the entry table. On a match it calls the native function with r0-r3 and four guest stack
+  `ip_hle`, where `sf_hle` checks the entry table. On a match it calls the native function with r0-r3 and twelve guest stack
   words, on the native stack.
 - **What is excluded.** Stunt Fox's IWRAM functions (`0x03...`) are never entries. On the PS1 those addresses hold
   Payback's own IWRAM code, because `hot_install` copies nothing. `natbuild.py` keeps every function that the ROM patches
