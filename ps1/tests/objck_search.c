@@ -175,7 +175,7 @@ static void cls_bitpairs(long n){    /* the same bit flipped in two words at eve
 
 int main(int argc,char**argv){
   long n=argc>1?atol(argv[1]):100000; uint64_t seed=argc>2?strtoull(argv[2],0,0):1; int only=argc>3?atoi(argv[3]):-1;
-  if(argc>5){ dumpf=fopen(argv[4],"wb"); dumpk=atoi(argv[5]); }
+  if(argc>5){ dumpf=fopen(argv[4],"wb"); dumpk=atoi(argv[5]); if(!dumpf||dumpk<0){ fprintf(stderr,"invalid dump output\n"); return 2; } }
   struct { const char*nm; int id; } L[]={
     {"random sparse edits, 2..8 words anywhere",0},{"random sparse edits, 2..6 words within 64",1},
     {"4bpp pixel moved/swapped along a column, every column, rows 1..64 apart",2},{"8bpp pixel moved/swapped along a column, every column",3},
@@ -186,22 +186,32 @@ int main(int argc,char**argv){
     {"4-word construction generalised (two places, each cancelling one check) + the F3 shape",11},
     {"tile/sprite moves, copies and swaps (4 and 8 bpp, 1..16 tiles)",12},{"in-tile edits: rotate, flips, index +k, pixel shift",13},
     {"the same bit in two words, every bit, distance 1..64",14}};
-  int nl=sizeof L/sizeof*L;
+  int nl=sizeof L/sizeof*L, shortage=0;
+  if(n<=0||n>1000000000L||only<-1||only>=nl){ fprintf(stderr,"invalid search budget or class\n"); return 2; }
   for(int c=0;c<nl;c++) cname[c]=L[c].nm;
   built[7]=built[8]=built[9]=built[10]=built[11]=1;
   for(int c=0;c<nl;c++){ if(only>=0&&c!=only) continue; cur=c;
     for(int bi=0;bi<NBASE;bi++){ rs=seed*0x9e3779b97f4a7c15ull+(uint64_t)(c*131+bi*7+1); if(!rs) rs=1; mkbase(bi); curbase=bi;
       long want=n*(bi+1)/NBASE;                    /* a base on which a class makes few changes (tile moves on zeros) leaves the rest to the next */
-      for(int stall=0;tries[c]<want&&stall<4;){ long m=want-tries[c], t0=tries[c]; if(bi<NBASE-1&&m>n/NBASE) m=n/NBASE;
-        if(bi==NBASE-1) stall=0;
+      /* A class restarts its local pattern at iteration zero on every batch.
+         With a one-try remainder, repeated no-ops can otherwise run forever
+         (especially tile edits on sparse bases). A useful minimum batch
+         and a finite low-progress budget apply to *every* base, including
+         the final one. Overshooting the target by a small batch is fine. */
+      for(int stall=0;tries[c]<want&&stall<4;){
+        long m=want-tries[c], t0=tries[c], batch=n/NBASE;
+        if(bi<NBASE-1&&m>batch) m=batch;
+        if(m<128) m=128;
         switch(c){ case 0: cls_sparse(m,8,N); break; case 1: cls_sparse(m,6,64); break; case 2: cls_col4(m); break; case 3: cls_col8(m); break;
           case 4: cls_topsum(m,4); break; case 5: cls_topsum(m,8); break; case 6: cls_kd(m); break;
           case 7: cls_cancelA(m,0); break; case 8: cls_cancelA(m,64); break; case 9: cls_cancelB(m,0); break; case 10: cls_cancelB(m,64); break;
           case 11: cls_four(m); break; case 12: cls_tiles(m); break; case 13: cls_intile(m); break; case 14: cls_bitpairs(m); break; }
-        if(tries[c]-t0<m/4) stall++; } }
+        if(tries[c]-t0<(m+3)/4) stall++; else stall=0; } }
+    if(tries[c]<n){ shortage=1; fprintf(stderr,"class %d exhausted bases with %ld/%ld changed cases\n",c,tries[c],n); }
     printf("class %2d %-92s tries %10ld misses %ld  A-equal %ld  B-equal %ld  (unchanged skipped %ld)\n",c,cname[c],tries[c],miss[c],aeq[c],beq[c],nsame[c]);
     fflush(stdout); }
   long T=0,M=0; for(int c=0;c<nl;c++){ T+=tries[c]; M+=miss[c]; }
   printf("TOTAL tries %ld misses %ld full-check samples %ld%s\n",T,M,nverify,bad?" DISAGREE":"");
-  return (M||bad)?1:0;
+  if(dumpf&&fclose(dumpf)!=0) return 2;
+  return (M||bad||shortage)?1:0;
 }
