@@ -766,6 +766,85 @@ Song 3:
 - slot 3 holds song 4's tables;
 - the disc has the same 15 tracks as rc10.
 
+### B2: Stunt Fox compiled natively next to translated Payback (branch msb-b2)
+
+msb-b2 branches from msb-b1 (`becc518`). Stunt Fox's C is compiled for MIPS I (`ps1/merged/`, see its README) and runs
+next to translated Payback. sf3 and `doll.c` are not linked; their RAM holds native SF. Build: `tools12/build_msb.sh NAME
+-DMERGED_NATIVE` with `SFNAT` set to the `natbuild.py` output. Without `SFNAT` the B1 build is unchanged (it still
+builds), and rc10 built from msb-b2 is byte-identical to the shipped rc10.1 (ELF `9b11cf05...`, EXE `340246b8...`).
+
+What runs natively: render, tex, citydraw, model, fx, physics, world, draw2d, merge, ragdoll, car, ship, props,
+s2core, space (the "hybrid native set"). The other SF files (spacegame, mission, campaign, station, spacewalk, hud,
+radio, settings, save, title, ...) and SF's assembly hooks are interpreted from the ROM. Read-only data that the ROM
+holds is read from the ROM pages, except the per-pixel tables.
+
+Fixes found on the way (all under `MERGED_NATIVE`, `ps1/merged/` or the native build):
+- **16 argument words** cross the native/guest boundary both ways (`SF_NARG`): a V3 by value is 3 words, and
+  `city_scan` takes 12. With 8, its result pointers came in as 0 and it stored to address 4.
+- **Stores below `0x02000000`** from native code are ignored, as the GBA's bus does, and counted (`sf_bios_wr_*`).
+- **Payback's cell-slot leak** (`b2_coldfix` in `rt.c`): Payback's `CUBE_BeginModify` slots (200 x 64 B at
+  `0x02003f24`) leak on the PS1 until all 199 are taken a few seconds into a level. rc10 has the same leak (the GBA
+  uses 1-2). SF's polygon pool overlays these slots, so the car and Arwing pictures froze (npoly 0). The patched
+  test in the cold group at `+0x6c764` now reads "not a ROM pointer"; `b2_cellfix` counts the patch (1 per boot).
+- **Weak stubs**: s2core.c's weak package entries (`cp_*`, `ms_*`, `sg_foe*`, `st_*`, `hl_draw`, `s2_hud_owned`) lose
+  to the interpreted packages' strong definitions, as on the GBA (`SFNAT_WEAK`). Without it the station rooms were
+  not drawn (`st_view` returned 0).
+- **Guest stubs** are three instructions (`lui; j sf_gstub; ori`), so R1 fits; `sf_gstub` respects the MIPS I load
+  delay slot.
+- `__builtin_return_address(0)` in native SF reads the guest lr of the entry being run.
+
+Memory (B2 release ELF; B1 in brackets):
+
+| Region | Free in B2 | Free in B1 |
+|---|---|---|
+| Runtime (below `0x80028000`) | 10,880 B | 2,288 B |
+| `.rtcold` | 160 B | 136 B |
+| R1 native SF `0x800eb430..0x80119000` (172 KiB code+data, 41 cold groups of the interpreted files move out) | 14,716 B | (world window) |
+| Native stack `0x80119000..0x8011c000` | 12 KiB | |
+| Ragdoll region (R2 native SF, 81,840 B) | 72 B | 2,120 B |
+| Renderer region (R3 native SF, 78,832 B, + `.sfbss`) | 8,320 B | 2,112 B |
+| Page cache `0x8015d000..0x80165000` | 8 slots + 61 resident pages | the same |
+
+Measured in emulated time (core frames / 59.94) on the release disc `starflyback_ps1_b2` (runs `runs2/b2*`):
+
+| | SwanStation stock | SwanStation rec. | Beetle stock | Beetle rec. |
+|---|---|---|---|---|
+| Title, hands-off | 2,304 (38.4 s) | 1,080 (18.0 s) | 2,348 (39.2 s) | 1,596 (26.6 s) |
+| Long black, ZOO logo to SF card | 493 | 363 | 437 | 331 |
+| Cross on Game options to the settings page | 480 (8.0 s; B1 36.6 s) | 30 (0.5 s; B1 7.3 s) | 222 (3.7 s; B1 35.2 s) | 112 (1.9 s; B1 9.6 s) |
+| Title route to the first level frame | 5,186 | 1,232 | 5,842 | 5,020 |
+| Level, standing (ticks/s; the GBA runs 59.7) | 0.60 | 16.7-21.0 | 0.40 | 0.50 |
+
+At SwanStation recommended the whole tour passes (`lv.py`, 17 checks): level start, walking (6,993 units in 600
+frames), camera yaw and zoom (SELECT + d-pad), a vehicle (L1), gas, handbrake slide, boost (taxi runs: boosting in 6 of
+8 samples, fuel 4,096 -> 3,424; a tank has no boost, R is its gun), bail out at speed as a ragdoll, SELECT held calls
+the Arwing, take-off and climb (27.6 ticks/s), lasers, docking at Fox Station, the hangar and rooms 1 and 2 (drawn as
+on the GBA), LAUNCH, the descent and landing, and quit to the title through the pause menu. No short black or
+half-black picture in the level phases, no TTY fault. Rig interventions (logged as such): the man is moved next to a
+vehicle, the Arwing is moved to 12,000 units from the station before docking (docking needs that), and to 300 units
+above the take-off point for the landing (mGBA's descent behaves the same).
+
+Not reached / failing:
+- **Levels are CD-bound everywhere except SwanStation recommended** (instant seeks). On Beetle at 400% / 14x the level
+  runs 0.5 ticks/s and walking, the camera, the car and the Arwing could not be checked (`b2l_be_rec`: 3 pass, 5
+  fail); at SwanStation stock it is the same (0.5-0.6 ticks/s, `b2l_sw_stock` 3 pass, 5 fail). `pm.py` at SwanStation
+  recommended: 7,874 ROM page misses in 1,200 frames (68 presents), 96 pages. 48 % fall in SF's span `0x081b0..0x0824f`:
+  the interpreted files' code (spacegame `sg_tick`/`sg_draw`, settings `opt_*`, hud `hl_*`, campaign `cp_*`, save
+  `sv_*`, station `st_*`, spacewalk `sw_*`, radio) and read-only data that native code reads from the ROM every frame
+  (model vertex tables `0x081f0..0x081f4`, the renderer's `pb_pmap`/`pb_sky`/`pb_mip` pages `0x081fc`, `0x08214`,
+  `0x08240`). 39 % are Payback's moved map column pages `0x08800..0x08a7f`. The 8-slot cache plus 61 resident pages
+  cannot hold that. B3: keep the per-frame SF tables in RAM, compile the remaining level-time files natively (needs
+  the RAM option of PLAN 3.4) and give the merged map pages a resident set.
+- **Short black runs** at SwanStation recommended (3, as B1 and rc10) and Beetle recommended (1).
+- **Title sprites** (the STAR-FLYBACK logo and ships) are still missing: the PPU-lite OBJ path does not draw affine
+  double-size semi-transparent 8 bpp sprites; rc10 lacks Payback's logo the same way.
+- **Settings across a power cycle**: the disc makes and reloads its own `BESLES-99903STARFLY` ("STAR FLYBACK SAVE");
+  Payback's slot comes back (no name entry). A GAME SETTINGS change made on the title page is kept for the power
+  cycle but not after it in a rampage game: SF keeps settings in the campaign image (`merge.c`, `campaign.c`), which
+  only a running campaign saves. That is B5's campaign work; not shown on the PS1 yet.
+- **Lockstep against mGBA** (400 ticks) was not run: no symbol-lockstep tool for the native build exists yet.
+- Music share in menus and levels was not measured.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
