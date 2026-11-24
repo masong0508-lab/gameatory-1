@@ -12,7 +12,10 @@ the linked ELF, so a translation that no longer has exactly that shape fails the
   - rt_hash (RT_BX + 8) computes the key and the slot as hot_lookup() does and rt_found jumps to the host word of the slot;
   - 1..8 hash keys lie in the overlay area [0x03000d84, 0x03003b74).
 
-usage: check_intro_site.py ELF      (exit 0 = all present, 1 = a check failed, 2 = the file cannot be read)
+Milestone B (merged Star-FlyBack ROM, tools12/build_msb.sh): with --merged the intro is translated (prune.py without id 3), so STUBTAB
+must NOT hold 0x080234be and no stub call site of it may exist; the RT_MISS, rt_hash and overlay-key checks stay.
+
+usage: check_intro_site.py [--merged] ELF      (exit 0 = all present, 1 = a check failed, 2 = the file cannot be read)
 No game data is read or written: only the linked program."""
 from __future__ import annotations
 
@@ -47,7 +50,7 @@ def symbols(path: str) -> dict[str, int]:
     return out
 
 
-def check(path: str) -> list[str]:
+def check(path: str, merged: bool = False) -> list[str]:
     sections, _ = elf_parse(path)
     sym = symbols(path)
 
@@ -67,7 +70,12 @@ def check(path: str) -> list[str]:
     if word(BLOB + 8) != 0x0320C021:
         errors.append('RT_MISS (0x%08x) does not start with addu $24,$25,$0: %08x' % (BLOB + 8, word(BLOB + 8)))
     ids = [word(stubtab + 8 * k + 4) for k in range(nstub) if word(stubtab + 8 * k) == INTRO_JOIN]
-    if len(ids) != 1 or not 1 <= ids[0] <= 0xFFFF:
+    if merged:
+        if ids:
+            errors.append('STUBTAB holds 0x%08x (ids %s): the merged build must translate the intro' % (INTRO_JOIN, ids))
+        else:
+            print('intro join 0x%08x translated (no stub)' % INTRO_JOIN)
+    elif len(ids) != 1 or not 1 <= ids[0] <= 0xFFFF:
         errors.append('STUBTAB holds 0x%08x %d times (ids %s), expected once' % (INTRO_JOIN, len(ids), ids))
     else:
         jst = 0x08000000 | ((rt_stub >> 2) & 0x03FFFFFF)
@@ -99,11 +107,13 @@ def check(path: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    merged = '--merged' in argv[1:]
+    argv = [a for a in argv if a != '--merged']
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
     try:
-        errors = check(argv[1])
+        errors = check(argv[1], merged)
     except (OSError, ValueError, struct.error, IndexError) as error:
         print('%s: cannot be checked: %s' % (argv[1], error), file=sys.stderr)
         return 2

@@ -6,6 +6,9 @@ extern const unsigned STUBTAB_N, STUBTAB[];
 extern void interp_enter(void); extern void ip_call_asm(IS*,u32); extern void ip_ret(void);
 void h_vbl(void);
 u32 interp_target, ip_depth;
+#if defined(MERGED) && !defined(IP_MAXD)
+#define IP_MAXD 8        /* Milestone B: the ROM page table (4096 pages) ends at 0x8002e000; 8 stacks of 1 KiB below 0x80030000 */
+#endif
 #ifndef IP_MAXD
 #define IP_MAXD 16
 #endif
@@ -39,7 +42,11 @@ static inline const u8 *ip_direct(u32 ea){
 }
 u32 ip_rd(u32 ea,u32 size){
   const u8*p; u32 r=ea>>24;
+  #ifdef MERGED
+  if(r==8||r==9){ u32 pg=(ea>>12)&0x1fffu; p=pg<ROM_NPG?rom_pg[pg]:0; if(p) p+=ea&4095; }      /* past the image: h_memrd -> rom_page stops */
+#else
   if(r==8||r==9){ u32 pg=(ea>>12)&2047; p=rom_pg[pg]; if(p) p+=ea&4095; }
+#endif
   else p=ip_direct(ea);
   if(p) return size==4?*(const u32*)p:size==2?(u32)*(const u16*)p:(u32)*p;
   return h_memrd(ea,size==1?0:size==2?2:4);
@@ -136,12 +143,20 @@ static RTCOLD void intro_fix_init(void){
   const volatile u32*bx=(const volatile u32*)RT_BX_HOST; u32 hok=(bx[0]>>16)==0x0720u && bx[1]==0 && (bx[13]>>16)==0x1058u && bx[6]==(0x30210000u|((HASH_NSLOTS-1)&0xffffu))
     && bx[8]==(0x3c020000u|(HASH_HOST>>16)) && bx[9]==(0x34420000u|(HASH_HOST&0xffffu));
   for(u32 k=0;k<sizeof hw/sizeof hw[0];k++) if(bx[hw[k][0]]!=hw[k][1]) hok=0;
+#ifdef MERGED
+  /* Milestone B: the intro is translated (prune.py without id 3): no stub of the join point and no call site of it may exist */
+  u32 bad=miss[0]!=0x0320c021u?1:nid!=0?2:n!=0?3:nk-1u>=OV_NSL?4:(ov_w[0]|ov_w[1])==0?5:!hok?6:0;
+#else
   u32 bad=miss[0]!=0x0320c021u?1:nid!=1||id-1u>=0xffffu?2:n!=1?3:nk-1u>=OV_NSL?4:(ov_w[0]|ov_w[1])==0?5:!hok?6:0;
+#endif
 #ifdef TEST_INTRO_FIX_FAIL
   bad=TEST_INTRO_FIX_FAIL;          /* TEST-ONLY: take the error path, to show that a failed check is a visible stop */
 #endif
   if(bad) fatal_screen("INTRO FIX: runtime words differ, check ",bad<<28|n<<16|nk<<8|nid);
   ov_nsl=nk;
+#ifdef MERGED
+  (void)site; (void)jst; dbg("INTRO FIX: intro translated, overlay hash slots "); dec(nk); dbg("\n"); return;
+#endif
   site[0]=0x3c190000u|(INTRO_JOIN>>16);                  /* lui $25,0x0802 */
   site[1]=0x08000000u|(((RT_BLOB+8)>>2)&0x03ffffffu);    /* j RT_MISS */
   site[2]=0x37390000u|(INTRO_JOIN&0xffffu);              /* ori $25,$25,0x34be (delay slot) */
@@ -169,7 +184,12 @@ u32 ip_hle(IS*s,u32 t){
   else return 0;
   ip_hles++; s->pc=s->r[14]; return 1;
 }
-u32 ip_stub_lookup(u32 t){ if(t==INTRO_JOIN) return 0; for(u32 k=0;k<STUBTAB_N;k++) if(STUBTAB[2*k]==t) return (u32)ip_sthunks+24*k; return 0; }       /* ip_sthunks: one RT_STUB thunk per stub id, in the runtime (the translated entry may sit in a cold group that is not loaded) */
+#ifdef MERGED
+/* Milestone B: prune id 3 (the join point) is gone and the ids have a gap: the thunk of id n is the (n-1)th */
+u32 ip_stub_lookup(u32 t){ for(u32 k=0;k<STUBTAB_N;k++) if(STUBTAB[2*k]==t) return (u32)ip_sthunks+24*(STUBTAB[2*k+1]-1u); return 0; }
+#else
+u32 ip_stub_lookup(u32 t){ if(t==INTRO_JOIN) return 0; for(u32 k=0;k<STUBTAB_N;k++) if(STUBTAB[2*k]==t) return (u32)ip_sthunks+24*k; return 0; }
+#endif       /* ip_sthunks: one RT_STUB thunk per stub id, in the runtime (the translated entry may sit in a cold group that is not loaded) */
 u32 ip_lookup(u32 t){
   ov_sync(); if(ov_stale(t)) return 0;
   u32 h=hot_lookup(t); if(h) return h; h=ip_stub_lookup(t); if(h) return h; return cold_find(t); }
@@ -184,8 +204,17 @@ void ip_call(IS*s,u32 host){
 static void call_on_rtstack(void (*f)(void)){
   u32 keep; __asm__ volatile("move %0,$29\n li $29,0x801fff90\n jalr %1\n nop\n move $29,%0":"=&r"(keep):"r"(f):"$1","$2","$3","$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$24","$25","$31","memory");
 }
+#ifdef MERGED
+u32 ip_swi6;
+#endif
 void ip_swi(IS*s,u32 n){
   ip_swis++;
+#ifdef MERGED
+  /* Milestone B: an ARM-state swi carries its number in bits 16..23 (interp.c passes the 24-bit field).  Star-FlyBack's libgcc division
+     (__aeabi_uidivmod, ARM) calls the BIOS Div (6) for two non-negative operands; translated Payback never does (t2m RT_SWI is a no-op). */
+  if(n>0xffu) n=(n>>16)&0xffu;
+  if(n==6){ s32 a=(s32)s->r[0], b=(s32)s->r[1]; if(b){ s32 q=a/b; s->r[0]=(u32)q; s->r[1]=(u32)(a-q*b); s->r[3]=(u32)(q<0?-q:q); } ip_swi6++; return; }
+#endif
   if(n==5){ call_on_rtstack(h_vbl); u32 h=hot_lookup(0x100); if(h){ s->r[12]=(u32)ip_ret; ip_call_asm(s,h); } }
 }
 u32 interp_top(IS*g){

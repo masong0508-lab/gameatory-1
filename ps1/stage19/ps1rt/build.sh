@@ -53,13 +53,16 @@ EXEPACK=0; case " $CFL " in *" -DEXEPACK "*) EXEPACK=1 ;; esac
 if [ "$EXEPACK" = 1 ] && [ ! -f exepack.py ]; then echo 'Missing input: exepack.py' >&2; missing=1; fi
 # rc9 (-DPZBLOCK in CFL): the pause block PAUSE.BIN, the ROM pages of t/pause_pages.txt in consecutive sectors (rt.c pz_load)
 PZ=0; case " $CFL " in *" -DPZBLOCK "*) PZ=1 ;; esac
-if [ "$PZ" = 1 ] && [ ! -f ../t/pause_pages.txt ]; then echo 'Missing input: ../t/pause_pages.txt' >&2; missing=1; fi
+if [ "$PZ" = 1 ] && [ ! -f ../${PZLIST:-t/pause_pages.txt} ]; then echo "Missing input: ../${PZLIST:-t/pause_pages.txt}" >&2; missing=1; fi
 [ "$missing" = 0 ] || fail 'assemble the source tree and generate its private translation/map inputs first; see ps1/STATUS.md'
-python3 - "$ROM" <<'PY'
+python3 - "$ROM" "${MERGED:-}" <<'PY'
 from pathlib import Path
 import sys
 size = Path(sys.argv[1]).stat().st_size
-if size != 8 * 1024 * 1024:
+if sys.argv[2] == '1':      # Milestone B (tools12/build_msb.sh): the merged Star-FlyBack ROM, 16 MiB, with -DMERGED in CFL
+    if size != 16 * 1024 * 1024 or ' -DMERGED ' not in ' %s ' % __import__('os').environ.get('CFL', ''):
+        raise SystemExit(f'PS1 build: MERGED=1 needs the 16 MiB merged ROM and -DMERGED, got {size} bytes')
+elif size != 8 * 1024 * 1024:
     raise SystemExit(f'PS1 build: expected the 8 MiB Payback Europe ROM, got {size} bytes; '
                      'the current runtime has an 8 MiB page window and cannot build a merged Stunt Fox ROM')
 PY
@@ -117,11 +120,12 @@ PY
     if [ "$PZ" = 1 ]; then
         # page list -> pz_pages.h (sorted, at most 60 pages: rt.c keeps a frame of the pool for anything else) and the block's disc
         # sector -> syms.c (8th field of LBAS; 0 in the first pass, when the ISO does not exist yet)
-        run "pzpages-$PASS" python3 - ../t/pause_pages.txt "$WORK/pz_pages.h" "$WORK/syms.c" "${LBAS:-}" <<'PY'
+        run "pzpages-$PASS" python3 - ../${PZLIST:-t/pause_pages.txt} "$WORK/pz_pages.h" "$WORK/syms.c" "${LBAS:-}" <<'PY'
 import sys
 pages = sorted({int(t, 16) for line in open(sys.argv[1]) for t in line.split('#')[0].split()})
-if not 0 < len(pages) <= 60 or pages[-1] >= 2048:
-    raise SystemExit('pause_pages.txt: 1..60 page numbers below 0x800 expected, got %d' % len(pages))
+lim = 4096 if __import__('os').environ.get('MERGED') == '1' else 2048     # Milestone B: the 16 MiB merged ROM
+if not 0 < len(pages) <= 60 or pages[-1] >= lim:
+    raise SystemExit('pause_pages.txt: 1..60 page numbers below 0x%x expected, got %d' % (lim, len(pages)))
 with open(sys.argv[2], 'w') as f:
     f.write('#define PZ_N %du\nstatic const u16 pz_pg[PZ_N]={%s};\n' % (len(pages), ','.join('0x%03x' % p for p in pages)))
 lb = sys.argv[4].split(',') if sys.argv[4] else []
@@ -153,7 +157,7 @@ PY
     run "mips1-lint-$PASS" python3 ../tools/mips1_lint.py "$WORK/payback.elf"
     # rc7: the intro fix patches the ZOO-logo stub site and the overlay hash slots at boot (interp_glue.h): the same words are checked here, so a
     # translation of another shape fails the build instead of booting into the old loop
-    if [ -z "$NO_INTERP" ]; then run "intro-site-$PASS" python3 ../tools/check_intro_site.py "$WORK/payback.elf"; fi
+    if [ -z "$NO_INTERP" ]; then run "intro-site-$PASS" python3 ../tools/check_intro_site.py ${MERGED:+--merged} "$WORK/payback.elf"; fi
     # the dispatch boot patch words (rt.c dsp_new, PLAN.md Stage 2) decode to the blob stubs they assume; without dispatch code nothing is checked
     run "disp-patch-check-$PASS" python3 ../tools/disp_patch_check.py "$WORK/payback.elf"
     run "binary-$PASS" "$PS1_OBJCOPY" -O binary "$WORK/payback.elf" "$WORK/payback.bin"
@@ -187,7 +191,7 @@ mkiso() {
     if [ -n "$SNAPFILE" ]; then cp "../out/$SNAPFILE" "$ISO_DIR/SNAPST.BIN"; fi
     if [ "$SNAP" = 1 ]; then cp ../out/SNAP.BIN "$ISO_DIR/SNAP.BIN"; fi
     if [ "$PZ" = 1 ]; then
-        run "pzfile-$PASS" python3 - "$ROM" ../t/pause_pages.txt "$ISO_DIR/PAUSE.BIN" <<'PY'
+        run "pzfile-$PASS" python3 - "$ROM" ../${PZLIST:-t/pause_pages.txt} "$ISO_DIR/PAUSE.BIN" <<'PY'
 import sys
 rom = open(sys.argv[1], 'rb').read()
 pages = sorted({int(t, 16) for line in open(sys.argv[2]) for t in line.split('#')[0].split()})

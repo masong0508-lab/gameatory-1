@@ -51,6 +51,14 @@ void fl_poll(void);
 /* rc8: the table lives in ROMPG in every build (without D3 the blob's fast path that reads it is off and nothing else uses the area), which
    keeps 8 KB out of the runtime's BSS */
 #define rom_pg ((const u8**)0x8002a000)
+/* Milestone B (-DMERGED, tools12/build_msb.sh): the merged Star-FlyBack ROM is 16 MiB, 4096 pages; the table then fills 0x8002a000..0x8002e000
+   (t2m T2M_ROMPG_N=4096) and the interpreter keeps 8 stacks (interp_glue.h IP_MAXD) in 0x8002e000..0x80030000.  A read of a page past the image
+   (a guest address 0x09000000 and up) stops with an error screen instead of wrapping onto another page. */
+#ifdef MERGED
+#define ROM_NPG 4096u
+#else
+#define ROM_NPG 2048u
+#endif
 __asm__(".globl rom_pg\n.set rom_pg, 0x8002a000\n");
 static u32 g_pres, g_gframes;   /* presented pictures, guest (GBA) frames */
 u32 g_flips;                    /* display-start changes (flip_to, the CD error and fatal screens): g_pres counts present() STARTS, so a picture
@@ -363,7 +371,11 @@ static void dsp_phase(u32 ra){
    access. */
 #define RP_MAX 64
 static u16 fr_pg[RP_MAX+NSLOT];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
-static u8 pg_fr[2048] __attribute__((section(".sf.bss.pg_fr")));                  /* frame+1 that holds each page (mapped or unmapped by the hand), 0 = not in RAM */
+#ifdef MERGED
+static u8 pg_fr[ROM_NPG] __attribute__((section(".dl.bss.pg_fr")));       /* (B1: 4 KiB, in the ragdoll region: the renderer region has 208 bytes free) */
+#else
+static u8 pg_fr[2048] __attribute__((section(".sf.bss.pg_fr")));
+#endif                  /* frame+1 that holds each page (mapped or unmapped by the hand), 0 = not in RAM */
 _Static_assert(RP_MAX+NSLOT<255, "pg_fr holds frame+1 in a byte");
 static u32 rom_pool, pool_rp, pool_hand, rom_soft;
 static u8 *pool_frame(u32 f){ return f<pool_rp?(u8*)rp_data+f*4096:PCACHE+(f-pool_rp)*4096; }
@@ -482,7 +494,7 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   u32 f;
 #ifdef POOL_THRASH
   /* pool_back: in the FIFO again after a menu pool, a resident page that is not in RAM is read into its own frame */
-  if(pool_offs && !rom_pool) for(f=0;f<pool_rp;f++) if((rp_idx[f]&2047u)==pg) goto rd;
+  if(pool_offs && !rom_pool) for(f=0;f<pool_rp;f++) if((rp_idx[f]&(ROM_NPG-1u))==pg) goto rd;
 #endif
 #ifdef PZBLOCK
   if(pz_still && pz_ok(*(volatile u32*)(EW+0x1e00)) && pz_has(pg)){ pz_load(); return rom_pg[pg]; }
@@ -539,7 +551,14 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   return rom_pg[pg];
 }
 #endif
+#ifdef MERGED
+u32 rom_past_n, rom_obus_n;
+static void fatal_screen(const char*m,u32 a) __attribute__((noreturn));
+static __attribute__((noinline,noreturn)) void rom_past(u32 pg){ rom_past_n++; fatal_screen("ROM PAGE PAST THE IMAGE: ",pg); }
+static inline const u8 *rom_page(u32 pg){ if(pg>=ROM_NPG) rom_past(pg); const u8*p=rom_pg[pg]; return p?p:cd_fetch(pg); }
+#else
 static inline const u8 *rom_page(u32 pg){ pg&=2047; const u8*p=rom_pg[pg]; return p?p:cd_fetch(pg); }
+#endif
 static u32 rom_byte(u32 off){ return rom_page(off>>12)[off&4095]; }
 /* one page lookup (and one reference mark) per access that stays inside its page, and cd_fetch out of line: the hit path of rom_page is a load, a store
    and a test.  With the mark in rom_page, a lookup per byte through an out-of-line rom_page with a full register save made every ROM access of translated
@@ -913,6 +932,12 @@ u32 h_memrd(u32 ea,u32 kind){
   else if(ea>=0x80180000u&&ea<0x80200000u){ v=0; for(u32 k=0;k<size;k++) v|=((u32)((volatile u8*)ea)[k])<<(8*k); }
   else if((ea>>24)==4&&(ea&0xfffffc00u)==0x04000000u) v=io_read(ea&0x3ff,size);
   else if((ea>>24)>=2&&(ea>>24)<=7&&g2h(ea)){ const volatile u8*p=g2h(ea); v=0; for(u32 k=0;k<size;k++) v|=((u32)p[k])<<(8*k); }   /* raw guest RAM address that reached the slow path (runtime-built pointer, e.g. lsl #19 constants) */
+#ifdef MERGED
+  /* Milestone B: 0x09000000.. is past the 16 MiB image.  Star-FlyBack's radio looks for its tables there (title songs 0x09500000, streams, edits: only
+     in a 32 MiB cartridge with the remixes); a GBA cartridge bus answers an address past the chip with the address itself (open bus: halfword =
+     address/2), which is no table magic.  Served here without a disc read (rom_obus_n counts them). */
+  else if((ea>>24)==9){ u32 h0=(ea>>1)&0xffffu, h1=((ea+2)>>1)&0xffffu; rom_obus_n++; v=size==4?(h0|h1<<16):size==2?h0:((ea&1)?(h0>>8):(h0&0xff)); }
+#endif
   else { dbg("BADRD "); hex(ea); v=0; }
   if(kind==1&&(v&0x80)) v|=0xffffff00; if(kind==3&&(v&0x8000)) v|=0xffff0000;
   return v;
@@ -1332,7 +1357,11 @@ static const u32 dsp_keep[][2]={
   {0x800301c4u,0x03800008u},                               /*        jr $28 */
 };
 /* a hash of the rest of the ROM fast path and the kind dispatch (0x8003004c..0x80030128, which D3 and D4 run): ((h << 5) | (h >> 27)) ^ word */
+#ifdef MERGED
+#define DSP_FAST_HASH 0x5b2dd86du   /* the fast path masks the page number with 0xfff (t2m T2M_ROMPG_N=4096): one bit more than below */
+#else
 #define DSP_FAST_HASH 0x5b2dc86du
+#endif
 static void dsp_boot(void){
   u32 n=sizeof dsp_at/sizeof dsp_at[0], bad=0, h=0;
   if((u32)(dsp_new_end-dsp_new)!=n) bad=1;
@@ -2011,10 +2040,10 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   memcpy(EW,p,0x40000); p+=0x40000; memcpy(IW,p,0x8000); p+=0x8000; memcpy(PAL,p,0x400); p+=0x400; memcpy(VRAM,p,0x18000); p+=0x18000; memcpy(OAM,p,0x400); p+=0x400; memcpy(io,p,0x400);
   io_vc=b[32]; io_nread=b[33]; for(int i=0;i<4;i++) io_tm[i]=b[34+i]; io_nd=b[38]; io_keys=PAD[(io_nd/30)%6];
   const u32 *rp=(const u32*)rompack; rp_n=rp[0]; rp_idx=rp+1; rp_data=(const u8*)(rp+1+rp_n);
-  for(u32 i=0;i<2048;i++) rom_pg[i]=0;          /* ROMPG is outside the BSS: a real BIOS (and a packed EXE) leaves it undefined */
-  for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&2047]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted before the first level, see cd_fetch) */
+  for(u32 i=0;i<ROM_NPG;i++) rom_pg[i]=0;          /* ROMPG is outside the BSS: a real BIOS (and a packed EXE) leaves it undefined */
+  for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&(ROM_NPG-1u)]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted before the first level, see cd_fetch) */
 #ifdef PCACHE1
-  pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++){ u32 pg=rp_idx[i]&2047; fr_pg[i]=pg+1; pg_fr[pg]=i+1; }
+  pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++){ u32 pg=rp_idx[i]&(ROM_NPG-1u); fr_pg[i]=pg+1; pg_fr[pg]=i+1; }
 #endif
   dbg("boot image loaded, rom pages "); dec(rp_n); dbg("\n");
 #ifndef NO_INTERP
