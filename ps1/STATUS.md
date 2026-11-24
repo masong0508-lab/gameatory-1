@@ -506,7 +506,7 @@ of it the CPU waiting for the GPU and the vertical blank; a menu picture 774 lin
 | | Change | Flag (all on in `tools12/build.sh`, `RC10F=` turns them off) |
 | --- | --- | --- |
 | D | The 2D layer's full-screen backdrop is read back from VRAM by DMA2 (16-word blocks, as for uploads) instead of a polled word loop | `PP_RBDMA` |
-| U | CLUT and OBJ tile uploads only when the palette (exact compare) or the 16 KiB of tiles (two position-dependent checks, rc10.1: one of them nonlinear) changed | `PP_DIRTY` |
+| U | CLUT and OBJ tile uploads only when the palette (exact compare) or the OBJ tiles changed (rc10.2: two nonlinear per-word checks per 2 KiB block, every used block uploaded again within 2 s) | `PP_DIRTY` |
 | R | Blits read ROM pages that are already in RAM directly | `PP_ROMDIRECT` |
 | I | The ring replay `ppu_flush` lives in the renderer region (runtime room for D/U/R) | `PP_INSF` |
 | A | Asynchronous level picture: `present()` sends the 3D list and returns; the next present finishes it (2D layer, `pres_finish`) and the flip is done at a poll point that falls in the first 16 lines of a vertical blank (renderer loops, `io_read`, the ring replay), or the old way (`fl_sync`) before anything is drawn into the shown buffer; a picture stays on screen for at least two vertical blanks (`FL_MINL`). Every GP0 command waits for DMA2 first | `PRES_ASYNC` |
@@ -673,6 +673,77 @@ from b760a90 under the same names (`payback_rc10*`).
 - Per-frame pacing (`rv.py`, 60 s): pictures shown for one frame 0.0-0.2 %, 0 changes without a flip, 0 black, SwanStation
   stock walk / idle / tank / pause 12.62 / 13.72 / 12.02 / 10.07 pictures/s, recommended 29.97 / 29.97 / 29.85 / 24.14;
   Beetle stock 12.10 / 14.39 / 10.12, recommended 28.60 / 29.05 / 24.86 (walk / idle / tank).
+
+### rc10.2: OBJ tile check per block, two nonlinear mixers, refreshed within 2 s
+
+An independent attack on rc10.1's check found structured misses: an edit confined to the top nibble of words (one 4 bpp
+pixel of column 7 moved by an even number of rows: about 1 in 744 such edits), the pair w0+d / w1-33d (about 1 in 3,000),
+a deterministic 4-word change with 6 bit flips, and no time bound (a miss stayed on the screen for good). Fixed in
+61a94e7 + e66dd27; the release discs are rebuilt from e66dd27 under the same names (`payback_rc10*`).
+- `pp_objck` (ppu12.h) checks each block of 64 tile slots (512 words, 16 rows of either texture) with two independent
+  per-word mixers: A `a=(a+w)*0x85ebca6b; a^=a>>15`, B `b=(b^w)*0x27d4eb2f; b^=b>>13` (different multipliers, 3 and
+  7 mod 8, both 3 mod 4, so neither is 1 modulo any power of two above 2; different shifts; a right xorshift after every
+  multiply). 64 bits per block are compared; a block is uploaded when either differs. Hand-scheduled MIPS I loop (two
+  MULTU per word, no MULT within two instructions of an MFLO, load delays filled), 24 instructions per pair of words.
+- Only the blocks the drawn sprites use are checked (`pp_objmask`: the same filters as the draw loop) and only changed
+  blocks are uploaded. Time bound (`pp_objdec`): a used block older than 1.5 s is uploaded again, one per present, and
+  every used block older than 2 s is uploaded on that present, so any miss is gone from the screen within 2 s of
+  presents. Rolling per block was taken over "everything every 2 s" and over no refresh: the menus measured within 1 %
+  of each other (SwanStation stock), and rolling never puts the whole upload into one present.
+- Why rc10.1's timed upload cost title pictures: the title and the menus draw four 64x64 double-size affine 8 bpp
+  sprites over all 512 tile slots, and all their tiles are index 0. Their 256 transparent quads cost about 110
+  GPU-paced lines per present, which left the title iteration a few lines short of a vertical blank (PPSTAMP: vsync wait
+  55 -> 221 lines with +6.5 lines of check), so any extra work made the present miss its blank. pp_obj now records
+  which tiles were all index 0 when their block was uploaded (`pp_obj_z`) and sends no quad for them (the picture is the
+  same: texel 0000h draws nothing). That more than pays for the stronger check (35 lines per present on SwanStation,
+  rc10.1 28.5; Beetle, which times MULTU, 65).
+- What the check guarantees: a change of any single word of a used block always changes both checks (every step is a
+  bijection of the state), so it is always uploaded. Any change that both checks miss is uploaded again within 2 s.
+  What it does not guarantee: two or more changed words can in principle collide in both 32-bit checks (no hash of 64
+  bits can rule that out); the search below found none in 150 million structured tries, and a change deliberately
+  built from the stored check state could still cancel both, for at most 2 s.
+- Tests (ROM-free): `ps1/tests/objck_search.py` (C harness `objck_search.c`) cuts the check out of ppu12.h and searches
+  15 classes: random sparse edits (anywhere / within 64 words), 4 bpp and 8 bpp pixel moves and swaps along every
+  column, top-nibble and top-byte zero-sum / flip / swap pairs at every distance 1..64, two-word +d / -d*k pairs for 16
+  multiplier relations, changes built to cancel A (B must see them) and to cancel B (A must see them) next to each other
+  and up to 64 words apart, the attack's 4-word construction generalised plus its exact shape, tile and sprite moves,
+  copies and swaps, in-tile edits, the same bit in two words at every distance. `--tries 10000000`: 10 M tries per class,
+  0 misses (61 s; the built classes cancel one check almost every time and the other check sees every one). A single
+  check was equal 1 time in class 6 and 53 / 214 times in class 14 (a bit-31 / bit-30 pattern per chain); the different
+  shifts keep the two from cancelling together. `ps1/tests/test_objhash.py` (14 tests, 8 s): the constants rule, C =
+  Python model, a 20,000-per-class search, the MIPS loop under Unicorn against the C on dumped samples of every class,
+  a schedule checker on the disassembly (MULT/MFLO distance, load delays), the rc10.1 attacks (top nibble, w0+d/w1-33d)
+  and the review fixture, single-word changes, the upload decision and the 2 s bound simulated at 1-60 presents/s, the
+  block mask against the drawn tiles, the zero-tile map. Eight mutations of the C, the asm, the decision and the mask
+  are all caught.
+- e66dd27 made the new code smaller after `check_native` found the Test (KPLAN) and SPEEDPROF layouts overflowing the
+  runtime: one 24-word zero map written a word at a time, one repack loop for both textures, and the non-PP_DIRTY path
+  back to rc10.1's per-texture use test (it uploads every block anyway).
+- Memory: runtime ends `0x80027970`, 1,680 bytes free (rc10.1 3,216); ragdoll 2,140 and renderer 208 free, unchanged.
+- Verified on the rebuilt discs (`rc10/logs/v7_e66dd27.log`, gates `rc10/logs/gates/`): static gates (57,179 words,
+  0 R3000A faults, 0 load-delay hazards, gpuwait 14/14 before a command, 85 unit tests, `check_native`, `verify_inputs`,
+  `rtcold_proof`, `tools/check.py`), disc layout and `chdman verify` of both discs; boot to the title on both cores (the
+  same 5 expected FAILs); pad route 13/13 at stock and recommended on both cores; `in_level` SwanStation 34/1 (the rig's
+  tank-view classifier FAIL, as before); Beetle as rc10.1: the full session reached the vehicle walk after its death
+  step and the rig stopped on a missing player, without the death step 31/1 (`runs/r102_be_inlevel_veh`, the same
+  classifier FAIL); tank on both cores and recommended 7/7; level flicker both cores 2/2; menu flicker against `g_flips`
+  3,340 / 3,358 (SwanStation) and 3,001 / 3,017 (Beetle), 0 without a flip, 0 black (more pictures than rc10.1's
+  2,178 / 2,175: the menus run faster); memory card save and cold-boot load on both cores; TEST_assist reaches the level
+  by itself (its known "three lives" FAIL: assist gives 5).
+- Speed, SwanStation, emulated time, against rc10.1: menus at stock 32.87 / 16.04 / 30.47 pictures/s (language / title /
+  game menu; rc10.1 21.97 / 15.10 / 21.84), recommended 59.94 / 59.94 / 59.94 (same); power-on to level 26.41 s (27.58).
+  Level rows move with the route (each disc saves its own level state): stock foot 27.34 / 12.98, idle 29.07 / 14.42,
+  tank 29.53 / 15.09, car 22.88 / 10.55 (rc10.1 27.05 / 13.72, 28.22 / 13.92, 29.65 / 14.80, 25.77 / 12.25);
+  recommended foot 29.90 / 29.75, idle 29.92 / 29.82, tank 29.89 / 29.77, car 29.91 / 29.81 (rc10.1 29.95 / 29.94,
+  29.95 / 29.95, 29.83 / 29.43, car not reached). Side by side on data-only test discs (`discs/tf` = rc10.1, `discs/fin`
+  = e66dd27), six 60 s level windows: 13.85 against 13.78 pictures/s mean (+0.5 %; single windows 12.95-14.68 against
+  12.43-14.58). The car row depends on where the drive goes: started 200 / 300 / 400 frames after the state, 9.47 /
+  10.55 / 12.79 against 8.91 / 12.25 / 12.31; the OBJ work while driving is 129 block uploads in 50 s (all refreshes,
+  no tile changed), well under 1 % of the time.
+- Per-frame pacing (`rv.py`, 60 s): pictures shown for one frame 0.0-0.1 %, 0 changes without a flip, 0 black;
+  SwanStation stock walk / idle / tank / pause 13.35 / 13.72 / 13.85 / 13.67 pictures/s (rc10.1 12.62 / 13.72 / 12.02 /
+  10.07), recommended 29.64 / 29.94 / 29.77 / 23.73 (29.97 / 29.97 / 29.85 / 24.14); Beetle stock 12.82 / 14.54 / 10.47
+  (12.10 / 14.39 / 10.12), recommended 27.86 / 29.47 / 28.27 (28.60 / 29.05 / 24.86) (walk / idle / tank).
 
 ## What the existing stages actually contain
 
