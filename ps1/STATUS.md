@@ -625,6 +625,112 @@ clock before it presses Start, and the game runs on until the pause menu is up (
 `pdiag`); once the menu is shown the clock stands still on both cores (rv pause runs above), so this is the probe's
 order of reads, not a running clock.
 
+## Milestone B: Star-FlyBack on the PS1
+
+The merged Star-FlyBack GBA ROM (`stuntfox/build.py ROM --merge --no-remixes --amiga DIR`, 16 MiB, built from the
+player's own Payback ROM) goes through the same pipeline as rc10. The plan is `msb/PLAN.md` in the scratchpad (not in
+the repository). The discs are **test discs** until B7. The ROM, the translation and the discs stay private.
+
+### B1: the merged ROM to the title with "Game options" (branch msb-b1)
+
+How to build it:
+
+```sh
+# in a prepared tree (python3 ps1/tools/prepare.py --output TREE); SEED: cov_L3.pkl, rank_S0/rank_B/rank_S.pkl of the original's pipeline
+ROM=/abs/merged.gba ORIG=/abs/Payback.gba SEED=/abs/seed bash TREE/tools12/translate_msb.sh TREE
+cd TREE && ROM=/abs/merged.gba bash tools12/build_msb.sh NAME      # tools12/build.sh (rc10) is unchanged
+```
+
+What changed. Everything new is behind `-DMERGED`, `MERGED=1` or environment variables that only `build_msb.sh` and
+`translate_msb.sh` set. With none of them set, the code is the same as rc10's.
+
+- Translation (`tools12/translate_msb.sh`; full copies of `disc.py`, `t2m.py`, `prune.py`, `mkps1.py` in stage19).
+  - `PB_DATA_SPANS` makes discovery treat Star-FlyBack's span `0x081b0000..0x082f6de8` as data. So does the rc7
+    overlay loader at `0x08077508`, which stays interpreted.
+  - Result: 221,016 translated instructions, none of them inside the spans. Calls into SF go `RT_MISS`, then the
+    interpreter.
+  - `PRUNE_DROP=3`: the intro join `0x080234be` is now translated (rc7 I1's "real fix"). `intro_fix_init` checks that
+    and patches nothing.
+  - `T2M_ROMPG_N=4096`: a 16 MiB page table at `0x8002a000..0x8002e000`. The interpreter keeps 8 stacks
+    (`IP_MAXD`) in `0x8002e000..0x80030000`. `Cfg.BASE` did not move.
+  - The IWRAM image and `SF3M.BIN` are identical to the original game's (`87e0ea7e...`). `boot.bin` comes from
+    lockstep2.py, with the same return address `0x800325c0`.
+  - The hot blob is about 10 KiB longer, because the intro is translated. The level tier `pr_l` therefore uses
+    `rank_S0` (172 functions) so that the world window stays at `0x800cd800`. The 44 `extra_touch` functions are
+    interpreted in levels.
+- Runtime (`rt.c`, `interp_glue.h`, `ppu12.h`, `build.sh`, under `MERGED`):
+  - a 16 MiB ROM window (`ROM_NPG` 4096);
+  - `pg_fr[4096]` in the ragdoll region;
+  - a fatal screen "ROM PAGE PAST THE IMAGE" (`rom_past_n`) instead of the old page mask;
+  - open-bus answers for `0x09xxxxxx` (SF's radio probes `0x09500000`; counted in `rom_obus_n`);
+  - interpreter **SWI 6 (Div)**: SF's ARM libgcc divide uses it. Without it the title card's fade never ran;
+  - **PPU mode 3** with the BLDY fade, for SF's title card.
+- `build_msb.sh` uses 61 resident ROM pages (`t/resident_msb.txt`) and the pause block `t/pause_pages_msb.txt`. Both
+  are rc10's lists with the map-column pages moved to `0x08800000+`. `check_intro_site.py --merged` is the merged-image
+  check.
+
+rc10 is unchanged. Built from msb-b1 with rc10's `track_a_reuse.sh`, the result is byte-identical to the build from
+`b1de094`: ELF `e739a764...`, EXE `9b8f18e8...`.
+
+Memory (B1 release ELF; rc10 `e739a764` in brackets):
+
+| Region | Free in B1 | Free in rc10 |
+|---|---|---|
+| Runtime | 4,080 B | 3,376 B |
+| `.rtcold` | 144 B | 8 B |
+| Ragdoll region | 2,140 B | 2,140 B |
+| Renderer | 2,112 B | 208 B |
+
+`pg_fr` moved out of the renderer's BSS. The page cache is `0x8015d000..0x80165000` (28 slots).
+
+Measured in emulated time (core frames / 59.94), on the release disc `starflyback_ps1_b1`. Frames count from Cross on
+the language screen.
+
+| | SwanStation stock | SwanStation rec. | Beetle stock | Beetle rec. | GBA (mGBA) |
+|---|---|---|---|---|---|
+| Title, hands-off | 1,724 (28.8 s) | 1,033 (17.2 s) | 1,843 (30.7 s) | 1,212 (20.2 s) | 1,269 |
+| Title, pad route | 740 | 269 | 819 | 636 | |
+| Black gap, ZOO logo to SF card | 482 | 360 | 417 | 374 | 343 |
+| Black gap, card to title | 120 | 29 | 157 | 148 | 17 |
+| Cross on Game options to the SETTINGS page | 2,196 (36.6 s) | 432 | 2,118 | 562 | at most 46 |
+| Circle back to the title | 134 | 30 | 174 | 92 | |
+
+On every run the title reads "Play game | Delete game | View intro | Credits | Control setup | Game options". The
+SETTINGS page matches mGBA's picture of the merged ROM. The mGBA captures are private.
+
+The following held on all 8 runs:
+- no short flash (shorter than 6 frames) at stock;
+- no fatal screen and no `PORT ERROR`;
+- `rom_past_n` 0, `rom_obus_n` 2.
+
+Known differences:
+- **Short black runs at SwanStation recommended.** There are 3 runs of 4-5 frames between the boot logos. rc10 has
+  the same 3, at the same frames. They are the GBA's own 18-20 frame fades, shortened by the overclock.
+- **Pictures changed without a present.** There are 9 changes in the logo fades and at the card and title. rc10 has 8,
+  at the same logo frames.
+- **The title's sprites are missing.** The STAR-FLYBACK logo (4 affine double-size semi-transparent 8 bpp sprites) and
+  the flying ships are not drawn on the title. rc10's title lacks Payback's logo too, so this is not new in B1.
+- **The title menu is slow at stock.** It runs at about 10.6 guest frames/s, because SF's title hooks are interpreted.
+  Moving the cursor to Game options took about 3,100 frames with the rig's careful presses (about 90 frames at the
+  recommended settings).
+
+A level, tried once for B2 (not a B1 requirement):
+- The first level picture comes 672 frames (11.2 s) after the Play-game route starts at SwanStation stock, and 264
+  frames at recommended.
+- The level clock then stays at 1 (0 ticks/s). The renderer draws 2-3 frames and stops. The tty shows `GRIDCHK ...
+  MISMATCH`, because rc10's diagnostic reads the original's grid table.
+
+Static gates on the B1 ELF:
+- passed: `mips1_lint` (0 of 57,002), `loaddelay` (0), `gpuwait_classify`, `check_intro_site --merged`,
+  `disp_patch_check`, `prepare.py --check`, unit tests, `check_native`;
+- `bioscalls`: the same services as rc10 (A(44h), A(3Ch)), with one fewer site because `intro_fix_init` patches
+  nothing. The rig tool needs a parse fix for llvm-objdump's `<sym+off>` operands; it fails on rc10's ELF too.
+
+Song 3:
+- its 27 sample ranges and 48 patterns are zero in the disc's `ROM.BIN`;
+- slot 3 holds song 4's tables;
+- the disc has the same 15 tracks as rc10.
+
 ## What the existing stages actually contain
 
 | Area | Current source state | Remaining acceptance |
