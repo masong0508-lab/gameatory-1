@@ -109,6 +109,14 @@ static inline void link_hud(u32 *p, int w) { p[0] = ((u32)w << 24) | 0x00FFFFFF;
 #define FIELDS 3
 #endif
 static inline int iabs_(int v) { return v < 0 ? -v : v; }
+#ifdef PRES_ASYNC
+/* rc10 (rt.c pres_finish): the previous picture's flip waits for a vertical blank; the renderer gives the runtime a poll point between items and
+   phases (cheap: one load while no flip is asked for) and lets it finish the flip before the list is sent into the buffer that was shown */
+extern int fl_req; extern void fl_poll(void); extern void fl_sync(void);
+#define FLPOLL() do { if (fl_req >= 0) fl_poll(); } while (0)
+#else
+#define FLPOLL() do {} while (0)
+#endif
 static void list_send(void) {
   *bg_tail = (*bg_tail & 0xFF000000) | ADDR(&otc[OTN - 1]);
   while (!(GP1 & 0x04000000)) {} D2_MADR = ADDR(&bg_head); D2_BCR = 0; D2_CHCR = 0x01000401;
@@ -604,7 +612,7 @@ static void ground_draw(void) {
     int cz = ccz + dz; if ((unsigned)cz > 127) continue;
     s32 r_ = sr, u_ = su, f_ = sf;
     for (int dx = -6; dx <= 6; dx++, r_ += drx, u_ += dux, f_ += dfx) {
-      int cx = ccx + dx;
+      int cx = ccx + dx; FLPOLL();
       if ((unsigned)cx > 127) continue;
       int i = cx * 128 + cz; if (!(side->gmask[i >> 3] >> (i & 7) & 1)) continue;
       CNT(c_cullcell);
@@ -931,6 +939,7 @@ static void city_draw(void) {
     if (!in_view(sx * 8192 + 4096, 1500, sz * 8192 + 4096, 7300)) continue;
     int s = sx * 16 + sz, first = sector[2 * s], cnt = sector[2 * s + 1];
     for (int i = 0; i < cnt; i++) {
+      FLPOLL();
       u16 it = items[first + i]; int kind = it >> 13, idx = it & 0x1fff;
       u32 tq = TK();
       if (kind == 0) { if (st_box[idx] == stamp) continue; st_box[idx] = stamp; u32 l0_ = c_leaf, p0_ = c_proj, r0_ = c_rect, k0_ = c_cleaf; draw_box(idx); u32 dt_ = (TK() - tq) & 0xffff; t_cb += dt_; if (dbgcell && dt_ > 800) { dbg("box "); ddec(idx); ddec(boxes[idx].x1 - boxes[idx].x0); ddec(boxes[idx].z1 - boxes[idx].z0); ddec(boxes[idx].h); ddec(dt_ / 270); dbg("rect "); ddec(c_rect - r0_); dbg("leaf "); ddec(c_leaf - l0_); ddec(c_cleaf - k0_); dbg("proj "); ddec(c_proj - p0_); dbg("\n"); } }
@@ -1237,11 +1246,11 @@ int sf3_frame(int oy, s32 px, s32 py, s32 pz, int heading, int pkind, const SfEn
   list_begin(0);
 #define PH(k) do { u32 t_ = PHT(); sf3_ph[k] = (t_ - tp_) & 0xffff; tp_ = t_; } while (0)
   u32 tp_ = PHT(); c_proj = 0; c_leaf = 0; c_clip = 0; t_cb = t_cr = t_ct = t_gc = t_clipt = t_rect = t_qoff = t_qf = t_wg = t_fw = t_top = t_pa = t_pb = t_pc = t_pd = t_pf = 0; c_box = c_rect = c_cells = c_cullcell = c_cleaf = c_wg = c_wcell = c_wq = c_wf = 0;
-  sky_draw(); PH(0);
-  island_draw(flat_col(1, 2, 0)); PH(1);
-  city_draw(); PH(2);
+  sky_draw(); PH(0); FLPOLL();
+  island_draw(flat_col(1, 2, 0)); PH(1); FLPOLL();
+  city_draw(); PH(2); FLPOLL();
 ground_draw();
-  PH(3);
+  PH(3); FLPOLL();
 #ifdef OLDMODELS
   if (pkind) car_draw(px, py, pz, car_h);
   else if (!sf3_hide_player) billboard(px, py, pz, 45, 0, 150, flat_col(7, 2, 0), zdepth(px, py, pz));
@@ -1256,6 +1265,7 @@ ground_draw();
   else if (!sf3_hide_player) ped_draw(px, py, pz, car_h, 128, ROW_HERO, 0);
   { int n = nents > 40 ? 40 : nents;    /* two passes, near first (the cheap levels and the primitive pool check do the rest) */
     for (int pass = 0; pass < 2; pass++) for (int k = 0; k < n; k++) { const SfEnt *e = &ents[k]; int d = zdepth(e->x, e->y, e->z); if ((d < 1300) != (pass == 0) || d < -400 || d > 9000) continue;
+      FLPOLL();
       if (e->kind == 0) veh_draw(e->x, e->y, e->z, e->yaw, e->look, e->pol, d);
       else ped_draw(e->x, e->y, e->z, e->yaw, e->spare & 127, ped_row(e->spare & 127, e->pol, e->look == 0xFE), d); } }
 #endif
@@ -1279,6 +1289,9 @@ ground_draw();
   /* stage 19: the 3D view is drawn into lines 8..231 of the buffer, the area the 2D layer and its HUD use (ppu12.h PP_Y0/PP_H); same projection
      (centre 160,120, H 181, square pixels), so the view is not stretched, only its top and bottom 8 lines are not drawn */
   gp0c(0xE1000400 | TPAGE(320, 0, 1, 0)); gp0e(0xE3000000 | ((oy + 8) << 10)); gp0e(0xE4000000 | 319 | ((oy + 231) << 10)); gp0e(0xE5000000 | (oy << 11));
+#ifdef PRES_ASYNC
+  fl_sync();
+#endif
   list_send(); PH(6);
   sf3_cnt[0] = c_proj; sf3_cnt[1] = c_leaf; sf3_cnt[2] = c_clip; sf3_cnt[3] = t_cb / 268; sf3_cnt[4] = t_cr / 268; sf3_cnt[5] = t_ct / 268; sf3_cnt[6] = t_gc / 268; sf3_cnt[7] = t_clipt / 268; sf3_ph[7] = 0; sf3_cnt[8] = t_rect / 268; sf3_cnt[9] = t_qoff / 268; sf3_cnt[10] = t_qf / 268; sf3_cnt[11] = c_box; sf3_cnt[12] = c_rect; sf3_cnt[13] = c_cells; sf3_cnt[14] = c_cullcell; sf3_cnt[15] = c_cleaf; sf3_cnt[16] = t_wg / 268; sf3_cnt[17] = t_fw / 268; sf3_cnt[18] = t_top / 268; sf3_cnt[19] = c_wg; sf3_cnt[20] = c_wcell; sf3_cnt[21] = c_wq; sf3_cnt[22] = c_wf; sf3_cnt[23] = t_pa / 268; sf3_cnt[24] = t_pb / 268; sf3_cnt[25] = t_pc / 268; sf3_cnt[26] = t_pd / 268; sf3_cnt[27] = t_pf / 268;
 #ifndef OLDMODELS

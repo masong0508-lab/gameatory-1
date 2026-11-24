@@ -37,6 +37,14 @@ static void dec(u32 v){ char b[12]; int n=0; if(!v) b[n++]='0'; while(v){b[n++]=
 /* ---------------------------------------------------------------- ROM page store (resident pages shipped in the EXE) */
 static u32 rp_n; static const u32 *rp_idx; static const u8 *rp_data; static u32 rom_miss_count, rom_miss_last, cd_sectors, cd_time_rc;
 #include "clk.h"       /* PS1 speed plan: the 64-bit clock (RTC64) and the test-only speed stamps (SPEEDPROF); first part */
+#ifdef PRES_ASYNC
+int fl_req=-1;                 /* rc10: y of the buffer waiting to be shown (flip asked for), -1 none (see pres_finish) */
+static int pend_oy=-1;         /* rc10: y of a 3D picture sent (DMA2 maybe still drawing it), its 2D layer not yet drawn */
+void fl_poll(void);
+#define FL_POLL() do{ if(fl_req>=0) fl_poll(); }while(0)
+#else
+#define FL_POLL() ((void)0)
+#endif
 /* stage 20 D3: the page table is the translator's reserved ROMPG (t2m.py Cfg.ROMPG, 2048 x u32), so the blob's own RT_MEMRD fast path reads
    the same table as rom_page(): non-zero = resident, cleared on every eviction (cd_fetch).  Zeroed in main(); the absolute symbol keeps the
    name for the test rig (misses.csv). */
@@ -791,6 +799,7 @@ u32 dsp_frozen;
 static void dsp_freeze(void){ dsp_frozen=1; dbg("DISP FREEZE at guest frame "); dec(g_gframes); dbg("\n"); for(;;){} }
 #endif
 u32 io_read(u32 off,u32 size){
+  FL_POLL();
 #ifdef DISP_FREEZE_GF
   if(g_gframes>=DISP_FREEZE_GF) dsp_freeze();
 #endif
@@ -1365,9 +1374,19 @@ static void dsp_boot(void){
 #define D2_BCR  (*(volatile u32*)0x1F8010A4)
 #define D2_CHCR (*(volatile u32*)0x1F8010A8)
 #define DPCR    (*(volatile u32*)0x1F8010F0)
-static inline __attribute__((always_inline)) void gp0c(u32 w){ while(!(GP1&0x04000000)){} GP0=w; }                /* command word */
+#ifdef PRES_ASYNC
+/* rc10: the level's 3D list may still be running through DMA2 (linked list) after present() returned: a command word written to GP0 meanwhile
+   would land inside that list, so every command waits for DMA2 first (one register read when it is idle) */
+#define GP0_DMAWAIT() while(D2_CHCR&0x01000000){}
+#else
+#define GP0_DMAWAIT() ((void)0)
+#endif
+static inline __attribute__((always_inline)) void gp0c(u32 w){ GP0_DMAWAIT(); while(!(GP1&0x04000000)){} GP0=w; }                /* command word */
 static inline __attribute__((always_inline)) void gp0p(u32 w){ GP0=w; }                                            /* parameter word */
-static inline __attribute__((always_inline)) void gp0e(u32 w){ while((GP1&0x14000000)!=0x14000000){} GP0=w; }     /* E3h..E5h: FIFO empty */
+static inline __attribute__((always_inline)) void gp0e(u32 w){ GP0_DMAWAIT(); while((GP1&0x14000000)!=0x14000000){} GP0=w; }     /* E3h..E5h: FIFO empty */
+/* the same without the DMA2 wait, for the two fault screens (they let a running DMA end first, and .rtcold has no room for the waits) */
+static inline __attribute__((always_inline)) void gp0c0(u32 w){ while(!(GP1&0x04000000)){} GP0=w; }
+static inline __attribute__((always_inline)) void gp0e0(u32 w){ while((GP1&0x14000000)!=0x14000000){} GP0=w; }
 /* every command with two parameters (fill 02h, rectangle 60h, VRAM load A0h, VRAM store C0h) goes through this one out-of-line sender: one wait,
    before the command word, then the parameters.  (It also keeps every caller free of a second wait between two such commands.) */
 static __attribute__((noinline)) void gp0_2(u32 c,u32 p1,u32 p2){ gp0c(c); gp0p(p1); gp0p(p2); }
@@ -1427,7 +1446,7 @@ static RTCOLD void fatal_screen(const char*m,u32 a){
   while(D2_CHCR&0x01000000){} GP1=0x01000000;                     /* let a running DMA end, then drop any half-sent GPU command */
   for(int b=0;b<2;b++){ cur_oy=b*240;
     gp0_2(0x02600000,XY(0,cur_oy),XY(320,240)); gpu_idle();
-    gp0c(0xE1000000|(1<<10)); gp0e(0xE3000000|((u32)cur_oy<<10)); gp0e(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e(0xE5000000);
+    gp0c0(0xE1000000|(1<<10)); gp0e0(0xE3000000|((u32)cur_oy<<10)); gp0e0(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e0(0xE5000000);
     text(64,72,"PORT ERROR",4,0xffffff); text(4,124,m,2,0xc0c0ff); text(128,152,h,2,0xffffff); }
   gpu_idle(); GP1=0x05000000; GP1=0x03000000; disp_on=1; g_flips++;
   for(;;){}
@@ -1438,11 +1457,14 @@ static RTCOLD void fatal_screen(const char*m,u32 a){
    usual once the disc reads again.  Every failure episode shows it (cd_err_on is cleared when a read completes); cd_failed counts the episodes. */
 static RTCOLD void cd_error_screen(u32 lba){
   if(cd_err_on) return; cd_err_on=1; cd_failed++;
+#ifdef PRES_ASYNC
+  if(fl_req>=0){ buf^=1; fl_req=-1; } pend_oy=-1;   /* a picture waiting for its flip counts as shown: buf is the buffer to draw next */
+#endif
   dbg("CD READ ERROR lba "); dec(lba); dbg("stat "); hex(cd_stat); dbg("retrying\n");
   while(D2_CHCR&0x01000000){} GP1=0x01000000;                     /* let a running DMA end, then drop any half-sent GPU command */
   for(int b=0;b<2;b++){ cur_oy=b*240;
     gp0_2(0x02000060,XY(0,cur_oy),XY(320,240)); gpu_idle();
-    gp0c(0xE1000000|(1<<10)); gp0e(0xE3000000|((u32)cur_oy<<10)); gp0e(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e(0xE5000000);
+    gp0c0(0xE1000000|(1<<10)); gp0e0(0xE3000000|((u32)cur_oy<<10)); gp0e0(0xE4000000|319u|((u32)(cur_oy+239)<<10)); gp0e0(0xE5000000);
     text(64,96,"CD READ ERROR",4,0xffffff); text(88,136,"CHECK THE DISC",2,0xc0c0ff); }
   gpu_idle(); GP1=0x05000000|((u32)(buf?0:240)<<10); GP1=0x03000000; disp_on=1; cur_oy=buf?240:0; g_flips++;
 }
@@ -1453,6 +1475,33 @@ static u32 last_dl, last_rc, logic_lines, max_lines, tot_lines, nfr_meas;
 #define PPU_SF3HUD 0
 #endif
 #include "ppu12.h"
+#ifdef PRES_ASYNC
+/* rc10 (PROFILE.md): the level picture without the CPU standing still.  present() sends the 3D list (sf3_frame) and returns: the GPU draws it while
+   the guest runs its next iteration.  The next present() first finishes that picture (pres_finish: the 2D layer over it, pp_draw, with the 2D
+   state of that moment) and asks for the flip (fl_req); the flip itself is done at a poll point that falls in the first lines of a vertical
+   blank (fl_poll: the vblank flag of ISTAT, cleared when the flip is asked for, is seen set and the previous poll was at most FL_WIN lines before,
+   so the blank began less than FL_WIN lines ago; FL_WIN 16 lines) once the GPU is idle; fl_sync() waits for it the old way (gpu_idle + vsync) before anything is
+   drawn into the buffer that is still shown.  buf (the buffer to draw next) changes when the flip is done.
+   Poll points: the renderer (city items, phases), io_read, the ring replay. */
+#ifndef FL_WIN
+#define FL_WIN 16      /* the blank is 23 lines (NTSC: 263 - 240 shown) or more (PAL); the display start is taken at the start of the shown lines */
+#endif
+static u32 fl_pt;              /* RC1 low word at the previous poll */
+u32 fl_npoll, fl_nsync, fl_nlate;   /* flips done at a poll point / by waiting; blanks seen too late at a poll */
+static void fl_do(int o){ GP1=0x05000000|((u32)o<<10); g_flips++; if(!disp_on){ disp_on=1; GP1=0x03000000; } buf^=1; fl_req=-1;
+#if defined(RTC64)||defined(SPEEDPROF)
+  pic_flipped();
+#endif
+}
+void fl_poll(void){ u32 t=RC1_VAL&0xffff, dt=(t-fl_pt)&0xffff; fl_pt=t;
+  if(ISTAT&1){ if(dt<=FL_WIN&&!(D2_CHCR&0x01000000)&&(GP1&0x14000000)==0x14000000){ fl_do(fl_req); fl_npoll++; } else { ISTAT=~1u; fl_nlate++; } } }
+void fl_sync(void){ if(fl_req>=0){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); fl_do(fl_req); fl_nsync++; } }
+static void pres_finish(void){
+  if(pend_oy<0) return;
+  SP_T0(td); while(D2_CHCR&0x01000000){} SP_ADD(SP_DMA,td);
+  SP_T0(tp); pp_draw(pend_oy,1); SP_ADD(SP_PPD,tp);
+  fl_req=pend_oy; pend_oy=-1; ISTAT=~1u; fl_pt=RC1_VAL&0xffff; }
+#endif
 static u32 rd32g(u32 off){ return rom_read(0x08000000+off,4); }
 /* ---------------------------------------------------------------- stage 3: the PS1 city renderer (sf3.c) driven from Payback's state */
 #include "../include/sf_entity.h"
@@ -1630,6 +1679,10 @@ static void present(void){
 #ifdef SPEEDPROF
   u32 sp_t=sp_now(); int sp_lvl=0; SP_T0(ts); sp_inpres++;
 #endif
+  int pr_async=0;        /* rc10 PRES_ASYNC: this picture's 3D list is left running (its 2D layer and flip come with the next present) */
+#ifdef PRES_ASYNC
+  pres_finish();
+#endif
   cd_idle();             /* a data read left running since the last picture is paused now (reads that follow each other need no Pause) */
   sv_service(); cdda_service();
   SP_ADD(SP_SVC,ts); CLK_POLL();
@@ -1686,7 +1739,11 @@ static void present(void){
   /* ----- game-state tick (same clock as the lockstep proof): vblank = io_vc 160, IF bit0 */
   u32 n=DL[0]; u32 from=last_dl; if(n-from>256) from=n-256; last_dl=n;
   logic_lines=lines; if(lines>max_lines) max_lines=lines; tot_lines+=lines; nfr_meas++;
+#ifdef PRES_ASYNC
+  int oy=fl_req>=0?(fl_req?0:240):(buf?240:0); cur_oy=oy;   /* the buffer not shown and not waiting to be shown */
+#else
   int oy=buf?240:0; cur_oy=oy;
+#endif
 #ifndef AUTOKEYS
 #ifdef RTC_GFRAMES
   clk_gba();
@@ -1739,7 +1796,11 @@ static void present(void){
     sp_acc[SP_GATHER]+=st3_gather_lines; sp_lvl=1;
 #endif
     if(ok){ SP_T0(tq); stage7_pre(&px,&py,&pz,&hd,&pk,&ne); SP_ADD(SP_PRE,tq); hpx=px; hpy=py; hpz=pz; hhd=hd; hpk=pk; hne=ne; hvalid=1; u32 r0=RC1_VAL; sf3_frame(oy,px,py,pz,hd,pk,ents3,ne,PPU_SF3HUD);
-      SP_ADD(SP_ENG,r0); SP_T0(td); while(*(volatile u32*)0x1F8010A8&0x01000000){} SP_ADD(SP_DMA,td); SP_T0(tp); pp_draw(oy,1); SP_ADD(SP_PPD,tp); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++; st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
+#ifdef PRES_ASYNC
+      SP_ADD(SP_ENG,r0); pr_async=1; u32 dl=(RC1_VAL-r0)&0xffff; st3_render++;
+#else
+      SP_ADD(SP_ENG,r0); SP_T0(td); while(*(volatile u32*)0x1F8010A8&0x01000000){} SP_ADD(SP_DMA,td); SP_T0(tp); pp_draw(oy,1); SP_ADD(SP_PPD,tp); u32 dl=(RC1_VAL-r0)&0xffff; st3_render++;
+#endif st3_lines_sum+=dl; if(dl>st3_lines_max) st3_lines_max=dl;
       if((st3_render&PRINT_EVERY_SF3)==1||st3_render<4){ dbg("SF3 frame "); dec(st3_render); dbg("map "); dec(sf3_map_cur); dbg("gmap "); dec(g3_map); dbg("pos "); dec(px); dec(py); dec(pz); dbg("hd "); dec(hd); dbg("veh "); dec(pk); dbg("ents "); dec(ne); dbg("eng "); dec(sf3_stat_eng); dbg("host "); dec(dl); dbg("lines prim "); dec(sf3_stat_prim); dbg("ovf "); dec(sf3_stat_ovf); dbg("lod "); dec(sf3_stat_lod); dbg("logic "); dec(lines); dbg("gat "); dec(st3_gather_lines); dbg("romld "); dec(rom_miss_count); dbg("cnf "); dec(cold_conflicts); dbg("interp "); dec(ip_enters); dbg("cdsec "); dec(cd_sectors); dbg("ph "); for(int q=0;q<8;q++) dec(sf3_ph[q]); dbg("cnt "); for(int q=0;q<32;q++) dec(sf3_cnt[q]); dbg("\n"); }
 #ifdef SPINTEST
       /* TEST-ONLY (stage 13): once, after SPINTEST renders: 12 headings (1/12 turn apart), 6 renders each (the camera and the LOD governor settle), the guest frozen in this call; prints the 6th render of each heading and the summary, then goes on normally */
@@ -1804,6 +1865,9 @@ static void present(void){
     sp_acc[SP_PRESL]+=sp_now()-sp_t; sp_inpres--;
 #endif
     return; }   /* stage 13: renderer data is being restored after a cold-code overlay hit it: keep showing the last 3D frame (no switch to the debug page, no luminance flash) */
+#ifdef PRES_ASYNC
+  fl_sync();             /* the buffer drawn now may still be the one shown */
+#endif
   { SP_T0(tp); pp_draw(oy,0); SP_ADD(SP_PPD,tp); }          /* the 2D layer: black borders, backdrop, page, sprites (ppu12.h sets its own drawing environment) */
 #ifndef PPU_DEBUG
   goto flip;
@@ -1851,7 +1915,11 @@ static void present(void){
 #endif
   /* ----- present */
  flip:
-  flip_to(oy); buf^=1;
+#ifdef PRES_ASYNC
+  if(pr_async) pend_oy=oy; else
+#endif
+  { flip_to(oy); buf^=1; }
+  (void)pr_async;
   cd_resume();           /* CD audio held for data reads comes back when no data read was made for a while (after this picture's own reads) */
   last_rc=RC1_VAL;
 #ifdef SPEEDPROF
