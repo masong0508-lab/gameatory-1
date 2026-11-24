@@ -202,7 +202,7 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "00223ae3e69b5e2e75b0ae537e70a7614ca18a79a37dc5b3f274a8bb35c61b42"
+      "sha256": "8dd6e45d66bc2dee8a5313efa4c4c6088085012411af6cabe160a5ff543d553d"
     },
     {
       "source": "stage19/ps1rt/ps1.ld",

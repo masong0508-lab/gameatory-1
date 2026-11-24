@@ -241,12 +241,11 @@ static PP_SECT void ppu_flush(void){
 static u32 pp_col(u32 v,u32 br){ if(br>=32) return v; u32 r=(v&31)*br/32, g=((v>>5)&31)*br/32, b=((v>>10)&31)*br/32; return r|(g<<5)|(b<<10); }
 #ifdef PP_DIRTY
 static u32 pp_clut_br, pp_nclut, pp_nobjup;   /* rc10: brightness of the CLUTs in VRAM (0 = none yet), CLUT and OBJ uploads (counters for the rig) */
-/* rc10.1: the two 32-bit checks (A, B) of the OBJ tiles last uploaded into each texture (4 bpp, 8 bpp; A = 0: never uploaded) */
-static u32 pp_obj_ha[2], pp_obj_hb[2];
 #ifdef OBJH_PROF
-u32 objh_n, objh_lines, objh_old_lines, objh_up_n, objh_up_lines;   /* TEST-ONLY: hash calls and their RC1 lines (new and the rc10 hash), uploads and their lines */
+u32 objh_n, objh_lines, objh_blk, objh_up_n, objh_up_lines;   /* TEST-ONLY: decisions and their RC1 lines, blocks checked, presents with uploads and their lines */
 #endif
 #endif
+#define PP_OBJ_NB 8          /* the OBJ tiles in 8 blocks of 64 tile slots = 512 words = 16 rows of either texture (one upload) */
 static void pp_cluts(void){
 #ifdef PP_DIRTY
   /* rc10: the 2 KiB of CLUTs are only rebuilt and uploaded when the guest palette or the brightness changed: at full brightness every entry of
@@ -268,54 +267,140 @@ static const u8 PP_SZ[3][4][2]={{{8,8},{16,16},{32,32},{64,64}},{{16,8},{32,8},{
 static __attribute__((noinline)) void pp_q4(const int*vx,const int*vy,int u0,int v0,int u1,int v1,u32 clut,u32 tp,u32 cmd){
   gp0c(cmd); gp0p(XY(vx[0],vy[0])); gp0p(u0|(v0<<8)|(clut<<16)); gp0p(XY(vx[1],vy[1])); gp0p(u1|(v0<<8)|(tp<<16)); gp0p(XY(vx[2],vy[2])); gp0p(u0|(v1<<8)); gp0p(XY(vx[3],vy[3])); gp0p(u1|(v1<<8)); }
 #ifdef PP_DIRTY
-/* PP_OBJCK BEGIN  rc10.1: the two checks of the 4096 OBJ tile words (see pp_obj): out[0] = A | 1 (0 = never uploaded), out[1] = B.
-     A, per pair of words: a=G(a+w0); a=G((a+w1)*0x9e3779b1) with G(x)=x^(x>>15).  G is the nonlinear part: it brings bit 31 (and every
-       high bit) down into the bits the next add carries through and the multiply spreads, so no word difference passes unchanged to the
-       next word (the rc10 checks were linear: a bit-31 flip moved the state by exactly 2^31, which a second bit-31 flip took back).
-     B, per word: djb2 b=b*33+w (linear), the independent second check.  A could still be cancelled by a change that exactly undoes the
-       state difference of an earlier one (any 32-bit chain can); B, linear with a different structure, sees those (test_objhash.py builds
-       them and checks), and A sees B's even numbers of bit-31 flips.
-     Every step of A and of B is a bijection of its state for fixed words, so a change of any ONE word always changes both.
-   The C is the definition (host builds, ps1/tests/test_objhash.py).  On the PS1 the same steps are scheduled by hand: clang turns the djb2
-   shift-and-add into a multiply of its own and reads LO right after each MULTU; here one MULTU serves two words and B's shifts, the pointer step
-   and the next two loads run while it is busy: 28.3-28.8 hblank lines per call at stock, the rc10 check 34.2-34.5 (OBJH_PROF).  MIPS I: a loaded
-   word is used two or more instructions later, no MULTU within two instructions of MFLO; the loop reads two words past the end
-   (VRAM+0x18000, PS1 RAM, unused). */
+/* PP_OBJCK BEGIN  rc10.2: the two checks of one block of 512 OBJ tile words (see pp_obj): out[0] = A, out[1] = B, compared as 64 bits.
+     Two independent per-word mixers, each a multiply followed by a right xorshift (PP_OBJCK_STEP):
+       A: a = (a + w) * KA;  a ^= a >> SA        KA = 0x85ebca6b, SA = 15
+       B: b = (b ^ w) * KB;  b ^= b >> SB        KB = 0x27d4eb2f, SB = 13
+     Both multipliers are 3 mod 4 (so neither is 1 modulo 4, 8, 16, ...): a difference confined to the top bits of a word is changed by the
+     multiply (c*K mod 2^n is not c) and the xorshift then carries it down into the low bits, where the next word's add/xor and multiply spread
+     it over the whole state.  A takes the word by add, B by xor; the constants and the shifts differ, so no additive or xor relation between
+     words that cancels one mixer cancels the other (the rc10.1 checks failed on exactly that: B = djb2 ignored zero-sum changes in bits 27-31,
+     A's 0x9e3779b1 = 1 mod 16 kept them, and the pair step a = G(a+w0); a = G((a+w1)*k) let a top-nibble difference through).
+     Every step of A and of B is a bijection of its state for a fixed word, so a change of any ONE word always changes both, and two inputs
+     give the same result only if the state after the last changed word is the same (ps1/tests/objck_search.c searches on exactly that).
+     Not guaranteed: 64 bits can always be cancelled by a change built from the state itself; pp_obj's refresh bounds how long any miss stays.
+   The C is the definition (host builds, ps1/tests).  On the PS1 the same steps are scheduled by hand (MIPS I): each chain's next multiply
+   waits for its own MFLO, so the two chains alternate on the one multiplier, the xorshift, the next input and the loads sit between them;
+   a loaded word is used two or more instructions later, no MULTU within two instructions after an MFLO; the loop reads two words past the
+   block (the next block, or for the last one VRAM+0x18000, PS1 RAM, unused).  ps1/tests/test_objhash.py runs this loop under Unicorn against the C. */
+#ifndef PP_OBJCK_KA
+#define PP_OBJCK_KA 0x85ebca6bu
+#define PP_OBJCK_SA 15
+#define PP_OBJCK_KB 0x27d4eb2fu
+#define PP_OBJCK_SB 13
+#endif
+#define PP_OBJCK_A0 0x811c9dc5u
+#define PP_OBJCK_B0 0x2545f491u
+#define PP_OBJCK_STEP(a,b,w) do{ u32 w_=(w); (a)=((a)+w_)*PP_OBJCK_KA; (a)^=(a)>>PP_OBJCK_SA; (b)=((b)^w_)*PP_OBJCK_KB; (b)^=(b)>>PP_OBJCK_SB; }while(0)
+#define PP_OBJCK_S_(x) #x
+#define PP_OBJCK_S(x) PP_OBJCK_S_(x)
 static __attribute__((noinline)) void pp_objck(const u32*t,u32*out){
 #if defined(__mips__)
-  u32 a=0x811c9dc5u, b=5381u, w0, w1, x; const u32*e=t+4096; u32 k=0x9e3779b1u;
+  u32 a=PP_OBJCK_A0, b=PP_OBJCK_B0, w0, w1, x; const u32*e=t+512;
   __asm__ volatile(".set push\n.set noreorder\n"
     " lw %[w0],0(%[p])\n"
     " lw %[w1],4(%[p])\n"
-    "1: addu %[a],%[a],%[w0]\n"
-    " srl %[x],%[a],15\n"
-    " xor %[a],%[a],%[x]\n"
-    " addu %[a],%[a],%[w1]\n"
-    " multu %[a],%[k]\n"
-    " sll %[x],%[b],5\n"
-    " addu %[b],%[b],%[x]\n"
-    " addu %[b],%[b],%[w0]\n"
-    " sll %[x],%[b],5\n"
-    " addu %[b],%[b],%[x]\n"
-    " addu %[b],%[b],%[w1]\n"
+    "1: addu %[a],%[a],%[w0]\n"                    /* A, word 0 */
+    " multu %[ka],%[a]\n"
+    " xor %[b],%[b],%[w0]\n"                       /* B input, word 0 */
     " addiu %[p],%[p],8\n"
-    " lw %[w0],0(%[p])\n"
-    " lw %[w1],4(%[p])\n"
+    " lw %[w0],0(%[p])\n"                          /* next word 0 (used next pass) */
     " mflo %[a]\n"
-    " srl %[x],%[a],15\n"
-    " bne %[p],%[e],1b\n"
+    " srl %[x],%[a]," PP_OBJCK_S(PP_OBJCK_SA) "\n"
     " xor %[a],%[a],%[x]\n"
+    " multu %[kb],%[b]\n"                          /* B, word 0 */
+    " addu %[a],%[a],%[w1]\n"                      /* A input, word 1 */
+    " mflo %[b]\n"
+    " srl %[x],%[b]," PP_OBJCK_S(PP_OBJCK_SB) "\n"
+    " xor %[b],%[b],%[x]\n"
+    " multu %[ka],%[a]\n"                          /* A, word 1 */
+    " xor %[b],%[b],%[w1]\n"                       /* B input, word 1 */
+    " lw %[w1],4(%[p])\n"                          /* next word 1 */
+    " mflo %[a]\n"
+    " srl %[x],%[a]," PP_OBJCK_S(PP_OBJCK_SA) "\n"
+    " xor %[a],%[a],%[x]\n"
+    " multu %[kb],%[b]\n"                          /* B, word 1 */
+    " mflo %[b]\n"
+    " srl %[x],%[b]," PP_OBJCK_S(PP_OBJCK_SB) "\n"
+    " bne %[p],%[e],1b\n"
+    " xor %[b],%[b],%[x]\n"
     ".set pop\n"
-    : [a]"+r"(a),[b]"+r"(b),[p]"+r"(t),[w0]"=&r"(w0),[w1]"=&r"(w1),[x]"=&r"(x) : [e]"r"(e),[k]"r"(k) : "hi","lo","memory");
-  out[0]=a|1u; out[1]=b;
+    : [a]"+r"(a),[b]"+r"(b),[p]"+r"(t),[w0]"=&r"(w0),[w1]"=&r"(w1),[x]"=&r"(x) : [e]"r"(e),[ka]"r"(PP_OBJCK_KA),[kb]"r"(PP_OBJCK_KB) : "hi","lo","memory");
+  out[0]=a; out[1]=b;
 #else
-  u32 a=0x811c9dc5u, b=5381u;
-  for(u32 i=0;i<4096;i+=2){ u32 w0=t[i], w1=t[i+1]; a+=w0; a^=a>>15; a+=w1; a*=0x9e3779b1u; a^=a>>15; b=b*33u+w0; b=b*33u+w1; }
-  out[0]=a|1u; out[1]=b;
+  u32 a=PP_OBJCK_A0, b=PP_OBJCK_B0;
+  for(u32 i=0;i<512;i++) PP_OBJCK_STEP(a,b,t[i]);
+  out[0]=a; out[1]=b;
 #endif
 }
 /* PP_OBJCK END */
+/* PP_OBJDEC BEGIN  rc10.2: which blocks of which texture to upload.  m4 / m8: the blocks the sprites of the 4 bpp / 8 bpp texture can use
+   (pp_obj, from OAM); now: the line clock.  For each texture the check (A,B) of every block as last uploaded and the time of that upload.
+   A used block is uploaded when it was never uploaded, when its check differs, or when its upload is PP_OBJ_RF_HARD lines (2.0 s PAL,
+   1.99 s NTSC) old; besides, the one oldest used block past PP_OBJ_RF_SOFT (1.5 s) per present, so the refreshes spread over the presents
+   instead of coming all at once.  So a change the checks miss stays on the screen for less than 2 s.  Blocks no sprite uses are neither
+   checked nor uploaded: what they show is checked when a sprite uses them again.  up[x]: blocks of texture x to upload. */
+#if !defined(RTC64)
+#error "PP_DIRTY needs RTC64 (clk_now32 for the OBJ refresh)"
 #endif
+#ifndef PP_OBJ_RF_HARD
+#define PP_OBJ_RF_HARD 31250u
+#endif
+#ifndef PP_OBJ_RF_SOFT
+#define PP_OBJ_RF_SOFT 23437u
+#endif
+static u32 pp_obj_h[2][PP_OBJ_NB][2], pp_obj_tl[2][PP_OBJ_NB], pp_obj_vm[2];
+static u32 pp_nobjblk, pp_nobjrf;     /* blocks uploaded, of them refreshes (unchanged blocks uploaded for their age) */
+static void pp_objdec(const u32*t,u32 m4,u32 m8,u32 now,u32*up){
+  u32 h[PP_OBJ_NB][2], mm=m4|m8; int so=-1; u32 sk=0, sage=0;
+  for(u32 k=0;k<PP_OBJ_NB;k++) if((mm>>k)&1) pp_objck(t+512*k,h[k]);
+  for(int x=0;x<2;x++){ u32 m=x?m8:m4, u=0;
+    for(u32 k=0;k<PP_OBJ_NB;k++) if((m>>k)&1){ u32 age=now-pp_obj_tl[x][k];
+      if(!((pp_obj_vm[x]>>k)&1)||h[k][0]!=pp_obj_h[x][k][0]||h[k][1]!=pp_obj_h[x][k][1]) u|=1u<<k;
+      else if(age>=PP_OBJ_RF_HARD){ u|=1u<<k; pp_nobjrf++; }
+      else if(age>=PP_OBJ_RF_SOFT&&age>=sage){ so=x; sk=k; sage=age; } }
+    up[x]=u; }
+  if(so>=0&&!((up[so]>>sk)&1)){ up[so]|=1u<<sk; pp_nobjrf++; }
+  for(int x=0;x<2;x++) for(u32 k=0;k<PP_OBJ_NB;k++) if((up[x]>>k)&1){ pp_obj_h[x][k][0]=h[k][0]; pp_obj_h[x][k][1]=h[k][1]; pp_obj_tl[x][k]=now; pp_obj_vm[x]|=1u<<k; pp_nobjblk++; }
+}
+/* PP_OBJDEC END */
+#endif
+/* PP_OBJMASK BEGIN  rc10.2: the blocks each texture's sprites use: every OAM entry pp_obj draws (the same tests: not disabled, not an OBJ
+   window, a valid shape, tile >= 512, priority not behind BG2, on the screen), from its first to its last tile slot (8 bpp: the even slot
+   below and the odd one above), as a mask of 64-slot blocks: m[0] 4 bpp, m[1] 8 bpp. */
+static void pp_objmask(const volatile u16*oam,int map1d,u32 bg2pri,u32*m){
+  u32 m4=0, m8=0;
+  for(int i=0;i<128;i++){ u32 a0=oam[i*4], a1=oam[i*4+1], a2=oam[i*4+2]; if(((a0>>8)&3)==2) continue; if(((a0>>10)&3)==2) continue;
+    u32 sh=a0>>14; if(sh==3) continue; u32 tn=a2&1023; if(tn<512) continue; if(((a2>>10)&3)>bg2pri) continue;
+    u32 b8=(a0>>13)&1, sz=a1>>14, dbl=(a0>>9)&(a0>>8)&1; int pw=PP_SZ[sh][sz][0]<<dbl, ph=PP_SZ[sh][sz][1]<<dbl;
+    int y=a0&255; if(y>=160) y-=256; int x=a1&511; if(x>=256) x-=512; if(x<=-pw||y<=-ph||x>=240) continue;
+    u32 tw=(u32)PP_SZ[sh][sz][0]>>3, th=(u32)PP_SZ[sh][sz][1]>>3, lo=tn-512;
+    u32 hi=lo+(map1d?((tw*th-1)<<b8):((th-1)*32+((tw-1)<<b8)))+b8; if(b8) lo&=~1u; if(hi>511) hi=511;
+    u32 k=((2u<<(hi>>6))-1)&~((1u<<(lo>>6))-1); if(b8) m8|=k; else m4|=k; }
+  m[0]=m4; m[1]=m8;
+}
+/* PP_OBJMASK END */
+/* rc10.2: the tiles of each texture that were all index 0 (fully transparent) when their block was last uploaded: pp_obj draws no quad for
+   them (a texel 0000h draws nothing, so the picture is the same).  The title and the menus show four 64x64 double-size affine sprites
+   whose 256 tiles are all index 0: their quads took about 110 lines of every present, waiting on the GPU.  4 bpp: bit = tile slot (512);
+   8 bpp: bit = tile n = slot/2 (256).  Kept with the upload, so it always describes what the texture in VRAM holds. */
+static u32 pp_obj_z[2][16];
+/* PP_OBJZERO BEGIN */
+static void pp_objzero(const u32*s,int b8,u32 k){
+  u32 tw=b8?16:8, n0=k*(b8?32:64), nt=b8?32:64;
+  for(u32 j=0;j<nt;j++){ u32 n=n0+j, o=0; const u32*p=s+n*tw; for(u32 i=0;i<tw;i++) o|=p[i];
+    if(o) pp_obj_z[b8][n>>5]&=~(1u<<(n&31)); else pp_obj_z[b8][n>>5]|=1u<<(n&31); }
+}
+/* PP_OBJZERO END */
+/* one block (16 rows) of the 4 bpp (32 tile slots per row) or the 8 bpp texture (16 tiles per row), repacked into the staging buffer, one DMA */
+static void pp_objblk(int b8,u32 k){
+  const u32*s=(const u32*)(VRAM+0x14000); u32 r0=k*16; u32*q=PP_STG;
+  pp_objzero(s,b8,k);
+  gp0c(0x01000000); gp0_2(0xA0000000,XY(OT_X,(b8?PS1_VRAM_PPU_OBJ8_Y:PS1_VRAM_PPU_OBJ4_Y)+r0),XY(PS1_VRAM_PPU_OBJ_W,16));
+  if(!b8){ for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<32;c++) *q++=s[((r>>3)*32+c)*8+(r&7)]; }
+  else { for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<16;c++){ const u32*p=s+((r>>3)*16+c)*16+(r&7)*2; *q++=p[0]; *q++=p[1]; } }
+  gpu_dma(PP_STG,512);
+}
 /* OBJ: sprites in OAM (regular and rotation/scaling, 4 bpp and 8 bpp, 1D and 2D tile mapping, normal and semi-transparent).
    The OBJ tile memory (GBA tiles 512..1023 = VRAM+0x14000, 16 KB) is repacked into two textures: a 4 bpp one (32 tile slots per row) at (OT_X,256) and an 8 bpp one
    (16 tiles per row) at (OT_X,384); only the texture(s) the visible sprites use are uploaded.  One textured quad per 8x8 tile (rotated parallelograms for affine sprites). */
@@ -326,45 +411,42 @@ static void pp_obj(void){
   u32 bldcnt=io16(0x50), blda=io16(0x52); u32 eva=blda&31, evb=(blda>>8)&31; if(eva>16) eva=16; if(evb>16) evb=16;
   u32 bm=(evb<=10)?0:1;                              /* PS1 blend: 0 = B/2+F/2, 1 = B+F  (GBA alpha with 8/8 and 16/16 are the cases the game uses) */
   (void)bldcnt;
-  int use4=0,use8=0;
-  for(int i=0;i<128;i++){ u32 a0=oam[i*4], a1=oam[i*4+1], a2=oam[i*4+2]; if(((a0>>8)&3)==2) continue; if(((a0>>10)&3)==2) continue; if(((a0>>14)==3)) continue; if((a2&1023)<512) continue; (void)a1; if(a0&0x2000) use8=1; else use4=1; }
-  if(!use4&&!use8) return;
-  /* the tile rows are repacked 16 texture rows (512 words) at a time into the staging buffer and sent by DMA2 under one GP0(A0h) */
+  u32 mk[2]; pp_objmask(oam,map1d,bg2pri,mk); u32 m4=mk[0], m8=mk[1];
+  if(!(m4|m8)) return;
+  u32 up[2];
 #ifdef PP_DIRTY
-  /* rc10: the 16 KiB of OBJ tiles are repacked and uploaded only when they changed since the last upload of that texture (the texture areas in
-     PS1 VRAM belong to the 2D layer alone).  The guest writes OBJ VRAM with plain stores (its VRAM pointers are host addresses), DMA3 and the
-     BIOS copies, so nothing marks the tiles dirty: two position-dependent checks of the whole tile memory decide.
-     rc10.1 (review of PR #26): the rc10 checks djb2 (h*33+w) and sdbm (h*65599+w) were both linear with odd multipliers, so adding 2^31 to any
-     two words changed neither (two bit-31 flips cancelled).  Now check A (nonlinear, pp_objck above) and check B (djb2), both compared; upload
-     when either differs: B is the safety net, a cheap second check independent of A (64 bits compared in all).  A timed refresh was measured
-     and not taken: the title menu's present sits at a vertical-blank boundary (15.07 pictures/s at stock, 59.34 at the recommended settings),
-     and a full upload every 4 / 8 / 16 presents cost 14.17 / 14.63 / 14.87 pictures/s at stock and 47.6 / 52.9 / 55.9 recommended (each
-     forced upload's GPU work made that present miss its blank: a visible hitch), one 16-row block per present in turn 13.03 / 54.6.
-     ps1/tests/test_objhash.py cuts pp_objck and the decision below out of this file, runs the C on the host and the MIPS loop under Unicorn:
-     the review's fixture, bit-31 pairs at every distance and random pairs/triples, single-bit flips, multi-word changes, tile moves and
-     swaps, changes built to cancel A (B must see them), the upload decision. */
-  { const u32*t=(const u32*)(VRAM+0x14000);
+  /* rc10: the OBJ tiles are uploaded only when they changed since the last upload (the texture areas in PS1 VRAM belong to the 2D layer
+     alone).  The guest writes OBJ VRAM with plain stores (its VRAM pointers are host addresses), DMA3 and the BIOS copies, so nothing marks
+     the tiles dirty: a check of the tile words decides.
+     rc10.1 (review of PR #26): the rc10 checks djb2 and sdbm were linear (two bit-31 flips cancelled both); rc10.1's A (pair step with
+     0x9e3779b1) + B (djb2) still missed edits confined to the top nibble (a 4 bpp pixel of column 7 moved by an even number of rows: about
+     1 in 744 such edits), w0+d / w1-33d pairs (1 in 3000) and a built 4-word change, and a miss stayed on the screen for good.
+     rc10.2: two per-word mixers (pp_objck above) per block of 64 tile slots; only the blocks the drawn sprites use are checked (the title and
+     the menus use all eight: four 64x64 double-size affine sprites over the whole tile memory), changed blocks are uploaded alone, and every
+     used block is uploaded again within 2 s (pp_objdec), which bounds any miss in time.  The stronger check costs about 6 lines more than
+     rc10.1's per present at stock (SwanStation: 35 against 28.5); that alone made the title present miss its vertical blank (the title
+     iteration ends a few lines before one: 15.1 -> 12.9 pictures/s), so the quads of fully transparent tiles are no longer sent (pp_obj_z:
+     the title's four big sprites are all index 0, 110 lines of GPU-paced quads per present), which more than pays for it.
+     Tests: ps1/tests/test_objhash.py (the C and the MIPS loop under Unicorn, the decision, the masks), ps1/tests/objck_search.py (the
+     miss search). */
+  { u32 now=clk_now32();
 #ifdef OBJH_PROF
-    u32 q0_=RC1_VAL; { u32 hh=5381u, hs=0; for(u32 i=0;i<4096;i++){ u32 w=t[i]; hh=(hh<<5)+hh+w; hs=w+(hs<<6)+(hs<<16)-hs; } __asm__ volatile(""::"r"(hh),"r"(hs)); }
-    u32 q1_=RC1_VAL; objh_old_lines+=(q1_-q0_)&0xffff;
+    u32 q0_=RC1_VAL;
 #endif
-    u32 ck[2]; pp_objck(t,ck); u32 ha=ck[0], hb=ck[1];
+    pp_objdec((const u32*)(VRAM+0x14000),m4,m8,now,up);
 #ifdef OBJH_PROF
-    objh_lines+=(RC1_VAL-q1_)&0xffff; objh_n++;
+    objh_lines+=(RC1_VAL-q0_)&0xffff; objh_n++; for(u32 k=0;k<PP_OBJ_NB;k++) objh_blk+=((m4|m8)>>k)&1;
 #endif
-    if(use4&&ha==pp_obj_ha[0]&&hb==pp_obj_hb[0]) use4=0; else if(use4){ pp_obj_ha[0]=ha; pp_obj_hb[0]=hb; }
-    if(use8&&ha==pp_obj_ha[1]&&hb==pp_obj_hb[1]) use8=0; else if(use8){ pp_obj_ha[1]=ha; pp_obj_hb[1]=hb; }
-    if(use4|use8) pp_nobjup++; }
+    if(up[0]|up[1]) pp_nobjup++; }
+#else
+  up[0]=m4?0xffu:0; up[1]=m8?0xffu:0;
+#endif
 #ifdef OBJH_PROF
   u32 qu_=RC1_VAL;
 #endif
-#endif
-  if(use4){ const u32*s=(const u32*)(VRAM+0x14000); gp0c(0x01000000); gp0_2(0xA0000000,XY(OT_X,PS1_VRAM_PPU_OBJ4_Y),XY(PS1_VRAM_PPU_OBJ_W,PS1_VRAM_PPU_OBJ_H));
-    for(u32 r0=0;r0<PS1_VRAM_PPU_OBJ_H;r0+=16){ u32*q=PP_STG; for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<32;c++) *q++=s[((r>>3)*32+c)*8+(r&7)]; gpu_dma(PP_STG,512); } }
-  if(use8){ const u32*s=(const u32*)(VRAM+0x14000); gp0c(0x01000000); gp0_2(0xA0000000,XY(OT_X,PS1_VRAM_PPU_OBJ8_Y),XY(PS1_VRAM_PPU_OBJ_W,PS1_VRAM_PPU_OBJ_H));
-    for(u32 r0=0;r0<PS1_VRAM_PPU_OBJ_H;r0+=16){ u32*d=PP_STG; for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<16;c++){ const u32*q=s+((r>>3)*16+c)*16+(r&7)*2; *d++=q[0]; *d++=q[1]; } gpu_dma(PP_STG,512); } }
+  for(int x=0;x<2;x++) for(u32 k=0;k<PP_OBJ_NB;k++) if((up[x]>>k)&1) pp_objblk(x,k);
 #ifdef OBJH_PROF
-  if(use4|use8){ objh_up_n++; objh_up_lines+=(RC1_VAL-qu_)&0xffff; }
+  if(up[0]|up[1]){ objh_up_n++; objh_up_lines+=(RC1_VAL-qu_)&0xffff; }
 #endif
   int nq=0;
   for(int pri=3;pri>=0;pri--) for(int i=127;i>=0;i--){
@@ -386,6 +468,7 @@ static void pp_obj(void){
       /* texture slot of this tile */
       u32 slot; if(map1d) slot=tile+(u32)(ty*tw+tx)*(b8?2:1); else slot=tile+(u32)ty*32+(u32)tx*(b8?2:1);
       slot-=512; if(slot>=512) continue;
+      { u32 zn=b8?(slot>>1):slot; if((pp_obj_z[b8][zn>>5]>>(zn&31))&1) continue; }   /* all index 0 in the texture: nothing to draw */
       int u,v; if(b8){ u32 n=slot>>1; u=(n&15)*8; v=(n>>4)*8+(PS1_VRAM_PPU_OBJ8_Y&255); } else { u=(slot&31)*8; v=(slot>>5)*8+(PS1_VRAM_PPU_OBJ4_Y&255); }   /* the 8 bpp texture sits at y=384 = texture page y 256 + 128 */
       int ue=u+8>255?255:u+8, ve=v+8>255?255:v+8;     /* exclusive edge: a tile of 8 texels spans 8 texel units */
       if(!aff){
