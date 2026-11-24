@@ -52,6 +52,14 @@ static u32 pp_from, pp_disp, pp_lost, pp_n2, pp_n4, pp_nup, pp_nreset, pp_nfade,
 static u32 pp_nrb;
 static u32 pp_fade_w;                 /* last gfx_fade_flip whiten amount */
 #define PPR(k) (DL[8+((k)&255)*8+(k)])
+#ifdef PPSTAMP
+u32 pp_tl[8];   /* TEST-ONLY (rc10 profile): RC1 lines in blit2, blit4, fade_flip, cluts, page upload+quad, obj */
+#define PT0(v) u32 v=RC1_VAL
+#define PTA(i,v) (pp_tl[i]+=(RC1_VAL-(v))&0xffff)
+#else
+#define PT0(v) do{}while(0)
+#define PTA(i,v) ((void)0)
+#endif
 /* ---- ring helpers */
 static void pp_push(u32 id,u32 a){ u32 n=DL[0]; volatile u32*e=&DL[8+(n&255)*8]; e[0]=id; e[1]=a; e[2]=0; e[3]=0; e[4]=0; DL[0]=n+1; }
 static void pp_dispcnt(u32 v){ pp_push(0x20,v); }
@@ -63,6 +71,16 @@ static void rom_copy(u8*dst,u32 off,u32 n){ while(n){ const u8*p=rom_page(off>>1
 #endif
 /* VRAM -> CPU: one row of hw halfwords (even) at (x,y) into dst (hw/2 words) */
 static void pp_vread_row(int x,int y,int hw,u32*dst){ gp0_2(0xC0000000,XY(x,y),XY(hw,1)); for(int i=0;i<hw/2;i++){ while(!(GP1&0x08000000)){} dst[i]=PP_GPUREAD; } }   /* bit 27: a word is ready */
+#ifdef PP_RBDMA
+/* rc10: VRAM -> CPU for nr rows of hw halfwords (even) by DMA2 (direction GP1(04h)=3, block mode to RAM, one block), after GPUSTAT bit 27 says
+   the GPU has the data ready (psx-spx "DMA2 VRAM to CPU"); the direction is set back to CPU -> GP0 (2) for every other GPU user.  The polled word
+   loop above cost about 15 cycles a word: the menus re-blit their full-screen backdrop every frame and spent most of a present reading it back. */
+static void pp_vread_rows(int x,int y,int hw,int nr,u32*dst){
+  u32 nw=(u32)(hw/2)*(u32)nr;
+  gp0_2(0xC0000000,XY(x,y),XY(hw,nr)); while(!(GP1&0x08000000)){}
+  GP1=0x04000003; D2_MADR=(u32)dst&0xffffff; D2_BCR=(1u<<16)|nw; D2_CHCR=0x01000200; while(D2_CHCR&0x01000000){}
+  GP1=0x04000002; }
+#endif
 /* RAM -> VRAM: texture cache flushed, GP0(A0h) + position + size, then the nw data words by DMA2 (rt.c gpu_dma) */
 static void pp_vload(int x,int y,int w,int h,const u32*src,u32 nw){ gp0c(0x01000000); gp0_2(0xA0000000,XY(x,y),XY(w,h)); gpu_dma(src,nw); }
 /* textured quad: command + 8 parameters (fits the 16-word command FIFO); out of line like gp0_2, one wait per command */
@@ -105,8 +123,21 @@ static void pp_blit2(u32 img,int x,int y,u32 disp){
   if(x<0){ src+=(u32)(-x); w+=x; x=0; }
   if(x+w>240) w=240-x; if(w<=0) return;
   u8*dst=VRAM+((disp&0x10)?0:0xa000)+y*240+x;
+#ifdef PP_ROMDIRECT
+  /* rc10: a row that lies in one ROM page is read straight from the page (no copy into the row buffer first) */
+  for(int r=0;r<h;r++){ u32 off=src+(u32)r*ow, o=off&4095;
+    if(o+(u32)w<=4096u){ const u8*q=rom_page(off>>12)+o; for(int i=0;i<w;i++){ u8 b=q[i]; if(b) dst[i]=b; } }
+    else { rom_copy(PP_ROW,off,w); for(int i=0;i<w;i++){ u8 b=PP_ROW[i]; if(b) dst[i]=b; } }
+    dst+=240; }
+#else
   for(int r=0;r<h;r++){ rom_copy(PP_ROW,src+(u32)r*ow,w); for(int i=0;i<w;i++){ u8 b=PP_ROW[i]; if(b) dst[i]=b; } dst+=240; }
+#endif
 }
+#ifdef PP_ROMDIRECT
+static u32 pp_nromb4;   /* rc10: opaque blits copied from ROM pages already in RAM (no VRAM read-back) */
+/* every ROM page of bytes [a, a+n) is in RAM now (mapped, or kept in a pool frame): reading them costs no disc access */
+static int pp_rom_has(u32 a,u32 n){ for(u32 pg=a>>12;pg<=(a+n-1)>>12;pg++){ u32 q=pg&2047; if(!rom_pg[q]&&!pg_fr[q]) return 0; } return 1; }
+#endif
 static void pp_blit4(u32 img,int x,int y,u32 disp){
   int limw=*(volatile s16*)(EW+0x1cea), limh=*(volatile s16*)(EW+0x1cec), stride=*(volatile s16*)(EW+0x1d00);
   int w=rom_read(img,2), h=rom_read(img+2,1); int cx=0,cy=0; int px=x,py=y;
@@ -118,8 +149,21 @@ static void pp_blit4(u32 img,int x,int y,u32 disp){
   if(x+w>240||y+h>160) return;
   u32 p=(disp&0x10)?0:1;
   if(stride!=240){ static u32 once; if(!once){ once=1; dbg("PPU stride "); dec(stride); dbg("\n"); } }
-  int id=pp_atlas_get(img);
   u8*pg=VRAM+(p?0xa000:0);
+#ifdef PP_ROMDIRECT
+  /* rc10: when the image's ROM pages are all in RAM the window is copied from them (the bytes the atlas was made from); a page that would have
+     to come from the disc is never fetched for this: the VRAM atlas and its read-back stay the way for those */
+  { u32 src=(rom_read(img+4,4)+PP_IMG_BASE)&0x01ffffff; int ow=rom_read(img,2); u32 s0=src+(u32)cy*ow+cx;
+    if(pp_rom_has(s0,(u32)(h-1)*ow+w)){ u8*d=pg+y*240+x;
+      for(int r=0;r<h;r++){ u32 off=s0+(u32)r*ow; int i=0;
+        while(i<w){ u32 o=(off+i)&4095, k=4096-o; if(k>(u32)(w-i)) k=w-i; const u8*q=rom_page((off+i)>>12)+o; u8*dd=d+i; u32 j=0;
+          if(!(((u32)q^(u32)dd)&3)){ for(;j<k&&((u32)(dd+j)&3);j++) dd[j]=q[j]; for(;j+4<=k;j+=4) *(u32*)(dd+j)=*(const u32*)(q+j); }
+          for(;j<k;j++) dd[j]=q[j];
+          i+=k; }
+        d+=240; }
+      pp_nromb4++; return; } }
+#endif
+  int id=pp_atlas_get(img);
   if(id<0){ /* no atlas room: copy opaque from the ROM into the page */
     u32 src=(rom_read(img+4,4)+PP_IMG_BASE)&0x01ffffff; int ow=rom_read(img,2); u8*d=pg+y*240+x;
     for(int r=0;r<h;r++){ rom_copy(PP_ROW,src+(u32)(cy+r)*ow+cx,w); for(int i=0;i<w;i++) d[i]=PP_ROW[i]; d+=240; } return; }
@@ -129,10 +173,25 @@ static void pp_blit4(u32 img,int x,int y,u32 disp){
     int c0=256*s, c1=c0+I->sw[s]; int a=cx>c0?cx:c0, b=(cx+w)<c1?(cx+w):c1; if(b<=a) continue;
     int hw0=((a-c0)>>2)<<1, hw1=((b-c0+3)>>2)<<1; int hw=hw1-hw0; if(hw>128) hw=128;
     int X=AT_X0+PS1_VRAM_PPU_ATLAS_PAGE_W*I->pg[s]+hw0;
+#ifdef PP_RBDMA
+#ifdef PPSTAMP
+    pp_tl[7]=(u32)w|((u32)x<<8)|((u32)hw<<16)|((u32)(a-c0)<<24);
+#endif
+    PT0(t_dir);
+    if(2*hw==240&&b-a==240&&(a-c0)==2*hw0&&x+(a-cx)==0){   /* a full-width window (the backdrops): the rows land in the page as they are, one DMA */
+      pp_vread_rows(X,PS1_VRAM_PPU_ATLAS_Y+I->py[s]+cy,hw,h,(u32*)(pg+y*240)); PTA(6,t_dir); continue; }
+    { int rpb=1024/hw; if(rpb<1) rpb=1;   /* rows per read: the 2 KiB staging buffer (PP_STG, the row buffer's space) holds 1024 halfwords */
+      for(int r=0;r<h;r+=rpb){ int nr=h-r<rpb?h-r:rpb;
+        pp_vread_rows(X,PS1_VRAM_PPU_ATLAS_Y+I->py[s]+cy+r,hw,nr,PP_STG);
+        for(int k=0;k<nr;k++){ const u8*sr=(const u8*)PP_STG+2*hw*k+((a-c0)-2*hw0); u8*d=pg+(y+r+k)*240+x+(a-cx); int n=b-a, i=0;
+          if(!(((u32)sr^(u32)d)&3)){ for(;i<n&&((u32)(d+i)&3);i++) d[i]=sr[i]; for(;i+4<=n;i+=4) *(u32*)(d+i)=*(const u32*)(sr+i); }   /* same alignment: words */
+          for(;i<n;i++) d[i]=sr[i]; } } } }
+#else
     for(int r=0;r<h;r++){
       pp_vread_row(X,PS1_VRAM_PPU_ATLAS_Y+I->py[s]+cy+r,hw,(u32*)PP_ROW);
       const u8*sr=PP_ROW+((a-c0)-2*hw0); u8*d=pg+(y+r)*240+x+(a-cx);
       for(int i=0;i<b-a;i++) d[i]=sr[i]; } }
+#endif
   pp_nrb++;
 }
 /* gfx_fade_flip palette: PAL[i] = whiten(swap(ROM[i]), (P-256)>>3) */
@@ -144,6 +203,9 @@ static void pp_fade_flip(u32 P){
   pp_nfade++;
 }
 /* ---- ring replay: once per guest frame (adv_lines at vcount 160) and at every present */
+#ifndef FL_POLL
+#define FL_POLL() ((void)0)
+#endif
 #ifndef SP_IN   /* the speed stamps come from rt.c's clk.h; no-ops where this file is compiled without it (native tests) */
 #define SP_IN() ((void)0)
 #define SP_OUT() ((void)0)
@@ -151,15 +213,23 @@ static void pp_fade_flip(u32 P){
 #define SP_ADD(i,v) ((void)0)
 #define SP_INC(i) ((void)0)
 #endif
-static void ppu_flush(void){
+#ifdef PP_INSF
+/* rc10: the ring replay (with the blits inlined in it, about 4.5 KiB) is placed in the renderer's region (.sf, 0x80199000..0x801b0000, loaded with
+   the EXE and never overwritten), so that the C runtime below 0x80028000 has room for the speed work */
+#define PP_SECT __attribute__((section(".sf.text.ppu"),noinline))
+#else
+#define PP_SECT
+#endif
+static PP_SECT void ppu_flush(void){
   SP_T0(sp_t0); SP_IN();  /* SPEEDPROF (rt.c clk.h): replay time */
   u32 n=DL[0]; if(n-pp_from>256){ pp_lost+=n-pp_from-256; pp_from=n-256; }
   for(;pp_from<n;pp_from++){
+    FL_POLL();
     volatile u32*e=&DL[8+(pp_from&255)*8]; u32 id=e[0];
     if(id==0x20){ pp_disp=e[1]; pp_ndisp++; }
-    else if(id==2){ pp_blit2(e[1],(s32)e[2],(s32)e[3],pp_disp); pp_n2++; }
-    else if(id==4){ pp_blit4(e[1],(s32)e[2],(s32)e[3],pp_disp); pp_n4++; }
-    else if(id==1){ pp_fade_flip(e[1]); }
+    else if(id==2){ PT0(t_); pp_blit2(e[1],(s32)e[2],(s32)e[3],pp_disp); pp_n2++; PTA(0,t_); }
+    else if(id==4){ PT0(t_); pp_blit4(e[1],(s32)e[2],(s32)e[3],pp_disp); pp_n4++; PTA(1,t_); }
+    else if(id==1){ PT0(t_); pp_fade_flip(e[1]); PTA(2,t_); }
     else if(id==3){ for(int i=0;i<256;i++) *(volatile u16*)(PAL+2*i)=0; pp_nfb++; }   /* gfx_effect: 32 vblank steps scaling the BG palette to zero (the guest is not slowed down here: the BG palette is black from the call on) */
     else if(id==6){ u32 p=(pp_disp&0x10)?0:1; u32*d=(u32*)(VRAM+(p?0xa000:0)); for(u32 i=0;i<9600;i++) d[i]=0; pp_nl0[p]=0; pp_n6++; }
   }
@@ -169,7 +239,19 @@ static void ppu_flush(void){
 }
 /* ---- display */
 static u32 pp_col(u32 v,u32 br){ if(br>=32) return v; u32 r=(v&31)*br/32, g=((v>>5)&31)*br/32, b=((v>>10)&31)*br/32; return r|(g<<5)|(b<<10); }
+#ifdef PP_DIRTY
+static u32 pp_clut_br, pp_obj_h4, pp_obj_h8, pp_nclut, pp_nobjup;   /* rc10: brightness of the CLUTs in VRAM (0 = none yet), hashes of the OBJ tiles uploaded */
+#endif
 static void pp_cluts(void){
+#ifdef PP_DIRTY
+  /* rc10: the 2 KiB of CLUTs are only rebuilt and uploaded when the guest palette or the brightness changed: at full brightness every entry of
+     PP_CLUT is the palette entry with bit 15 set (entry 0 of the transparent tables 0), so PAL is compared with the CLUT already in VRAM */
+  if(pp_bright==32&&pp_clut_br==32){ const volatile u16*pa=(const volatile u16*)PAL; int same=1;
+    for(int i=0;i<256&&same;i++) if((u16)(pa[i]|0x8000)!=PP_CLUT[i]) same=0;
+    for(int i=1;i<256&&same;i++) if((u16)(pa[256+i]|0x8000)!=PP_CLUT[768+i]) same=0;
+    if(same) return; }
+  pp_clut_br=pp_bright; pp_nclut++;
+#endif
   for(int i=0;i<256;i++){ u32 v=pp_col(*(volatile u16*)(PAL+2*i),pp_bright); u32 nz=(v&0x7fff)|0x8000;
     PP_CLUT[i]=nz; PP_CLUT[256+i]=i?nz:0; }
   for(int b=0;b<16;b++) for(int k=0;k<16;k++){ u32 v=pp_col(*(volatile u16*)(PAL+0x200+2*(b*16+k)),pp_bright); PP_CLUT[512+b*16+k]=k?((v&0x7fff)|0x8000):0; }
@@ -194,6 +276,15 @@ static void pp_obj(void){
   for(int i=0;i<128;i++){ u32 a0=oam[i*4], a1=oam[i*4+1], a2=oam[i*4+2]; if(((a0>>8)&3)==2) continue; if(((a0>>10)&3)==2) continue; if(((a0>>14)==3)) continue; if((a2&1023)<512) continue; (void)a1; if(a0&0x2000) use8=1; else use4=1; }
   if(!use4&&!use8) return;
   /* the tile rows are repacked 16 texture rows (512 words) at a time into the staging buffer and sent by DMA2 under one GP0(A0h) */
+#ifdef PP_DIRTY
+  /* rc10: the 16 KiB of OBJ tiles are repacked and uploaded only when they changed since the last upload of that texture (a rotate-xor and a sum of the
+     tile memory; the texture areas in PS1 VRAM belong to the 2D layer alone) */
+  { const u32*t=(const u32*)(VRAM+0x14000); u32 hh=0x9e3779b9u, hs=0; for(u32 i=0;i<4096;i++){ u32 w=t[i]; hh=((hh<<5)|(hh>>27))^w; hs+=w; }   /* rotate-xor and sum: both must agree */
+    hh=(hh^((hs<<16)|(hs>>16)))|1u;   /* 0 = never uploaded */
+    if(use4&&hh==pp_obj_h4) use4=0; else if(use4) pp_obj_h4=hh;
+    if(use8&&hh==pp_obj_h8) use8=0; else if(use8) pp_obj_h8=hh;
+    if(use4|use8) pp_nobjup++; }
+#endif
   if(use4){ const u32*s=(const u32*)(VRAM+0x14000); gp0c(0x01000000); gp0_2(0xA0000000,XY(OT_X,PS1_VRAM_PPU_OBJ4_Y),XY(PS1_VRAM_PPU_OBJ_W,PS1_VRAM_PPU_OBJ_H));
     for(u32 r0=0;r0<PS1_VRAM_PPU_OBJ_H;r0+=16){ u32*q=PP_STG; for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<32;c++) *q++=s[((r>>3)*32+c)*8+(r&7)]; gpu_dma(PP_STG,512); } }
   if(use8){ const u32*s=(const u32*)(VRAM+0x14000); gp0c(0x01000000); gp0_2(0xA0000000,XY(OT_X,PS1_VRAM_PPU_OBJ8_Y),XY(PS1_VRAM_PPU_OBJ_W,PS1_VRAM_PPU_OBJ_H));
@@ -250,13 +341,15 @@ static void pp_draw(int oy,int level){
   /* the lines outside the picture area: black (fills are absolute VRAM rectangles, not clipped by the drawing area) */
   gp0_2(0x02000000,XY(0,oy),XY(320,PP_Y0)); gp0_2(0x02000000,XY(0,oy+PP_Y0+PP_H),XY(320,240-PP_Y0-PP_H));
   if((d&0x80)||(d&7)!=4||!(d&0x400)){ if(!level) pp_rect(0,PP_Y0,320,PP_H,0); if(!level||!(d&0x1000)) return; pp_cluts(); pp_obj(); return; }
-  pp_cluts();
+  { PT0(t_); pp_cluts(); PTA(3,t_); }
   u32 lp=(d&0x10)?1:0;                   /* displayed page: bit 4 set shows the page at VRAM+0xa000 (the game then draws into base 0) */
   u32 base=lp?0xa000:0;
   if(!level){ u32 c=pp_col(*(volatile u16*)(PAL),pp_bright); pp_rect(0,PP_Y0,320,PP_H,((c&31)<<3)|(((c>>5)&31)<<11)|(((c>>10)&31)<<19)); }
   /* the page (backdrops from blit 4 + transparent blits + guest writes): upload as 8 bpp (120 hw per row), draw with the transparent-0 CLUT (row 497) */
+  PT0(t_);
   pp_vload(L1_X,L1_Y,PS1_VRAM_PPU_L1_W,PS1_VRAM_PPU_L1_H,(const u32*)(VRAM+base),PS1_VRAM_PPU_L1_W*PS1_VRAM_PPU_L1_H/2);
   pp_q(0,PP_Y0,320,PP_Y0+PP_H,0,0,240,160,PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+1),PP_TP8(L1_X,L1_Y),0x2d000000);   /* u 0..240 over 320 px, v 0..160 over 224 lines (4:3, 7:5) */
-  if(d&0x1000) pp_obj();
+  PTA(4,t_);
+  if(d&0x1000){ PT0(t2_); pp_obj(); PTA(5,t2_); }
 }
 #endif
