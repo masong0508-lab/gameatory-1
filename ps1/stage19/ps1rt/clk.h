@@ -109,6 +109,12 @@ static int c3_have6(void){
   c3_scan=n; return c3_seen6; }
 #endif
 #ifdef RTC_QUANT
+/* rc10: from this many units of real elapsed time on, the game is shown t_last + 4*ceil(e/4).  The PLAN's 6 left e = 5 as on the GBA (one tick
+   for 5 units: the game at 80 % speed); with the faster rc10 present the car and the man on foot often take 5 units, so 5 is rounded up too
+   (two ticks, the game at full speed) */
+#ifndef RTC_QUANT_MIN
+#define RTC_QUANT_MIN 6
+#endif
 static u32 q_tlast, q_valid;       /* the game's t_last (get_time units) as the runtime returned it */
 #endif
 #ifdef SPEEDPROF
@@ -168,7 +174,7 @@ static u32 tm_read_rt(u32 k,u32 ra){
     if(ra==LIM_RA_TLAST){ q_tlast=now; q_valid=1; }
     else if(ra==LIM_RA_ENTRY){ q_tlast=now-1; q_valid=1; }       /* 0x08023d54: t_last = get_time()-1 */
     else if(ra==LIM_RA_ELAPSED&&q_valid){ u32 e=now-q_tlast;
-      if(e>=6&&e<0x40000000u){ u32 shown=q_tlast+((e+3)&~3u), pq=shown*137+68; v=pq>>16; tm_snap_lo=pq&0xffff; SP_INC(SP_QUANT); } }
+      if(e>=RTC_QUANT_MIN&&e<0x40000000u){ u32 shown=q_tlast+((e+3)&~3u), pq=shown*137+68; v=pq>>16; tm_snap_lo=pq&0xffff; SP_INC(SP_QUANT); } }
 #endif
   }
   (void)ra; return v; }

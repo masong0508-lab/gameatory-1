@@ -27,5 +27,11 @@ PZF=${PZF-"-DPZBLOCK"}
 # rc9: -DPOOL_THRASH=32 turns the ROM page CLOCK pool on before the first level once the menus have fetched again 32 pages that had just left
 # the 8 FIFO slots (the Credits); boot, the title and the route to the level refetch 15 at most and keep the FIFO.  POOLF= turns it off.
 POOLF=${POOLF-"-DPOOL_THRASH=32"}
+# rc10 (speed wave 2, PROFILE.md): -DPP_RBDMA the backdrop read-back of the 2D layer by DMA2 instead of a polled word loop; -DPP_DIRTY
+# CLUT and OBJ texture uploads only when the palette or the tiles changed; -DPP_INSF the ring replay in the renderer region (runtime room);
+# -DPP_ROMDIRECT blits read ROM pages that are in RAM directly (opaque backdrops without the VRAM read-back);
+# -DPRES_ASYNC the level picture is sent and present() returns; its 2D layer and flip come with the next present (rt.c pres_finish).
+# RC10F= (set empty) builds the rc9 behaviour.
+RC10F=${RC10F-"-DPP_RBDMA -DPP_DIRTY -DPP_INSF -DPP_ROMDIRECT -DPRES_ASYNC -DRTC_QUANT_MIN=5"}
 NPAGES=${NPAGES:-62} PRD=pr_lb WORLDPRD=pr_l RPG=${RPG:-t/resident62.txt} VOL=PAYBACK KPLAN=$KP \
-    bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG ${CLOCKF} ${DISP} ${BOOTF} ${PZF} ${POOLF} ${2:-}" 0
+    bash t/disc7.sh "${1:?give an output name}" "-DSF3_DEFER -DPCACHE1 $DBG ${CLOCKF} ${DISP} ${BOOTF} ${PZF} ${POOLF} ${RC10F} ${2:-}" 0
