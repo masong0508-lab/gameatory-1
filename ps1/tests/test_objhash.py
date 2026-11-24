@@ -153,7 +153,9 @@ def search_dump(tries, k, seed=7):
     """run objck_search briefly; returns (exit code, stdout, [(class, base, changed)])"""
     exe = objck_search.build()
     d = Path(tempfile.mkdtemp(prefix='objck_dump')) / 'dump.bin'
-    p = subprocess.run([str(exe), str(tries), str(seed), '-1', str(d), str(k)], capture_output=True, text=True)
+    # The CI search is bounded even if a future mutation generator stalls.
+    p = subprocess.run([str(exe), str(tries), str(seed), '-1', str(d), str(k)],
+                       capture_output=True, text=True, timeout=180)
     raw = d.read_bytes(); rec = 4 + 8 * N; out = []
     for i in range(0, len(raw) - rec + 1, rec):
         c = struct.unpack_from('<I', raw, i)[0]
@@ -178,6 +180,15 @@ class Check(unittest.TestCase):
             b = [0] * BW if k == 0 else ([r.getrandbits(32) for _ in range(BW)] if k & 1 else [r.getrandbits(32) if r.random() < .1 else 0 for _ in range(BW)])
             self.assertEqual(ck(b), model(b))
         self.assertNotEqual(ck([0] * BW), (0, 0))         # an all-zero block never looks like "never checked"
+
+    def test_small_non_multiple_search_budget(self):
+        """Small tails and sparse bases terminate with actual changed cases."""
+        rc, out, samples = search_dump(17, 1, seed=11)
+        self.assertEqual(rc, 0, out)
+        rows = [(int(c), int(t)) for c, t in re.findall(r"class\s+(\d+) .*?tries\s+(\d+) misses", out)]
+        self.assertEqual(len(rows), 15)
+        self.assertTrue(all(t >= 17 for _, t in rows), rows)
+        self.assertEqual({c for c, _, _ in samples}, set(range(15)))
 
     def test_search_short(self):
         """every class of objck_search.c, 20,000 tries each: no miss; the built classes really cancel the check they were built for"""

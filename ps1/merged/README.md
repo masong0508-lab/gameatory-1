@@ -86,3 +86,41 @@ level: the entity count is -1 and the clock stands still for three pictures. The
 arming of the pause block, presents at Payback's limiter, and the 100 ms fallback. A new picture is a page flip (DISPCNT bit 4). The
 slow path (`h_memrd`/`h_memwr`) takes a host address only inside native Stunt Fox's regions and the guest RAM images. It refuses any
 other host address and counts it in `nat_wild_n`, with a `BADRD host` or `BADWR host` line on the TTY.
+
+## B3 phase 1: native gameplay hot-set and linked RAM census
+
+B3's working candidate defaults to `SFNAT_PROFILE=b3`. For a private
+controlled comparison, set `SFNAT_PROFILE=b2` to restore the old native file
+and constant selection. Both use the same original GBA build and 2 MiB PS1
+link constraints. The B3 candidate adds native `marker.c`, `loops.c`,
+`hudline.c` (the existing portable C implementation), and `settings.c`:
+these run during city gameplay, HUD and options interaction instead of going
+through interpreted guest code and CD-backed instruction reads. Small immutable
+palette/mesh and gameplay setting tables stay in native read-only storage.
+The remaining model/mission/space/station code and large generated tables
+continue using their current paths until scene-specific measured sizes and
+coverage justify moving them. No new framebuffers or changed geometry.
+
+```sh
+SFNAT_PROFILE=b3 python3 ps1/merged/natbuild.py /private/stuntfox /private/gba-build /private/b3-native
+```
+
+Use the existing private place/build scripts with that output. `natbuild.py`
+records `b3_native_census.json` (native files, retained tables, section sizes
+and dispatch entries). The placer includes section alignment, literal data,
+both dispatch tables, and the actual GBA .data image length in its estimate;
+it records `b3_placement_census.json`. `datacheck.py` writes the actual linked
+runtime, cold runtime, R1/R2/R3 used/free byte counts and native stack bounds to
+`b3_linked_ram_census.json`, and still fails on .data mismatches. These numeric
+reports remain in the private output directory. Do not commit any generated
+code, symbol listings, ROM-derived tables or assets.
+
+This is an **unmeasured B3 candidate**. The previous B2 private measurements
+were 15–21 physical ROM page misses per tick at stock and about 0.5 ticks/s.
+Repeat the exact B2/B3 pad tour at stock and recommended settings and compare
+physical ROM misses/tick, guest ticks/s, changed pictures/s, input latency,
+stack/region headroom, and identical gameplay/HUD/save behavior. The goal is
+less than one miss per tick at stock; do not mark it achieved from a build or
+from the native table list. The sf3 city backend and scene-aware residency
+remain separate subsequent B3 changes. Revert to the B2 profile for diagnosis
+if the candidate fails; never weaken physical RAM guards.

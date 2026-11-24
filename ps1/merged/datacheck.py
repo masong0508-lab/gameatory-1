@@ -14,6 +14,8 @@ import os
 import re
 import subprocess
 import sys
+import json
+from b3_profile import linked_ram_census
 
 BASE = 0x80010000
 STACK_LO = 0x80119000
@@ -46,6 +48,16 @@ def main():
         for i in bad[:64]:
             print('  0x%08x %s: PS1 %s GBA %02x' % (d0 + i, who(d0 + i), '%02x' % img[i] if i < len(img) else '--', want[i]))
         raise SystemExit('datacheck: the native .data image differs from the GBA build')
+    nat_lo = int(re.search(r'SF_NAT_LO 0x([0-9a-f]+)',
+                           open(os.path.join(nat, 'sfnat_place.h')).read()).group(1), 16)
+    census = linked_ram_census(syms, size, nat_lo)
+    with open(os.path.join(nat, 'b3_linked_ram_census.json'), 'w') as out:
+        json.dump(dict(linked=True, regions=census), out, indent=2, sort_keys=True)
+        out.write('\n')
+    for label, region in census.items():
+        if 'free_bytes' in region:
+            print('datacheck: %s: %d used B, %d free B' %
+                  (label, region['used_bytes'], region['free_bytes']))
     if len(sys.argv) > 4:
         hmap = {}
         for line in open(sys.argv[4]):

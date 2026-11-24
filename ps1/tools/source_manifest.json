@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "6a34172e8d3af72318a3d3555ae0cd6df956f1c9589a6b8afdefaab6860e4498"
+      "sha256": "4a1cddcd2f994e446177db5b4d81cea4991bac585c8543a4430c0ec90165f018"
     },
     {
       "source": "merged/irmem.py",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "5852c54aa2735874557a11de425a3e3635521d8c89e82f17ce2516ff42e6a53a"
+      "sha256": "b6f27d92e91613ab1c702e10ec37042b9d04677b31f6e51054b11451509d4d99"
     },
     {
       "source": "merged/pin.py",
@@ -837,12 +837,12 @@
     {
       "source": "merged/datacheck.py",
       "target": "merged/datacheck.py",
-      "sha256": "4ff230d7237f6d7640afa2c2b2263f868968314e395733c2e683d1d3ecebb8f3"
+      "sha256": "237cc582335a1babb6a8d8925dd6b53f41f203aa9cb229c5003553879f81cb1c"
     },
     {
       "source": "merged/place.py",
       "target": "merged/place.py",
-      "sha256": "49a480adbfd55001c01552a3ea6ead0d438c6f0ffb774405e9f6b0ca9390c507"
+      "sha256": "6047317a4fdad3aeac3c847e6c4db2497a50f94c275337c82b546bdd9eeb1d54"
     },
     {
       "source": "merged/sf3stub.c",
@@ -883,6 +883,11 @@
       "source": "merged/libc/string.h",
       "target": "merged/libc/string.h",
       "sha256": "7fd31974101393090073ae091773433ba85a0eda4e86f187cdb45c91cbc0654d"
+    },
+    {
+      "source": "merged/b3_profile.py",
+      "target": "merged/b3_profile.py",
+      "sha256": "fedec341b82e87808168998a7e1e42439da6c5f82fe56fd831f83a77310ea154"
     }
   ],
   "patches": [
