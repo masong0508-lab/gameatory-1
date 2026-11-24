@@ -56,11 +56,11 @@ HDR = ('typedef unsigned int u32; typedef unsigned short u16; typedef unsigned c
 
 
 def build_lib():
-    src = (HDR + cut('PP_OBJCK') + '\n' + cut('PP_OBJDEC') + '\n' + cut('PP_OBJMASK') + '\nstatic u32 pp_obj_z[2][16];\n' + cut('PP_OBJZERO') + '\n'
+    src = (HDR + cut('PP_OBJCK') + '\n' + cut('PP_OBJDEC') + '\n' + cut('PP_OBJMASK') + '\nstatic u32 pp_obj_z[24];\n' + cut('PP_OBJZERO') + '\n'
            'void objck(const u32*t,u32*o){ pp_objck(t,o); }\n'
            'void objdec(const u32*t,u32 m4,u32 m8,u32 now,u32*up){ pp_objdec(t,m4,m8,now,up); }\n'
            'void objmask(const u16*oam,int map1d,u32 bg2pri,u32*m){ pp_objmask(oam,map1d,bg2pri,m); }\n'
-           'void objzero(const u32*s,int b8,u32 k,u32*z){ pp_objzero(s,b8,k); for(int i=0;i<32;i++) z[i]=pp_obj_z[i>>4][i&15]; }\n'
+           'void objzero(const u32*s,int b8,u32 k,u32*z){ pp_objzero(s,b8,k); for(int i=0;i<24;i++) z[i]=pp_obj_z[i]; }\n'
            'void reset(void){ for(int x=0;x<2;x++){ pp_obj_vm[x]=0; for(int k=0;k<PP_OBJ_NB;k++){ pp_obj_tl[x][k]=0; pp_obj_h[x][k][0]=pp_obj_h[x][k][1]=0; } } pp_nobjrf=pp_nobjblk=0; }\n'
            'u32 nrf(void){ return pp_nobjrf; }\n')
     d = Path(tempfile.mkdtemp(prefix='objhash'))
@@ -373,13 +373,14 @@ class Masks(unittest.TestCase):
         t = [0] * N
         for i in range(N):
             if r.random() < .02: t[i] = 1 << r.randrange(32)
-        z = (ctypes.c_uint32 * 32)()
+        z = (ctypes.c_uint32 * 24)()
         for b8 in (0, 1):
             for k in range(8):
                 LIB.objzero((ctypes.c_uint32 * N)(*t), b8, k, z)
             tw = 16 if b8 else 8
             for n in range(N // tw):
-                self.assertEqual((z[b8 * 16 + (n >> 5)] >> (n & 31)) & 1, int(not any(t[n * tw:(n + 1) * tw])))
+                zi = b8 * 512 + n
+                self.assertEqual((z[zi >> 5] >> (zi & 31)) & 1, int(not any(t[n * tw:(n + 1) * tw])))
 
 
 if __name__ == '__main__':

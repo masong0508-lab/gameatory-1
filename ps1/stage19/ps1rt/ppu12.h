@@ -351,7 +351,7 @@ static __attribute__((noinline)) void pp_objck(const u32*t,u32*out){
 #endif
 static u32 pp_obj_h[2][PP_OBJ_NB][2], pp_obj_tl[2][PP_OBJ_NB], pp_obj_vm[2];
 static u32 pp_nobjblk, pp_nobjrf;     /* blocks uploaded, of them refreshes (unchanged blocks uploaded for their age) */
-static void pp_objdec(const u32*t,u32 m4,u32 m8,u32 now,u32*up){
+static __attribute__((noinline,minsize)) void pp_objdec(const u32*t,u32 m4,u32 m8,u32 now,u32*up){
   u32 h[PP_OBJ_NB][2], mm=m4|m8; int so=-1; u32 sk=0, sage=0;
   for(u32 k=0;k<PP_OBJ_NB;k++) if((mm>>k)&1) pp_objck(t+512*k,h[k]);
   for(int x=0;x<2;x++){ u32 m=x?m8:m4, u=0;
@@ -368,7 +368,7 @@ static void pp_objdec(const u32*t,u32 m4,u32 m8,u32 now,u32*up){
 /* PP_OBJMASK BEGIN  rc10.2: the blocks each texture's sprites use: every OAM entry pp_obj draws (the same tests: not disabled, not an OBJ
    window, a valid shape, tile >= 512, priority not behind BG2, on the screen), from its first to its last tile slot (8 bpp: the even slot
    below and the odd one above), as a mask of 64-slot blocks: m[0] 4 bpp, m[1] 8 bpp. */
-static void pp_objmask(const volatile u16*oam,int map1d,u32 bg2pri,u32*m){
+static __attribute__((noinline,minsize)) void pp_objmask(const volatile u16*oam,int map1d,u32 bg2pri,u32*m){
   u32 m4=0, m8=0;
   for(int i=0;i<128;i++){ u32 a0=oam[i*4], a1=oam[i*4+1], a2=oam[i*4+2]; if(((a0>>8)&3)==2) continue; if(((a0>>10)&3)==2) continue;
     u32 sh=a0>>14; if(sh==3) continue; u32 tn=a2&1023; if(tn<512) continue; if(((a2>>10)&3)>bg2pri) continue;
@@ -384,21 +384,20 @@ static void pp_objmask(const volatile u16*oam,int map1d,u32 bg2pri,u32*m){
    them (a texel 0000h draws nothing, so the picture is the same).  The title and the menus show four 64x64 double-size affine sprites
    whose 256 tiles are all index 0: their quads took about 110 lines of every present, waiting on the GPU.  4 bpp: bit = tile slot (512);
    8 bpp: bit = tile n = slot/2 (256).  Kept with the upload, so it always describes what the texture in VRAM holds. */
-static u32 pp_obj_z[2][16];
+static u32 pp_obj_z[24];          /* bits 0..511: 4 bpp slot; 512..767: 8 bpp tile n = slot/2 */
 /* PP_OBJZERO BEGIN */
-static void pp_objzero(const u32*s,int b8,u32 k){
-  u32 tw=b8?16:8, n0=k*(b8?32:64), nt=b8?32:64;
-  for(u32 j=0;j<nt;j++){ u32 n=n0+j, o=0; const u32*p=s+n*tw; for(u32 i=0;i<tw;i++) o|=p[i];
-    if(o) pp_obj_z[b8][n>>5]&=~(1u<<(n&31)); else pp_obj_z[b8][n>>5]|=1u<<(n&31); }
+static inline __attribute__((always_inline)) void pp_objzero(const u32*s,int b8,u32 k){
+  const u32*p=s+k*512; u32*zw=pp_obj_z+(b8?16+k:2*k), z=0;   /* the block's tiles are bits 64k.. (4 bpp) or 512+32k.. (8 bpp): whole words */
+  for(u32 j=0;j<(64u>>b8);j++){ u32 o=0; for(u32 i=0;i<(8u<<b8);i++) o|=*p++; if(!o) z|=1u<<(j&31); if((j&31)==31){ *zw++=z; z=0; } }
 }
 /* PP_OBJZERO END */
-/* one block (16 rows) of the 4 bpp (32 tile slots per row) or the 8 bpp texture (16 tiles per row), repacked into the staging buffer, one DMA */
-static void pp_objblk(int b8,u32 k){
+/* one block (16 rows) of the 4 bpp (32 tile slots per row, one word per tile row) or the 8 bpp texture (16 tiles per row, two words per
+   tile row), repacked into the staging buffer, one DMA.  Word i of texture row r: tile (r/8)*(32>>b8) + (i>>b8), its row r&7, word i&b8. */
+static __attribute__((noinline,minsize)) void pp_objblk(int b8,u32 k){
   const u32*s=(const u32*)(VRAM+0x14000); u32 r0=k*16; u32*q=PP_STG;
   pp_objzero(s,b8,k);
   gp0c(0x01000000); gp0_2(0xA0000000,XY(OT_X,(b8?PS1_VRAM_PPU_OBJ8_Y:PS1_VRAM_PPU_OBJ4_Y)+r0),XY(PS1_VRAM_PPU_OBJ_W,16));
-  if(!b8){ for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<32;c++) *q++=s[((r>>3)*32+c)*8+(r&7)]; }
-  else { for(u32 r=r0;r<r0+16;r++) for(u32 c=0;c<16;c++){ const u32*p=s+((r>>3)*16+c)*16+(r&7)*2; *q++=p[0]; *q++=p[1]; } }
+  for(u32 r=r0;r<r0+16;r++){ const u32*p=s+(r>>3)*256+((r&7)<<b8); for(u32 i=0;i<32;i++) *q++=p[((i>>b8)<<(3+b8))+(i&b8)]; }
   gpu_dma(PP_STG,512);
 }
 /* OBJ: sprites in OAM (regular and rotation/scaling, 4 bpp and 8 bpp, 1D and 2D tile mapping, normal and semi-transparent).
@@ -411,10 +410,10 @@ static void pp_obj(void){
   u32 bldcnt=io16(0x50), blda=io16(0x52); u32 eva=blda&31, evb=(blda>>8)&31; if(eva>16) eva=16; if(evb>16) evb=16;
   u32 bm=(evb<=10)?0:1;                              /* PS1 blend: 0 = B/2+F/2, 1 = B+F  (GBA alpha with 8/8 and 16/16 are the cases the game uses) */
   (void)bldcnt;
-  u32 mk[2]; pp_objmask(oam,map1d,bg2pri,mk); u32 m4=mk[0], m8=mk[1];
-  if(!(m4|m8)) return;
   u32 up[2];
 #ifdef PP_DIRTY
+  u32 mk[2]; pp_objmask(oam,map1d,bg2pri,mk); u32 m4=mk[0], m8=mk[1];
+  if(!(m4|m8)) return;
   /* rc10: the OBJ tiles are uploaded only when they changed since the last upload (the texture areas in PS1 VRAM belong to the 2D layer
      alone).  The guest writes OBJ VRAM with plain stores (its VRAM pointers are host addresses), DMA3 and the BIOS copies, so nothing marks
      the tiles dirty: a check of the tile words decides.
@@ -439,7 +438,10 @@ static void pp_obj(void){
 #endif
     if(up[0]|up[1]) pp_nobjup++; }
 #else
-  up[0]=m4?0xffu:0; up[1]=m8?0xffu:0;
+  /* without PP_DIRTY every block of each texture a sprite uses is uploaded on every present (as before rc10) */
+  up[0]=up[1]=0;
+  for(int i=0;i<128;i++){ u32 a0=oam[i*4], a2=oam[i*4+2]; if(((a0>>8)&3)==2||((a0>>10)&3)==2||(a0>>14)==3||(a2&1023)<512) continue; up[(a0>>13)&1]=0xffu; }
+  if(!(up[0]|up[1])) return;
 #endif
 #ifdef OBJH_PROF
   u32 qu_=RC1_VAL;
@@ -457,7 +459,7 @@ static void pp_obj(void){
     u32 sh=a0>>14, sz=a1>>14; if(sh>2) continue; int w=PP_SZ[sh][sz][0], h=PP_SZ[sh][sz][1];
     int bw=dbl?2*w:w, bh=dbl?2*h:h;
     int y=a0&255; if(y>=160) y-=256; int x=a1&511; if(x>=256) x-=512; if(x<=-bw||y<=-bh||x>=240) continue;
-    u32 tile=a2&1023; if(tile<512) continue; int tw=w/8, th=h/8; int b8=(a0>>13)&1;
+    u32 tile=a2&1023; if(tile<512) continue; int tw=w/8, th=h/8; int b8=(a0>>13)&1; const u32*zp=pp_obj_z+(b8<<4);
     u32 cl=b8?PP_CL(PS1_VRAM_PPU_CLUT_X,CLUT_Y+3):PP_CL(PS1_VRAM_PPU_CLUT_X+16*(a2>>12),CLUT_Y+2);   /* 4 bpp: 16 banks side by side: x = 16*bank */
     u32 tpb=b8?PP_TP8(OT_X,PS1_VRAM_PPU_OBJ8_Y):PP_TP4(OT_X,PS1_VRAM_PPU_OBJ4_Y); if(gm==1) tpb|=(bm<<5);
     u32 cmd=(gm==1)?0x2f000000:0x2d000000;
@@ -468,7 +470,7 @@ static void pp_obj(void){
       /* texture slot of this tile */
       u32 slot; if(map1d) slot=tile+(u32)(ty*tw+tx)*(b8?2:1); else slot=tile+(u32)ty*32+(u32)tx*(b8?2:1);
       slot-=512; if(slot>=512) continue;
-      { u32 zn=b8?(slot>>1):slot; if((pp_obj_z[b8][zn>>5]>>(zn&31))&1) continue; }   /* all index 0 in the texture: nothing to draw */
+      { u32 zn=slot>>b8; if((zp[zn>>5]>>(zn&31))&1) continue; }   /* all index 0 in the texture: nothing to draw */
       int u,v; if(b8){ u32 n=slot>>1; u=(n&15)*8; v=(n>>4)*8+(PS1_VRAM_PPU_OBJ8_Y&255); } else { u=(slot&31)*8; v=(slot>>5)*8+(PS1_VRAM_PPU_OBJ4_Y&255); }   /* the 8 bpp texture sits at y=384 = texture page y 256 + 128 */
       int ue=u+8>255?255:u+8, ve=v+8>255?255:v+8;     /* exclusive edge: a tile of 8 texels spans 8 texel units */
       if(!aff){
