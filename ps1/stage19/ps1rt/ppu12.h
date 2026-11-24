@@ -72,13 +72,13 @@ static void rom_copy(u8*dst,u32 off,u32 n){ while(n){ const u8*p=rom_page(off>>1
 /* VRAM -> CPU: one row of hw halfwords (even) at (x,y) into dst (hw/2 words) */
 static void pp_vread_row(int x,int y,int hw,u32*dst){ gp0_2(0xC0000000,XY(x,y),XY(hw,1)); for(int i=0;i<hw/2;i++){ while(!(GP1&0x08000000)){} dst[i]=PP_GPUREAD; } }   /* bit 27: a word is ready */
 #ifdef PP_RBDMA
-/* rc10: VRAM -> CPU for nr rows of hw halfwords (even) by DMA2 (direction GP1(04h)=3, block mode to RAM, one block), after GPUSTAT bit 27 says
+/* rc10: VRAM -> CPU for nr rows of hw halfwords (even) by DMA2 (direction GP1(04h)=3, request mode to RAM, 16-word blocks), after GPUSTAT bit 27 says
    the GPU has the data ready (psx-spx "DMA2 VRAM to CPU"); the direction is set back to CPU -> GP0 (2) for every other GPU user.  The polled word
    loop above cost about 15 cycles a word: the menus re-blit their full-screen backdrop every frame and spent most of a present reading it back. */
 static void pp_vread_rows(int x,int y,int hw,int nr,u32*dst){
   u32 nw=(u32)(hw/2)*(u32)nr;
   gp0_2(0xC0000000,XY(x,y),XY(hw,nr)); while(!(GP1&0x08000000)){}
-  GP1=0x04000003; D2_MADR=(u32)dst&0xffffff; D2_BCR=(1u<<16)|nw; D2_CHCR=0x01000200; while(D2_CHCR&0x01000000){}
+  GP1=0x04000003; gpu_dma_x(dst,nw,0x01000200u);   /* rc10 review: 16-word blocks as for CPU -> VRAM (psx-spx: the DMA2 block size), not one block of nw */
   GP1=0x04000002; }
 #endif
 /* RAM -> VRAM: texture cache flushed, GP0(A0h) + position + size, then the nw data words by DMA2 (rt.c gpu_dma) */
@@ -277,9 +277,11 @@ static void pp_obj(void){
   if(!use4&&!use8) return;
   /* the tile rows are repacked 16 texture rows (512 words) at a time into the staging buffer and sent by DMA2 under one GP0(A0h) */
 #ifdef PP_DIRTY
-  /* rc10: the 16 KiB of OBJ tiles are repacked and uploaded only when they changed since the last upload of that texture (a rotate-xor and a sum of the
-     tile memory; the texture areas in PS1 VRAM belong to the 2D layer alone) */
-  { const u32*t=(const u32*)(VRAM+0x14000); u32 hh=0x9e3779b9u, hs=0; for(u32 i=0;i<4096;i++){ u32 w=t[i]; hh=((hh<<5)|(hh>>27))^w; hs+=w; }   /* rotate-xor and sum: both must agree */
+  /* rc10: the 16 KiB of OBJ tiles are repacked and uploaded only when they changed since the last upload of that texture (two position-dependent
+     hashes of the tile memory; the texture areas in PS1 VRAM belong to the 2D layer alone).  rc10 review: the first version (rotate by 5 and xor, plus
+     a sum) repeated every 32 words, so tiles moved or swapped by 4 (one 16x16 sprite) kept the hash and the upload was skipped.  Now djb2 (h*33+w)
+     and sdbm (h*65599+w), shifts and adds only: no short period (ps1/tests/test_objhash.py: the review's cases and random tile moves and swaps differ) */
+  { const u32*t=(const u32*)(VRAM+0x14000); u32 hh=5381u, hs=0; for(u32 i=0;i<4096;i++){ u32 w=t[i]; hh=(hh<<5)+hh+w; hs=w+(hs<<6)+(hs<<16)-hs; }
     hh=(hh^((hs<<16)|(hs>>16)))|1u;   /* 0 = never uploaded */
     if(use4&&hh==pp_obj_h4) use4=0; else if(use4) pp_obj_h4=hh;
     if(use8&&hh==pp_obj_h8) use8=0; else if(use8) pp_obj_h8=hh;

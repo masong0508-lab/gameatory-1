@@ -1392,11 +1392,13 @@ static inline __attribute__((always_inline)) void gp0e0(u32 w){ while((GP1&0x140
 static __attribute__((noinline)) void gp0_2(u32 c,u32 p1,u32 p2){ gp0c(c); gp0p(p1); gp0p(p2); }
 /* the GPU has everything and has drawn it: DMA2 finished, ready for a command and write FIFO empty */
 static void gpu_idle(void){ while(D2_CHCR&0x01000000){} while((GP1&0x14000000)!=0x14000000){} }
-/* nw data words from RAM to GP0 (after a GP0(A0h) and its two parameters): DMA2 blocks of 16 words, a remainder as one shorter block */
-static void gpu_dma(const void*src,u32 nw){
+/* nw data words by DMA2 in request mode: blocks of 16 words, a remainder as one shorter block.  chcr 0x01000201: RAM to GP0 (after a GP0(A0h) and
+   its two parameters); 0x01000200: GPUREAD to RAM (after a GP0(C0h), ppu12.h pp_vread_rows; rc10 review: the same 16-word blocks both ways) */
+static void gpu_dma_x(const void*src,u32 nw,u32 chcr){
   u32 a=(u32)src&0xffffff, big=nw&~15u, r=nw&15u;
-  if(big){ D2_MADR=a; D2_BCR=((big>>4)<<16)|16; D2_CHCR=0x01000201; while(D2_CHCR&0x01000000){} }
-  if(r){ D2_MADR=a+big*4; D2_BCR=(1u<<16)|r; D2_CHCR=0x01000201; while(D2_CHCR&0x01000000){} } }
+  if(big){ D2_MADR=a; D2_BCR=((big>>4)<<16)|16; D2_CHCR=chcr; while(D2_CHCR&0x01000000){} }
+  if(r){ D2_MADR=a+big*4; D2_BCR=(1u<<16)|r; D2_CHCR=chcr; while(D2_CHCR&0x01000000){} } }
+#define gpu_dma(src,nw) gpu_dma_x((src),(nw),0x01000201u)
 #define XY(x,y) (((u32)(y)<<16)|((x)&0xffff))
 static int cur_oy, disp_on;
 static int buf;           /* present() draws into the buffer at y = buf?240:0 and toggles buf after flipping it in */
@@ -1433,7 +1435,13 @@ static RTCOLD void gpu_region(void){
 #endif
 static void vsync(void){ ISTAT=~1u; for(volatile int n=0;n<400000;n++){ if(ISTAT&1) break; } ISTAT=~1u; CLK_POLL(); }
 /* show the buffer at (0,o) once everything drawn into it is finished, at the next vertical blank; the display comes on with the first one */
-static void flip_to(int o){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); GP1=0x05000000|((u32)o<<10); g_flips++; if(!disp_on){ disp_on=1; GP1=0x03000000; }
+#ifdef PRES_ASYNC
+static u32 fl_tl;              /* rc10 review: clk_lines at the last display-start change of the level (fl_do, flip_to) */
+#define FL_TL() (fl_tl=clk_lines)
+#else
+#define FL_TL() ((void)0)
+#endif
+static void flip_to(int o){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); GP1=0x05000000|((u32)o<<10); g_flips++; FL_TL(); if(!disp_on){ disp_on=1; GP1=0x03000000; }
 #if defined(RTC64)||defined(SPEEDPROF)
   pic_flipped();
 #endif
@@ -1486,16 +1494,28 @@ static u32 last_dl, last_rc, logic_lines, max_lines, tot_lines, nfr_meas;
 #ifndef FL_WIN
 #define FL_WIN 16      /* the blank is 23 lines (NTSC: 263 - 240 shown) or more (PAL); the display start is taken at the start of the shown lines */
 #endif
+/* rc10 review (frame pacing): a picture stays on screen for at least two vertical blanks, the game's own step (its limiter runs in 2-frame units),
+   as rc9's flip at the end of present() effectively did.  Without it a late flip followed by an early one showed a picture for one 60 Hz frame
+   (4-13 % of the pictures with an overclock).  Flips land within FL_WIN lines after a blank begins, so two flips one blank apart are 247..279
+   lines apart (PAL 297..329) and two blanks apart 510..542 (PAL 610..642): FL_MINL separates them on both. */
+#ifndef FL_MINL
+#define FL_MINL 400
+#endif
+#if !defined(RTC64)
+#error "PRES_ASYNC needs RTC64 (clk_lines)"
+#endif
 static u32 fl_pt;              /* RC1 low word at the previous poll */
-u32 fl_npoll, fl_nsync, fl_nlate;   /* flips done at a poll point / by waiting; blanks seen too late at a poll */
-static void fl_do(int o){ GP1=0x05000000|((u32)o<<10); g_flips++; if(!disp_on){ disp_on=1; GP1=0x03000000; } buf^=1; fl_req=-1;
+u32 fl_npoll, fl_nsync, fl_nlate, fl_nhold;   /* flips done at a poll point / by waiting; blanks seen too late at a poll; blanks passed up to hold the picture */
+static void fl_do(int o){ GP1=0x05000000|((u32)o<<10); g_flips++; FL_TL(); if(!disp_on){ disp_on=1; GP1=0x03000000; } buf^=1; fl_req=-1;
 #if defined(RTC64)||defined(SPEEDPROF)
   pic_flipped();
 #endif
 }
 void fl_poll(void){ u32 t=RC1_VAL&0xffff, dt=(t-fl_pt)&0xffff; fl_pt=t;
-  if(ISTAT&1){ if(dt<=FL_WIN&&!(D2_CHCR&0x01000000)&&(GP1&0x14000000)==0x14000000){ fl_do(fl_req); fl_npoll++; } else { ISTAT=~1u; fl_nlate++; } } }
-void fl_sync(void){ if(fl_req>=0){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); vsync(); SP_ADD(SP_VS,t1); fl_do(fl_req); fl_nsync++; } }
+  if(ISTAT&1){ if(dt<=FL_WIN&&!(D2_CHCR&0x01000000)&&(GP1&0x14000000)==0x14000000){ clk_poll(); if(clk_lines-fl_tl>=FL_MINL){ fl_do(fl_req); fl_npoll++; return; } fl_nhold++; }
+    else fl_nlate++;
+    ISTAT=~1u; } }
+void fl_sync(void){ if(fl_req>=0){ SP_T0(t0); gpu_idle(); SP_ADD(SP_GIDLE,t0); SP_T0(t1); do vsync(); while(clk_lines-fl_tl<FL_MINL); SP_ADD(SP_VS,t1); fl_do(fl_req); fl_nsync++; } }
 static void pres_finish(void){
   if(pend_oy<0) return;
   SP_T0(td); while(D2_CHCR&0x01000000){} SP_ADD(SP_DMA,td);
