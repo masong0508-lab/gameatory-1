@@ -137,6 +137,25 @@ class B3GPU(unittest.TestCase):
                         "-c",str(self.source),"-o",str(out)],check=True)
         self.assertGreater(out.stat().st_size,0)
 
+    def test_prepared_sf3_bridge_compiles(self):
+        """Compile the actual GPU producer, not just the portable math header."""
+        clang=shutil.which("clang")
+        if not clang:
+            self.skipTest("MIPS clang unavailable")
+        root=Path(self.tmp.name)
+        tree=root/"prepared"
+        subprocess.run([__import__("sys").executable,str(PS1/"tools/prepare.py"),
+                        "--output",str(tree)],check=True,timeout=60,capture_output=True)
+        cmd=[clang,"--target=mipsel-none-elf","-march=mips1","-mno-abicalls",
+             "-mfp32","-msoft-float","-fno-pic","-ffreestanding","-G0",
+             "-mno-gpopt","-Os","-DSF_NOLIBC","-fomit-frame-pointer",
+             "-mno-check-zero-division","-mllvm","-disable-mips-delay-filler",
+             "-DSF3_B3_BRIDGE","-DPRES_ASYNC","-Isf","-c","sf/sf3.c",
+             "-o",str(root/"sf3_bridge.o")]
+        result=subprocess.run(cmd,cwd=tree,capture_output=True,text=True,timeout=90)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertGreater((root/"sf3_bridge.o").stat().st_size,0)
+
     def test_sf3_bridge_uses_native_camera_and_atomic_submission(self):
         src=(SF/"sf3.c").read_text()
         begin=src.split("int sf3_b3_begin(",1)[1].split("int sf3_b3_flat(",1)[0]
