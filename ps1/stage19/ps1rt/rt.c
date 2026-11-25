@@ -6,6 +6,14 @@ typedef unsigned int u32; typedef int s32; typedef unsigned short u16; typedef s
 #ifdef MERGED_NATIVE
 #include "sfnat_place.h"
 #endif
+#ifdef B3_GPU_FRAME
+#ifndef MERGED_NATIVE
+#error "B3_GPU_FRAME requires native Star-FlyBack"
+#endif
+extern void sfn_sf_gpu_before_ppu(void);
+extern void sfn_sf_gpu_materialize_all(void);
+extern int sfn_sf_gpu_present(int pg,int oy);
+#endif
 #ifndef SF_NAT_EXT_N
 #define SF_NAT_EXT_N 0
 #endif
@@ -1038,6 +1046,9 @@ u32 io_read(u32 off,u32 size){
  #ifdef B3_KEY_EDGES
  b3_key_after(&b3_keys,io_keys,nat_lvl,b3_guest);
  #endif
+#ifdef B3_GPU_FRAME
+ if(!(io_keys&8u)) sfn_sf_gpu_materialize_all();
+#endif
  u32 v=io_keys; return size==2?v:(size==1?(v>>(8*(off-0x130)))&0xff:v); }
   if(off==6||off==7){ on_vcount_read(); adv_lines(vc_n(io_vc)); u32 v=io_vc; return size!=1?v:(v>>(8*(off-6)))&0xff; }
   if(off==4||off==5){ on_vcount_read(); adv_lines(vc_n(io_vc)); u32 ds=io16(4);
@@ -1066,7 +1077,11 @@ void io_write(u32 off,u32 size,u32 val){
 #else
   if(off>=0x100&&off<0x110) tm_write_check();
 #endif
-  if(off==0&&size>=2){ g_dispcnt_writes++; pp_dispcnt(io16(0)); tick();
+  if(off==0&&size>=2){
+#ifdef B3_GPU_FRAME
+    if((val&0x87u)!=4u) sfn_sf_gpu_materialize_all();
+#endif
+    g_dispcnt_writes++; pp_dispcnt(io16(0)); tick();
 #ifdef MERGED_NATIVE
     { static u32 d0; u32 d=io16(0); if((d^d0)&0x10) nat_flips++; d0=d; }
 #endif

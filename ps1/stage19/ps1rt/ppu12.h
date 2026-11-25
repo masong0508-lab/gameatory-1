@@ -226,7 +226,11 @@ static void pp_fade_flip(u32 P){
 #endif
 static PP_SECT void ppu_flush(void){
   SP_T0(sp_t0); SP_IN();  /* SPEEDPROF (rt.c clk.h): replay time */
-  u32 n=DL[0]; if(n-pp_from>256){ pp_lost+=n-pp_from-256; pp_from=n-256; }
+  u32 n=DL[0];
+#ifdef B3_GPU_FRAME
+  if(n!=pp_from) sfn_sf_gpu_before_ppu();
+#endif
+  if(n-pp_from>256){ pp_lost+=n-pp_from-256; pp_from=n-256; }
   for(;pp_from<n;pp_from++){
     FL_POLL();
     volatile u32*e=&DL[8+(pp_from&255)*8]; u32 id=e[0];
@@ -517,6 +521,9 @@ static void pp_mode3(void){
 }
 #endif
 static void pp_draw(int oy,int level){
+#ifdef B3_GPU_FRAME
+  sfn_sf_gpu_before_ppu();
+#endif
   u32 d=io16(0);
   /* drawing environment of this frame buffer: area 320 x PP_H at (0,oy+PP_Y0), drawing offset (0,oy), texture window off.  GP0 E3/E4: x | y<<10, E5: x | y<<11 (NOT the vertex packing) */
   gp0c(0xE1000000|(1<<7)|(1<<10)); gp0c(0xE2000000); gp0e(0xE3000000|((u32)(oy+PP_Y0)<<10)); gp0e(0xE4000000|319u|((u32)(oy+PP_Y0+PP_H-1)<<10)); gp0e(0xE5000000|((u32)oy<<11)); gp0c(0xE6000000);
@@ -529,6 +536,9 @@ static void pp_draw(int oy,int level){
   { PT0(t_); pp_cluts(); PTA(3,t_); }
   u32 lp=(d&0x10)?1:0;                   /* displayed page: bit 4 set shows the page at VRAM+0xa000 (the game then draws into base 0) */
   u32 base=lp?0xa000:0;
+#ifdef B3_GPU_FRAME
+  if(!level && sfn_sf_gpu_present(lp,oy)) level=1;
+#endif
   if(!level){ u32 c=pp_col(*(volatile u16*)(PAL),pp_bright); pp_rect(0,PP_Y0,320,PP_H,((c&31)<<3)|(((c>>5)&31)<<11)|(((c>>10)&31)<<19)); }
   /* the page (backdrops from blit 4 + transparent blits + guest writes): upload as 8 bpp (120 hw per row), draw with the transparent-0 CLUT (row 497) */
   PT0(t_);

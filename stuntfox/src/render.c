@@ -1,3 +1,6 @@
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+#include "sfgpu_api.h"
+#endif
 /* Flat-shaded polygon renderer. The hot parts (HOT) are ARM code run from IWRAM.
 
    Polygons are clipped against the view frustum in camera space, projected to 28.4 fixed
@@ -143,6 +146,9 @@ void r_begin(void)
 /* only the target page (the 2D drawing of a menu, before any frame has begun) */
 void r_back(void)
 {
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+    sf_gpu_materialize_all();
+#endif
     back = (REG_DISPCNT & 0x10) ? (u8 *)0x06000000 : (u8 *)0x0600a000;
 }
 #endif
@@ -558,6 +564,9 @@ HOT static void raster(const Poly *p)
 {
     int n = p->n & 0x3f;
     const s16 *xy = p->xy;
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+    if (!(p->n >> 6) && sf_gpu_flat(xy,n,p->color)) return;
+#endif
 #ifdef MERGE
     int type = p->n >> 6, done = -1;
     const void *info = &xy[2 * n];

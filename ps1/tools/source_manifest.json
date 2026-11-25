@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "272dd9fd961d4166b2fdc5722b9e7c6537308feb7498a1b4da2563acf56aaf7f"
+      "sha256": "ff01ac710852eb7342d63b34edede867959a130027587b67d1d3040d3fb2b6ea"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -202,7 +202,7 @@
     {
       "source": "stage19/ps1rt/ppu12.h",
       "target": "ps1rt/ppu12.h",
-      "sha256": "acb3cbceaf087fcf87b706cec5f9282da4a1ccc9bd5cab490b0600b8173c16b5"
+      "sha256": "17520e55039d008d296b3322b0b13dd1d5ebe5d3aff623758b4a59d867648292"
     },
     {
       "source": "stage19/ps1rt/ps1.ld",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "b5ffa5b7930188b1ea716ccde026dcf94f04087f037bbfe124b8bceb4df81c22"
+      "sha256": "c335861181328071d193b485caaa974c947292eb686bfb1db70a1179def75b12"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "9668d8c08d4236679d17ef93527b653d0800b5d8e1950a06ba002a2bb109875a"
+      "sha256": "12804da71b767a947782e7f88713b2ed7ef110aa95b38575a796b46fa02be59e"
     },
     {
       "source": "merged/pin.py",
@@ -862,7 +862,7 @@
     {
       "source": "merged/sfport.c",
       "target": "merged/sfport.c",
-      "sha256": "098b4b6a303a63afa381b96c416d479e2f69598afb09821ee0496c122e03c489"
+      "sha256": "10e4191a91058110b077d1dbaab55526b5d7d11fcaa31d45d06be8ba59da8a54"
     },
     {
       "source": "merged/include/gba.h",
@@ -973,6 +973,16 @@
       "source": "merged/sfwall.py",
       "target": "merged/sfwall.py",
       "sha256": "083c7a4e36b11a9afdedd1ec83b471a19c1f25eabf74793bd451a7ee1ceb5030"
+    },
+    {
+      "source": "merged/sfgpu.c",
+      "target": "merged/sfgpu.c",
+      "sha256": "2584cec59dcc6ce68744bdb7b38fda35e186e1989a726ce4195b4026991ff133"
+    },
+    {
+      "source": "merged/include/sfgpu_api.h",
+      "target": "merged/include/sfgpu_api.h",
+      "sha256": "8ba52ca3b99c386d5b3d3991e34b02b76f5a373a5f2369205ee27ed18c2d73fc"
     }
   ],
   "patches": [

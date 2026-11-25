@@ -114,6 +114,11 @@ def main():
         raise SystemExit('SFNAT_FASTWALL currently needs the full resident reciprocal tables')
     if fastwall == '1' and not {'rtab', 'erecip'} <= set(keep_native):
         raise SystemExit('SFNAT_FASTWALL needs resident rtab and erecip')
+    gpuframe = os.environ.get('SFNAT_GPU_FRAME', '0')
+    if gpuframe not in ('0', '1'):
+        raise SystemExit('SFNAT_GPU_FRAME must be 0 or 1')
+    if gpuframe == '1' and ((only and not {'render','tex','merge'} <= set(only)) or fastwall == '1'):
+        raise SystemExit('GPU frame requires native render/tex/merge and no direct-wall shortcut')
     compact_report = None
     compact = os.environ.get('SFNAT_COMPACT_MATH', '0')
     if compact not in ('0', '1'):
@@ -164,6 +169,8 @@ def main():
         n = os.path.basename(s)[:-2]
         ll = os.path.join(ir, n + '.ll')
         gte_flags = ['-DSFNAT_GTECAM'] if gtecam == '1' and n == 'render' else []
+        if gpuframe == '1' and n in ('render','tex','merge'):
+            gte_flags.append('-DSFNAT_GPU_FRAME')
         if fastwall == '1' and n == 'tex':
             gte_flags.append('-DSFNAT_FASTWALL')
         run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections'] + inc + gte_flags + ['-S', '-emit-llvm', s, '-o', ll], log)
@@ -220,8 +227,12 @@ def main():
         # host framebuffer writes must not pass through the guest IR pass.
         run(['clang'] + CF + ['-O2', '-fno-strict-aliasing', '-ffunction-sections', '-fdata-sections'] + inc + ['-S', '-emit-llvm', wc, '-o', wl], log)
         span_ll.append(wl)
+    if gpuframe == '1':
+        gpu_ll = os.path.join(ir, 'sfgpu.ll')
+        run(['clang'] + CF + ['-O2', '-fno-strict-aliasing', '-ffunction-sections', '-fdata-sections'] + inc + ['-S', '-emit-llvm', os.path.join(HERE, 'sfgpu.c'), '-o', gpu_ll], log)
+        span_ll.append(gpu_ll)
     port = os.path.join(ir, 'sfport.ll')
-    run(['clang'] + CF + [opt] + inc + (['-DSFNAT_FASTSPAN'] if fastspan == '1' else []) + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
+    run(['clang'] + CF + [opt] + inc + (['-DSFNAT_FASTSPAN'] if fastspan == '1' else []) + (['-DSFNAT_GPU_FRAME'] if gpuframe == '1' else []) + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
     prw = os.path.join(ir, 'sfport.mem.ll')
     run(['opt', '-passes=instnamer', '-S', port, '-o', port], log)
     run([sys.executable, os.path.join(HERE, 'irmem.py'), port, prw, os.path.join(out, 'native_globals.txt'), os.path.join(out, 'rom_globals.txt')], log)
@@ -357,7 +368,7 @@ def main():
     report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
                   requested_native_tables=sorted(keep_native), linked_native_tables=kept,
                   native_entries=len(ents), iwram_entries=len(iw),
-                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1', fastwall=fastwall=='1')
+                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1', fastwall=fastwall=='1', gpuframe=gpuframe=='1')
     with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
         json.dump(report, f, indent=2, sort_keys=True)
         f.write('\n')
