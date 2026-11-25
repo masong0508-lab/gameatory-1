@@ -40,6 +40,7 @@ def encode_page(raw):
     """Deterministic greedy LZ4 block, with a short history per four-byte key."""
     if len(raw) != PAGE_BYTES:
         raise ValueError("expected a full 4 KiB page")
+    raw = bytes(raw)  # hashable history keys, including bytearray input
     out, history = bytearray(), {}
     anchor = pos = 0
 
