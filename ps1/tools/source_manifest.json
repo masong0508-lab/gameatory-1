@@ -327,7 +327,7 @@
     {
       "source": "stage19/sf/sf3.c",
       "target": "sf/sf3.c",
-      "sha256": "e488249e005f6e91be208bffc763df3668eaf3a05d6023994eb21396cd25ee9b"
+      "sha256": "ffa13320377ada9241dddc32e1978aefb1044019e48a82b10af2e6d0de226eab"
     },
     {
       "source": "stage7/integration/sf/sf3_head.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "ce42fad3056a4548d1b6f9c7d85ae0a386baca8987df9850d6b8ab904a0d938d"
+      "sha256": "a1eee30f0448cc1ed91a0e2279b8b475d6b03c0e079cacd528e11c852899b113"
     },
     {
       "source": "merged/irmem.py",
@@ -908,6 +908,11 @@
       "source": "msb/mkpagelists_msb.py",
       "target": "msb/mkpagelists_msb.py",
       "sha256": "6032ec6674c7b23198d13c98ae4958ecb02759052d914f8e46138159855e4115"
+    },
+    {
+      "source": "stage19/sf/b3_gpu.h",
+      "target": "sf/b3_gpu.h",
+      "sha256": "33ef43236b5cab3d9e5e3bad1d473e3a99e877d4d906fe0c274e289da6222749"
     }
   ],
   "patches": [

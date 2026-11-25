@@ -172,3 +172,38 @@ physical CD request counts. Validate the linked candidate against B2
 and B3-without-cache, all scene transitions, pause, save, both accurate
 cores, frame pacing and flicker. The native city GPU backend remains
 unfinished; the software-renderer page-flip rates above are not 30 FPS.
+
+## B3 phase 3: city GPU camera/flat-geometry producer
+
+The next renderer path is behind `SF3_B3_BRIDGE` in `sf3.c`. It does
+not use the original Payback port's independently smoothed chase camera.
+The scene owner supplies Stunt Fox's existing world-unit position, mirrored
+1.14 right/up/forward axes and focal length in GBA pixels. The GPU city
+producer uses the 320x224 L1 viewport: horizontal focal = round(4f/3),
+vertical = round(7f/5). The GTE vertical rotation row is scaled by Hy/Hx;
+CPU culling, clipping, sky and billboard projections use the same lenses.
+Unbanked outdoor cameras only; inverted, banked or high-space views must
+fall back. This is deliberate until the B4 sky/roll and overlay work.
+
+`sf3_b3_begin` checks the loaded map, camera and hidden-buffer argument
+before opening a list. It waits for previous DMA use, draws the city into
+the existing OT, and accepts additional already-clipped 28.4 screen-space
+convex polygons through `sf3_b3_flat`. Colors use the resolved GBA BGR555
+palette entry. A quad uses an F4 packet in GPU Z order; larger convex
+polygons (up to 32 vertices) are emitted as one atomic F3 fan node at the
+game's depth key. No new framebuffer or persistent geometry array. Capacity
+is preflighted for the entire packet; an overflow or invalid polygon fails
+the transaction. `sf3_b3_end` sends only a complete list; the caller must
+compose HUD/OBJ and flip. `sf3_b3_abort` never sends a partial list.
+
+The source-only tests check mirrored camera conventions, eight projection
+points at both focal lengths (CPU math, not measured GTE error), viewport
+edges, palette conversion, quad winding, maximum fan and rejection without
+partial writes, plus the portable MIPS-I compile. Original rc10 and B2
+builds leave this flag off. This is **not yet a connected gameplay render
+path**: the B3 scene owner must first establish non-overlapping world/OT/
+native-code/stack regions, ensure map parity (including ladders, loops,
+dynamic props and water), connect `r_poly`/HUD ownership, retain the
+software fallback on failed/unsupported frames, and run real device/core
+picture comparisons before enabling. Do not enable the flag on the
+existing B2 linker layout: its native code uses sf3's world and OT windows.
