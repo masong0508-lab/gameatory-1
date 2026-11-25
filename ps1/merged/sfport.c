@@ -5,8 +5,14 @@
 #include "gba.h"
 
 /* fill.s: rows scanlines from row between the 16.16 edges xl, xr (stepping sl, sr a row); a pixel is set when its centre lies between */
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, u32 color4);
+#endif
 void fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, u32 color4)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_fill_trap(row, rows, xl, sl, xr, sr, color4)) return;
+#endif
     u8 c = (u8)color4;
     for (; rows > 0; rows--) {
         s32 a = (xl + 0x7fff) >> 16, e = (xr + 0x7fff) >> 16;
@@ -35,8 +41,14 @@ u32 rec_hash(const u8 *e, u32 h)
 /* texrun.s: a texture position is packed in one word (bits 31..27 the tile's column, 26..16 its fraction, 15..11 the row, 10..0 its
    fraction); every texel covers 2 x 2 pixels */
 #define TEXEL(uv) (((uv) >> 6 & 0x3e0) | (uv) >> 27)
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2);
+#endif
 void tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_tex_hrun(dst, n, uv, duv, tile, row2)) return;
+#endif
     for (; n > 0; n--) {
         u32 v = tile[TEXEL(uv)];
         uv += duv;
@@ -46,8 +58,14 @@ void tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
         dst += 2;
     }
 }
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_tex_hrun4(u32 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2);
+#endif
 void tex_hrun4(u32 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_tex_hrun4(dst, n, uv, duv, tile, row2)) return;
+#endif
     for (; n > 0; n--) {
         u32 v = tile[TEXEL(uv)];
         uv += duv;
@@ -57,8 +75,14 @@ void tex_hrun4(u32 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
         *dst++ = v;
     }
 }
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, int row2);
+#endif
 void tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, int row2)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_tex_vrun(dst, n, uv, duv, tile, lut, row2)) return;
+#endif
     for (; n > 0; n--) {
         u32 v = tile[TEXEL(uv)];
         uv += duv;
@@ -70,8 +94,14 @@ void tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, in
         dst += 480;
     }
 }
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2);
+#endif
 void tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_tex_mrun1(dst, n, uv, duv, mip, row2)) return;
+#endif
     for (; n > 0; n--) {
         u32 v = mip[(uv >> 8 & 0xf0) | uv >> 28];
         uv += duv;
@@ -81,8 +111,14 @@ void tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2)
         dst += 2;
     }
 }
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut);
+#endif
 void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_tex_vrun4(dst, n, uv, duv, tile, lut)) return;
+#endif
     for (; n > 0; n--) {
         u32 v = tile[TEXEL(uv)];
         uv += duv;
@@ -96,8 +132,14 @@ void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut)
         dst += 960;
     }
 }
+#ifdef SFNAT_FASTSPAN
+extern int sf_fast_tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2, u32 lv);
+#endif
 void tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2, u32 lv)
 {
+#ifdef SFNAT_FASTSPAN
+    if(sf_fast_tex_mrun(dst, n, uv, duv, mip, row2, lv)) return;
+#endif
     u32 mask = lv & 0xff, cs = lv >> 24, rs = lv >> 16 & 0xff;
     for (; n > 0; n--) {
         u32 v = mip[((uv >> rs) & mask) | uv >> cs];
