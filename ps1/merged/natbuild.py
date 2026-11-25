@@ -21,7 +21,7 @@ GEN_NATIVE = ['pbtables.c', 'tables.c']
 GEN_ROM = ['consttab.c', 'logo.c', 'merge_sig.c', 'pbmip.c', 'planetdata.c']   # read where they lie in the ROM (RAM is short)
 # functions written in C for the PS1 in place of Stunt Fox's ARM assembly (sfport.c); the other assembly functions run in the interpreter
 PORTED = {'fill_trap', 'rec_hash', 'tex_hrun', 'tex_hrun4', 'tex_vrun', 'tex_mrun1', 'tex_vrun4', 'tex_mrun', 'tex_walk'}
-RUNTIME = {'sf_rd', 'sf_wr', 'sf_resolve', 'sf_native_of', 'sf_gthunk', 'sf_gtarget', '__sf_guest_lr'}
+RUNTIME = {'sf_rd', 'sf_wr', 'sf_resolve', 'sf_native_of', 'sf_gthunk', 'sf_gtarget', '__sf_guest_lr', 'sf_fast_poll'}
 LINKER = re.compile(r'^__(hot\d*b?_(start|end|lma|save)|data_(start|end|lma)|bss_(start|end)|keep_canary|pool_a(_end)?|scr)$')
 CF = ['--target=mipsel-none-elf', '-march=mips1', '-mno-abicalls', '-mfp32', '-msoft-float', '-fno-pic', '-ffreestanding', '-fno-builtin',
       '-G0', '-mno-gpopt', '-mno-check-zero-division', '-fomit-frame-pointer', '-Wno-everything']
@@ -182,13 +182,22 @@ def main():
         lls.append(pn)
     mem = os.path.join(ir, 'sfmem.ll')
     run(['clang'] + CF + [opt] + os.environ.get('SFMEM_FLAGS', '').split() + ['-S', '-emit-llvm', os.path.join(HERE, 'sfmem.c'), '-o', mem], log)
+    fastspan = os.environ.get('SFNAT_FASTSPAN', '0')
+    if fastspan not in ('0', '1'):
+        raise SystemExit('SFNAT_FASTSPAN must be 0 or 1')
+    span_ll = []
+    if fastspan == '1':
+        sp = os.path.join(ir, 'sfspan.ll')
+        # Host addresses in sfspan are intentional; never run irmem here.
+        run(['clang'] + CF + [opt, '-fno-strict-aliasing', '-S', '-emit-llvm', os.path.join(HERE, 'sfspan.c'), '-o', sp], log)
+        span_ll.append(sp)
     port = os.path.join(ir, 'sfport.ll')
-    run(['clang'] + CF + [opt] + inc + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
+    run(['clang'] + CF + [opt] + inc + (['-DSFNAT_FASTSPAN'] if fastspan == '1' else []) + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
     prw = os.path.join(ir, 'sfport.mem.ll')
     run(['opt', '-passes=instnamer', '-S', port, '-o', port], log)
     run([sys.executable, os.path.join(HERE, 'irmem.py'), port, prw, os.path.join(out, 'native_globals.txt'), os.path.join(out, 'rom_globals.txt')], log)
     linked = os.path.join(out, 'sf.bc')
-    run(['llvm-link', '-o', linked, mem, prw] + lls, log)
+    run(['llvm-link', '-o', linked, mem, prw] + span_ll + lls, log)
     # the functions the guest enters: the ROM's patches (build.py names them) and Stunt Fox's assembly (interpreted; its relocations name
     # them): kept whole (@llvm.used) though the optimiser inlines them, so that the guest reaches native code, never the GBA copy
     want = set(re.findall(r"'([A-Za-z_]\w*)'", open(os.path.join(sfdir, 'build.py')).read()))
@@ -319,7 +328,7 @@ def main():
     report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
                   requested_native_tables=sorted(keep_native), linked_native_tables=kept,
                   native_entries=len(ents), iwram_entries=len(iw),
-                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report)
+                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1')
     with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
         json.dump(report, f, indent=2, sort_keys=True)
         f.write('\n')

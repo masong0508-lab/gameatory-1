@@ -354,3 +354,29 @@ integrity checks pass. Stock latency remains several seconds.
 The source-linked B3 build and Beetle/Android pause matrix remain
 unverified. Do not redistribute the private disc or treat this
 experiment as a finished release.
+
+## B3 direct mode-4 span experiment
+
+`SFNAT_FASTSPAN=1` opts in to the MIPS-only fast fill and six textured
+span kernels. Validate the entire destination range, alignment, row
+stride, edges and contiguous texture span first; invalid or unsupported
+cases return before touching pixels and run the existing renderer.
+Resolve a texture last, avoiding stale pointers from subsequent ROM
+resolves; stable RAM LUTs only. Poll the pad after each bounded span.
+All texture detail and view distance are retained.
+
+The private B2-derived executable prototype used the same seven
+algorithms (separately compiled and linked into checked free RAM).
+280 randomized comparisons of original and prototype MIPS functions
+on synthetic framebuffers (both mode-4 pages, all seven kernels)
+produced byte-identical buffers. This verifies the sampled kernels,
+not every scene or the exact source-linked variant. The source
+implementation is intentionally more conservative about LUT locations.
+Combined with the pause fix, SwanStation walking measured 19.83 page
+flips/s (400% CPU, 10x CD, instant seek), 2.897 at stock; physical
+misses/tick 0.014 and 0.055 respectively. All six short-pulse pauses
+and resumes pass at both settings; stock resume remains 7.3–16.0 s.
+No sampled cache mismatch or runtime fault. Valid-road boarding
+fixture failed; driving is not accepted. Full source-linked build,
+GPU renderer, Android, stock speed, flicker/campaign/audio gates
+remain outstanding. This is an opt-in software optimization only.

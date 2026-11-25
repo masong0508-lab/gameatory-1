@@ -719,6 +719,9 @@ static u32 pad_gba=0x3ff; static void present(void); static void ppu_flush(void)
    guest left it (entity count -1, clock still, three pictures).  A new picture is a page flip (DISPCNT bit 4: Payback flips the page Stunt
    Fox drew), the native counterpart of sf3's world-frame mark (c3_have6) */
 static int nat_lvl; static u32 nat_flips, nat_flips_shown;
+/* Direct mode-4 spans bypass the per-pixel slow-path poll. Keep the
+ * same elapsed-time throttle after a bounded span. */
+void sf_fast_poll(void){ CD_PADPOLL(526u); }
 #if defined(B3_CACHE) || SF_NAT_EXT_N || defined(B3_SPU_CACHE)
 static int b3_cache_active(void){
   if(!nat_lvl || !rom_pool) return 0;
