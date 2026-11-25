@@ -380,3 +380,35 @@ No sampled cache mismatch or runtime fault. Valid-road boarding
 fixture failed; driving is not accepted. Full source-linked build,
 GPU renderer, Android, stock speed, flicker/campaign/audio gates
 remain outstanding. This is an opt-in software optimization only.
+
+## B3 private music disc and native GTE camera
+
+The four-track private disc uses the original title music followed by
+three original gameplay tracks. The compact profile
+`-DB3_AUDIO_ORIGINALS` assigns SONGS (3..5), ALL SONGS (2..5), TITLE
+(2 only), and keeps every selection within the actual disc TOC.
+Use the owner's private, rendered 44.1 kHz stereo PCM files as explicit
+`--track` arguments to the existing mkdisc2 packer, in title/gameplay
+order. Never publish the audio, generated disc, or private logs.
+
+`SFNAT_GTECAM=1` is an optional native-software camera transform:
+use GTE MVMVA with sf=0, translation disabled, signed 16-bit range
+check and MAC1..3 (not saturating IR) to preserve the original Q14
+low-32-bit dot semantics. Larger coordinates take the ordinary C
+path. Do not combine this experimental COP2 ownership with the sf3
+city producer; it does not accelerate the software raster stage.
+
+The private B2-derived audio/GTE prototype passed SwanStation
+walking, camera, pause and resume at recommended and stock settings,
+with 175,233 / 22,053 GTE calls respectively, no sampled cache
+mismatches, and no detected runtime faults. Walking was 19.83
+rendered page flips/s recommended and 2.897 stock, unchanged within
+the measured window. The real radio played all four tracks, changed
+modes, wrapped, stopped and restarted without DMA or CDDA errors.
+A position-assisted open-road vehicle fixture drove forward, turned,
+reversed and exited at recommended settings. Stock vehicle boarding
+and full campaign completion remain unverified. A separate
+position-assisted station docking test started the campaign, wrote
+two progress generations, verified the physical memory-card CRC, and
+loaded the active progress after a fresh boot. Source-linked B3,
+Beetle/Android acceptance and full GPU rendering are not established.

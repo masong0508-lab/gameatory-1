@@ -147,16 +147,27 @@ void r_back(void)
 }
 #endif
 
+#if defined(PS1) && defined(SFNAT_GTECAM)
+#include "gtecam.h"
+#endif
 V3 r_cam(V3 p)
 {
     V3 d = vsub(p, cam.pos);
+#if defined(PS1) && defined(SFNAT_GTECAM)
+    return sf_gte_project(&cam.m, d);
+#else
     return v3(vdot(cam.m.r, d), vdot(cam.m.u, d), vdot(cam.m.f, d));
+#endif
 }
 
 V3 r_cam_far(V3 p, int shift)
 {
     V3 d = vshr(vsub(p, cam.pos), shift);
+#if defined(PS1) && defined(SFNAT_GTECAM)
+    return sf_gte_project(&cam.m, d);
+#else
     return v3(vdot(cam.m.r, d), vdot(cam.m.u, d), vdot(cam.m.f, d));
+#endif
 }
 
 int r_nofog;

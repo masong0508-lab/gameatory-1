@@ -182,7 +182,7 @@
     {
       "source": "stage16/merge/ps1rt/hw_radio.h",
       "target": "ps1rt/hw_radio.h",
-      "sha256": "43074e8de7e5656701db7f50e0ba4d42ec8085a0cec97e4482ff14bf55eb5649"
+      "sha256": "f1e4eb27131eae8042e9932befc9cfdd50642c63f397e4abdc8e62b66461f162"
     },
     {
       "source": "stage16/merge/ps1rt/hw_stub.h",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "91923b77c40e856919a1516391eee991ddd9b86adcc8e109b98c8449a9117ef4"
+      "sha256": "f2cbdae75449b4ab773160f1d74aa1ea4c1d1b480b67ae8eea86f6378208fde7"
     },
     {
       "source": "merged/irmem.py",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "e83fbb4e0390267290b59574a940542c05c872c34515eeb1ec05aa910c8ff579"
+      "sha256": "62f4d5889956b80ffd05e35a67cafac36fac84347eb70bc36a96c3762f9aa49e"
     },
     {
       "source": "merged/pin.py",
@@ -963,6 +963,11 @@
       "source": "merged/sfspan.c",
       "target": "merged/sfspan.c",
       "sha256": "c0a7e25545fe4a8a3b3669b0a7351e14d88474fb0dd0b50bd489fb4682ee6586"
+    },
+    {
+      "source": "merged/include/gtecam.h",
+      "target": "merged/include/gtecam.h",
+      "sha256": "bff9b7bf0d61e5460bf0799fda745cc8e0292afbf6aa35e80deb520392674720"
     }
   ],
   "patches": [
