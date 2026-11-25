@@ -335,3 +335,22 @@ the expanded cache PR. Its exact full source-linked binary has not
 yet been built or run. The private binary prototype is not proof of
 a finished product, GPU city integration, or Android acceptance.
 No private data is committed.
+
+## B3 pause input edge experiment
+
+Opt in with `-DB3_KEY_EDGES` on the real-pad merged native runtime
+using CDPADPOLL. The normal P6 edge latch may be consumed by a native
+drawing read before the translated game receives it. Track Start and
+A separately at every real runtime pad poll, replay pending edges
+before the authoritative low KEYINPUT read (outside a native call),
+and acknowledge only bits actually delivered after PADSPLIT. Reset
+pending state outside native levels. No directional repeat change.
+
+Private B2-derived hook tests, same stock SwanStation route: before,
+only 1/3 pause pulses opened the menu and 0/1 resumes completed;
+after, 6/6 pauses and 6/6 resumes (6, 12, 24 frames, twice each).
+Recommended 400%/10x/instant seek likewise 6/6 and 6/6. Cache
+integrity checks pass. Stock latency remains several seconds.
+The source-linked B3 build and Beetle/Android pause matrix remain
+unverified. Do not redistribute the private disc or treat this
+experiment as a finished release.

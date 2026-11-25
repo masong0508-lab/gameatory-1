@@ -207,12 +207,26 @@ static void cd_error_screen(u32 lba); static void cd_error_gone(void);
 #endif
 #if !defined(CDSIM) || defined(SIMSIO)
 #include "hw_pad.h"     /* PS1 pad (SIO0) -> GBA KEYINPUT */
+#ifdef B3_KEY_EDGES
+#if !defined(MERGED_NATIVE) || !defined(CDPADPOLL) || defined(CDSIM) || defined(AUTOKEYS) || defined(SIMKEYS)
+#error "B3_KEY_EDGES requires real-pad merged-native CDPADPOLL"
+#endif
+#include "b3_key_edges.h"
+static int nat_lvl;
+extern u32 sf_depth;
+static B3KeyEdges b3_keys;
+static u32 runtime_pad_poll(void){
+  u32 k=pad_poll(); b3_key_observe(&b3_keys,k,nat_lvl); return k;
+}
+#else
+#define runtime_pad_poll pad_poll
+#endif
 int sv_load(u8*ee,u32 n) RTCOLD;          /* rc7: once, at the first save-chip access */
 #include "hw_card.h"    /* memory card + EEPROM save layer */
 #endif
 #if defined(CDPADPOLL) && !defined(CDSIM)
 __attribute__((noinline)) static void cd_padpoll(u32 lines){ u32 t=RC1_VAL&0xffff; if(((t-pad_cdt)&0xffff)<lines) return; pad_cdt=t;
-  u32 dn=0x3ffu&~pad_poll(); pad_cdlat|=dn&~pad_cddn; pad_cddn=dn; pad_latch|=pad_raw; CDSTAT_INC(pad_cdpolls); }
+  u32 dn=0x3ffu&~runtime_pad_poll(); pad_cdlat|=dn&~pad_cddn; pad_cddn=dn; pad_latch|=pad_raw; CDSTAT_INC(pad_cdpolls); }
 #endif
 #ifndef CDSIM
 void cdda_init(void) RTCOLD;              /* rc7: once, at boot */
@@ -729,7 +743,7 @@ static int b3_cache_active(void){
    raw pad words seen since the last present, so a tap shorter than one present (16 GBA frames) still reaches the radio / map switch / bail-out edge detectors (pad_new_extra, radio_poll). */
 static u32 pad_gf=0xffffffffu, pad_latch, pad_lastp, pad_new_extra, pad_gpolls;
 static u32 assist_off;
-static void pad_frame_poll(void){ pad_gba=pad_poll(); pad_latch|=pad_raw; pad_gpolls++; if(g_gframes<300&&(pad_raw&0x1000)) assist_off=1; }
+static void pad_frame_poll(void){ pad_gba=runtime_pad_poll(); pad_latch|=pad_raw; pad_gpolls++; if(g_gframes<300&&(pad_raw&0x1000)) assist_off=1; }
 /* GBA time base (stage 4): io_cyc = GBA cycles (16.78 MHz) since boot, advanced by VCOUNT/DISPSTAT polls (1232 cycles per scanline), by SWI 5 (to the next vblank) and by
    96 cycles per timer/KEYINPUT poll.  Timers are derived from io_cyc (prescaler, cascade, reload) instead of the old +37-per-read counter, which made Payback's
    timed wait loops (title slide show: 0x7000 counts of TM3:TM2) expire after two polls so a key press was never sampled. */
@@ -969,6 +983,10 @@ u32 io_read(u32 off,u32 size){
 #endif
   ring_guard();
   if(off==0x130||off==0x131){
+#ifdef B3_KEY_EDGES
+  int b3_guest=!sf_depth && off==0x130u;
+  pad_cdlat|=b3_key_before(&b3_keys,nat_lvl,b3_guest);
+#endif
 #ifdef RTC_GFRAMES
   clk_gba();            /* real frames: the pad is read at most once per GBA frame of real time */
 #endif
@@ -1010,6 +1028,9 @@ u32 io_read(u32 off,u32 size){
 #ifdef AUTOKEYS
  io_keys=auto_keys(io_nd);
 #endif
+ #ifdef B3_KEY_EDGES
+ b3_key_after(&b3_keys,io_keys,nat_lvl,b3_guest);
+ #endif
  u32 v=io_keys; return size==2?v:(size==1?(v>>(8*(off-0x130)))&0xff:v); }
   if(off==6||off==7){ on_vcount_read(); adv_lines(vc_n(io_vc)); u32 v=io_vc; return size!=1?v:(v>>(8*(off-6)))&0xff; }
   if(off==4||off==5){ on_vcount_read(); adv_lines(vc_n(io_vc)); u32 ds=io16(4);
