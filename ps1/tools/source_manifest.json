@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "39e7f90ee8234af1bd40683e8eea7c627ff531c3b421eec932ddaaab4dc4f2c2"
+      "sha256": "661f61757458981b70b3d29f38f198ac19de2214c46bef3bad5a6d65228c7093"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "f8c1f29d7c5ac65d63280ba8d4a04e8f941713c3dc9394540cab53d2436b6621"
+      "sha256": "f948b7fe485e7ca877c725d897ddd5abe30ece497c2aa78474b378afbf668860"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "4a1cddcd2f994e446177db5b4d81cea4991bac585c8543a4430c0ec90165f018"
+      "sha256": "ce42fad3056a4548d1b6f9c7d85ae0a386baca8987df9850d6b8ab904a0d938d"
     },
     {
       "source": "merged/irmem.py",
@@ -842,7 +842,7 @@
     {
       "source": "merged/place.py",
       "target": "merged/place.py",
-      "sha256": "6047317a4fdad3aeac3c847e6c4db2497a50f94c275337c82b546bdd9eeb1d54"
+      "sha256": "a17a1769064b7c310a466919aff28b156738535f51b5f1cb55deeeb073569bb0"
     },
     {
       "source": "merged/sf3stub.c",
@@ -888,6 +888,26 @@
       "source": "merged/b3_profile.py",
       "target": "merged/b3_profile.py",
       "sha256": "fedec341b82e87808168998a7e1e42439da6c5f82fe56fd831f83a77310ea154"
+    },
+    {
+      "source": "stage19/ps1rt/b3_cache.h",
+      "target": "ps1rt/b3_cache.h",
+      "sha256": "183c735450631af4d1f06b121dc6267418c3710045066eadd68474c8651ea023"
+    },
+    {
+      "source": "merged/b3_cache_pack.py",
+      "target": "merged/b3_cache_pack.py",
+      "sha256": "c80889e9157f45e4de9cc31c2a1d17da870ee9bd52b27857c0598ba63ef6a6d1"
+    },
+    {
+      "source": "msb/residency.py",
+      "target": "msb/residency.py",
+      "sha256": "ccab89c582345cf295c0cd91eee1bd978b26c5181d3d361d78c54971c560fb6a"
+    },
+    {
+      "source": "msb/mkpagelists_msb.py",
+      "target": "msb/mkpagelists_msb.py",
+      "sha256": "6032ec6674c7b23198d13c98ae4958ecb02759052d914f8e46138159855e4115"
     }
   ],
   "patches": [

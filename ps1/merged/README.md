@@ -124,3 +124,51 @@ less than one miss per tick at stock; do not mark it achieved from a build or
 from the native table list. The sf3 city backend and scene-aware residency
 remain separate subsequent B3 changes. Revert to the B2 profile for diagnosis
 if the candidate fails; never weaken physical RAM guards.
+
+## B3 phase 2: optional compressed ROM working set
+
+An independently measured private B2 experiment used the existing 69-frame
+pool, a 56-page preferred set, and 30 independently compressed pages
+(20,913 B including their index entries). SwanStation at 400% CPU/10x/instant
+seek, identical controller windows: original B2 walk 18.44 ticks/s, 3.69
+flips/s, 20.89 physical misses/tick; preferred CLOCK 26.42 ticks/s, 5.38
+flips/s, 12.93 misses/tick; compressed experiment 31.70 ticks/s, 7.28
+flips/s, 7.06 misses/tick. Idle and camera samples improved too. Every valid
+page frame matched the private ROM at each sample end; zero decode errors
+or runtime faults. Stock walking still failed to move within 1,800 frames
+(0.50 -> 0.83 ticks/s), and the <1 miss/tick target remains open.
+These are private B2 binary experiments with the bank preloaded by the
+rig, not measurements of a linked B3 release or its loading time.
+
+This source implementation is optional and uses no fixed experimental
+addresses. Generate a private cache from an exact merged ROM and fresh
+physical-miss scene profile (see `../msb/residency.py`; add the
+`rom_sha256` field containing the exact ROM digest):
+
+```sh
+python3 ps1/merged/b3_cache_pack.py --rom /private/sfb_merged.gba \
+  --profile /private/b3-physical.json --out /private/b3-cache \
+  --r1-bytes 8192 --r3-bytes 6144 --rt-bytes 2048 --hot 56
+export B3CACHE_DIR=/private/b3-cache
+# Run natbuild.py, place.py, then the existing merged-native build recipe.
+```
+
+The dependency-free packer verifies every encoded page against its source,
+ranks by scene-normalized misses per stored byte, and excludes packed pages
+from the preferred set. Generated headers and cache metadata stay private.
+The placer charges the exact R1/R3 payload plus alignment, and the normal
+physical linker assertions also cover the runtime payload, index, mask
+and decode code. If it does not fit, reduce budgets and regenerate; do not
+move guest windows or weaken the 2 MiB guards. The build verifies the ROM
+hash, generated header hash and matching placement sizes. Unset
+`B3CACHE_DIR` for the previous runtime. Original Payback builds do not
+enable this path.
+
+Only an active native level uses the preferred CLOCK/packed restore;
+pause-block loading, menus and ordinary CD fallback are unchanged.
+A malformed block is discarded and fully reread before a mapping is
+published. `b3_cache_hits` and `b3_cache_errors` are separate from
+physical CD request counts. Validate the linked candidate against B2
+and B3-without-cache, all scene transitions, pause, save, both accurate
+cores, frame pacing and flicker. The native city GPU backend remains
+unfinished; the software-renderer page-flip rates above are not 30 FPS.

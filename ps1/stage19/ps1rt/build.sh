@@ -55,6 +55,18 @@ if [ "$EXEPACK" = 1 ] && [ ! -f exepack.py ]; then echo 'Missing input: exepack.
 PZ=0; case " $CFL " in *" -DPZBLOCK "*) PZ=1 ;; esac
 if [ "$PZ" = 1 ] && [ ! -f ../${PZLIST:-t/pause_pages.txt} ]; then echo "Missing input: ../${PZLIST:-t/pause_pages.txt}" >&2; missing=1; fi
 [ "$missing" = 0 ] || fail 'assemble the source tree and generate its private translation/map inputs first; see ps1/STATUS.md'
+# Optional private B3 cache. Both the generator and the placer must have
+# used the same bundle; mismatched ROM/placement must never reach the link.
+if [ -n "${B3CACHE_DIR:-}" ]; then
+    case "$B3CACHE_DIR" in /*) ;; *) fail 'B3CACHE_DIR must be an absolute private directory' ;; esac
+    [ -n "${SFNAT:-}" ] || fail 'B3CACHE_DIR requires SFNAT native placement'
+    case " $CFL " in *" -DMERGED_NATIVE "*) ;; *) fail 'B3 cache requires MERGED_NATIVE' ;; esac
+    case " $CFL " in *" -DPCACHE1 "*) ;; *) fail 'B3 cache requires PCACHE1' ;; esac
+    [ "${MERGED:-}" = 1 ] || fail 'B3 cache is merged-only'
+    python3 ../merged/b3_cache_pack.py --rom "$ROM" --verify "$B3CACHE_DIR" --placement "$SFNAT/sfnat_place.h" || fail 'invalid private B3 cache bundle'
+else
+    case " $CFL " in *" -DB3_CACHE "*) fail 'B3_CACHE requires B3CACHE_DIR' ;; esac
+fi
 python3 - "$ROM" "${MERGED:-}" <<'PY'
 from pathlib import Path
 import sys
@@ -140,7 +152,9 @@ PY
         run "interp-asm-$PASS" "$PS1_CC" $F -c ../interp/interp_asm.s -o "$WORK/interp_asm.o"
         IPO="$WORK/interp.o $WORK/interp_asm.o"; CFL_IP=-I../interp
     else IPO=; CFL_IP=-DNO_INTERP; fi
-    run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP $PZI ${SFNAT:+-I$SFNAT} ${RTOPT:--Os} -c rt.c -o "$WORK/rt.o"
+    set --
+    if [ -n "${B3CACHE_DIR:-}" ]; then set -- -DB3_CACHE "-I$B3CACHE_DIR"; fi
+    run "runtime-$PASS" "$PS1_CC" $F $CFL $CFL_IP $PZI ${SFNAT:+-I$SFNAT} ${RTOPT:--Os} "$@" -c rt.c -o "$WORK/rt.o"
     if [ "$EXEPACK" = 1 ]; then ASF=-Wa,-defsym,EXEPACK=1; else ASF=; fi
     run "startup-$PASS" "$PS1_CC" $F $ASF -c crt0.s -o "$WORK/crt0.o"
     run "symbols-$PASS" "$PS1_CC" $F -c "$WORK/syms.c" -o "$WORK/syms.o"
