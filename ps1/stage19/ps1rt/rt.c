@@ -481,6 +481,16 @@ static void pz_present(void){
     pz_done=c; }
 }
 #endif
+#ifdef B3_CACHE
+#if !defined(MERGED_NATIVE) || !defined(MERGED) || !defined(PCACHE1)
+#error "B3_CACHE requires the merged native single-page runtime"
+#endif
+#include "b3_cache.h"
+#include "b3_cache_data.h"
+_Static_assert(B3_CACHE_COUNT<=64u && B3_CACHE_HOT_COUNT<=B3_HOT_MAX, "B3 cache bounds");
+static int b3_cache_active(void);
+u32 b3_cache_hits, b3_cache_errors;  /* separate from physical disc misses */
+#endif
 /* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
    gread ... (or inline the whole miss path into them) */
 #ifdef PGPROF
@@ -499,6 +509,9 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
     else if(!pool_refetch) pool_menu_off(); }
 #endif
   u32 f;
+#ifdef B3_CACHE
+  int b3_active=b3_cache_active();
+#endif
 #ifdef POOL_THRASH
   /* pool_back: in the FIFO again after a menu pool, a resident page that is not in RAM is read into its own frame */
   if(pool_offs && !rom_pool) for(f=0;f<pool_rp;f++) if((rp_idx[f]&(ROM_NPG-1u))==pg) goto rd;
@@ -532,12 +545,26 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   }
 #endif
   if(!rom_pool){ f=pool_rp+slot_next; slot_next=(slot_next+1)%NSLOT; }
-  else { u32 n=pool_rp+NSLOT; for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; } }   /* second chance: unmap, keep the data */
+  else {
+    u32 n=pool_rp+NSLOT;
+#ifdef B3_CACHE
+    f=b3_clock_victim(n,&pool_hand,fr_pg,rom_pg,b3_preferred,b3_active);
+#else
+    for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; }
+#endif
+  }   /* second chance: unmap, keep the data */
 #ifdef POOL_THRASH
 rd:
 #endif
   pool_drop(f);
   u8 *d=pool_frame(f);
+#ifdef B3_CACHE
+  if(b3_active){
+    int restored=b3_restore_page(pg,d,b3_cache_pages,B3_CACHE_COUNT);
+    if(restored>0){ pool_set(f,pg); b3_cache_hits++; return d; }
+    if(restored<0) b3_cache_errors++;   /* full CD read below overwrites the partial decode */
+  }
+#endif
 #ifdef DISP_PROF
   { u32 t0=dsp_rc(); cd_read(CD_ROM_LBA+pg*2,2,d); dsp_cdl+=dsp_rc()-t0; }
 #else
@@ -607,6 +634,20 @@ static u32 pad_gba=0x3ff; static void present(void); static void ppu_flush(void)
    guest left it (entity count -1, clock still, three pictures).  A new picture is a page flip (DISPCNT bit 4: Payback flips the page Stunt
    Fox drew), the native counterpart of sf3's world-frame mark (c3_have6) */
 static int nat_lvl; static u32 nat_flips, nat_flips_shown;
+#ifdef B3_CACHE
+static int b3_cache_active(void){
+  if(!nat_lvl || !rom_pool) return 0;
+#ifdef POOL_THRASH
+  if(pool_menu) return 0;
+#endif
+#ifdef PZBLOCK
+  /* Keep the normal pause working set and its bulk load behavior. */
+  u32 c=*(volatile u32*)(EW+0x1e00);
+  if(pz_arm || (pz_done==c && pz_lclk==c)) return 0;
+#endif
+  return 1;
+}
+#endif
 #define LVL_ON (nat_lvl)
 #define PIC_READY() (nat_flips!=nat_flips_shown)
 #define PMAX_HOLD() 0            /* (Stunt Fox's own loops may not reach Payback's limiter: the 100 ms fallback always presents) */
