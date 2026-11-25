@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "fe3ea785e1b489b16f679f8ab820f4e5bc02d03060e7ddeb28e5f0f56ec26ec8"
+      "sha256": "321c2316f034d8f62b1db188ebac3e50074846cc942a61fec6ba7087f357a8e2"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "f948b7fe485e7ca877c725d897ddd5abe30ece497c2aa78474b378afbf668860"
+      "sha256": "e0e6ac2066c4ad7ec80a2776c09713d26d356d25de13a39e249f790617391796"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "fb11a74be623ca9e95a3809fe7440c3b3935eb58fb2cbe2b6d9987d37c887633"
+      "sha256": "5cc590127f8978bc144e9c47a47ec53767f28b81661b5a116f15a75dcd3cc46c"
     },
     {
       "source": "merged/irmem.py",
@@ -918,6 +918,21 @@
       "source": "merged/gpu_layout.py",
       "target": "merged/gpu_layout.py",
       "sha256": "d0bd2050a18ddce47b0b9ad08f6ab2e00514a6d0cceb95bc7444f9b2a4cda525"
+    },
+    {
+      "source": "merged/scene_overlay.h",
+      "target": "merged/scene_overlay.h",
+      "sha256": "2feb98d37e488d30afad969d76c6802f6131620c0344e0b3abf29754a815889e"
+    },
+    {
+      "source": "merged/scene_overlay.py",
+      "target": "merged/scene_overlay.py",
+      "sha256": "600fe9e9b59943e34f07dcaffb741a7ce3762452601e470cbf6fd49d83801426"
+    },
+    {
+      "source": "merged/scene_layout.py",
+      "target": "merged/scene_layout.py",
+      "sha256": "fe744ef80640e6a73756e353fc1d8e661437e19593ec52105b3829a0b862d4c6"
     }
   ],
   "patches": [

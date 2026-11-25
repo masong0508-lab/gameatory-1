@@ -235,3 +235,13 @@ gate and private synthetic GPU probe remain available.
 
 See [synthetic GPU/GTE probe](../qa/B3_GPU_PROBE.md) for the two-core
 pixel/projection checks. They passed independently of the live-city path.
+
+## B3 phase 4: flight/station code overlay subsystem
+
+See [the shared scene slot and executable probe](../qa/B3_SCENE_OVERLAY.md).
+The SOV1 loader and private ELF packer are implemented; the same MIPS code
+address is reused by separately linked scene modules and verified before
+execution. The B2 ELF yields a 136 KiB candidate slot and a lower permanent
+cold-code boundary, but this is not the final GPU-linked layout. The native
+modules still need partitioning and the actual scene dispatcher, CD payload
+and GPU lifetime integration. Original builds keep their current behavior.
