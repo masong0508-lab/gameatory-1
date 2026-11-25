@@ -151,6 +151,7 @@ SECTIONS{ . = 0x80010000;
  ASSERT(. <= __ps1_pcache_start, "resident ROM pages overlap the page cache")
  . = DEFINED(__doll_addr) ? __doll_addr : 0x80163000; __doll_start = .; .doll : { %(R2)s }
  . = ALIGN(16); __dlbss_start = .; .dlbss : { *(.dl.bss*) *(.dl.sbss*) } __dlbss_end = .;
+ . = ALIGN(16); .got : { *(.got*) } __native_got_end = .;
  ASSERT(__ps1_pcache_end <= __doll_start, "ROM page cache overlaps native Stunt Fox (R2)")
  ASSERT(. <= 0x8017a000, "native Stunt Fox (R2) overlaps PPU scratch")
  . = 0x8017a000; .ppuscratch (NOLOAD) : {

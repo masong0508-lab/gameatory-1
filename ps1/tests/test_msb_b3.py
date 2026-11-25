@@ -56,6 +56,12 @@ class B3ProfileTests(unittest.TestCase):
         self.assertEqual(out["native_R1"]["free_bytes"], 3584)
         self.assertEqual(out["native_R2"]["free_bytes"], 256)
         self.assertEqual(out["native_stack"]["reserved_bytes"], 12288)
+        syms["__native_got_end"] = 0x80179f08
+        self.assertEqual(linked_ram_census(syms, 512, 0x800eb430)["native_R2"]["free_bytes"], 248)
+        syms["__native_got_end"] = 0x8017a001
+        with self.assertRaises(ValueError):
+            linked_ram_census(syms, 512, 0x800eb430)
+        del syms["__native_got_end"]
         syms["__dlbss_end"] = 0x8017a001
         with self.assertRaises(ValueError):
             linked_ram_census(syms, 512, 0x800eb430)
