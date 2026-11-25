@@ -248,6 +248,10 @@ void cdda_init(void) RTCOLD;              /* rc7: once, at boot */
 #else
 #include "hw_stub.h"
 #endif
+/* The pure CD simulator also has pad_poll(), through hw_stub.h. */
+#if defined(CDSIM) && !defined(SIMSIO)
+#define runtime_pad_poll pad_poll
+#endif
 #include "hw_radio.h"
 #ifdef CDSIM
 #define SIMDISC ((const u8*)0x90000000)   /* sim only: disc image mapped at physical 0x10000000 */
