@@ -1,3 +1,6 @@
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+#include "sfgpu_api.h"
+#endif
 /* Stunt Fox inside Payback (the MERGE build, see build.py --merge).
 
    Like SkyCraft running Minecraft's player inside Skyrim's world, the two games share one
@@ -3919,6 +3922,9 @@ int sf_draw(int view)
     int ours = STATE[0] == MAGIC && __keep_canary[0] == CANARY;
     int map = view != 0 ? -1 : which_map(ours ? map_now : -1);
     if (map < 0) {
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+        sf_gpu_materialize_all();
+#endif
         STATE[0] = 0;                                  /* Payback's renderer reuses our memory */
         hot_restore(1);
         return 0;
@@ -3985,10 +3991,17 @@ int sf_draw(int view)
     camera_update(me ? me : hero && is_person(hero) ? hero : 0);
 
     r_pmap = pb_pmap;
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+    if (paused || mode == FLY || cam.pos.y >= 9000 || fade_d)
+        sf_gpu_materialize_all();
+#endif
     int v = s2_room_view();        /* a station room (1) or the picture as it was (2): 0 is the usual frame */
     if (v == 2)
         goto tail;
     if (v) {
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+        sf_gpu_materialize_all();
+#endif
         tex_on = 0, r_nofog = 1;   /* (flat shades, no Payback tiles, no fog) */
         r_begin();
         s2_room_draw();
@@ -4034,10 +4047,16 @@ int sf_draw(int view)
     else
         point_x = 0, pointed = paused ? pointed : 0;
     sel_look();
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+    sf_gpu_begin(r_target(), !paused && !fade_d && mode != FLY && alt < 9000 && tex_on);
+#endif
     r_flush_bg();
     sel_look();
     stars_draw(alt);
     r_flush_fg();
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+    sf_gpu_end();
+#endif
     r_end();
     sel_look();
     int done = PB_LEVEL_END == 3;                      /* (Payback's red level-complete lines are where ours go) */

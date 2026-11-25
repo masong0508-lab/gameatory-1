@@ -1,3 +1,6 @@
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+#include "sfgpu_api.h"
+#endif
 /* Milestone B (PS1): C for the Stunt Fox functions that the GBA build has in ARM assembly and that native C calls in its inner loops
    (stuntfox/src/fill.s, rechash.s, texrun.s), instruction for instruction the same results.  Compiled with the Stunt Fox module
    (natbuild.py), so its memory accesses take the guest memory model too (irmem.py).  The assembly hooks Payback calls (keyhook.s,
@@ -10,6 +13,9 @@ extern int sf_fast_fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, 
 #endif
 void fill_trap(u8 *row, int rows, s32 xl, s32 sl, s32 xr, s32 sr, u32 color4)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_fill(row,rows,xl,sl,xr,sr,color4)) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_fill_trap(row, rows, xl, sl, xr, sr, color4)) return;
 #endif
@@ -46,6 +52,9 @@ extern int sf_fast_tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int
 #endif
 void tex_hrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_texspan(dst,n,uv,duv,tile,0,2,row2?2:1,5)) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_tex_hrun(dst, n, uv, duv, tile, row2)) return;
 #endif
@@ -63,6 +72,9 @@ extern int sf_fast_tex_hrun4(u32 *dst, int n, u32 uv, u32 duv, const u8 *tile, i
 #endif
 void tex_hrun4(u32 *dst, int n, u32 uv, u32 duv, const u8 *tile, int row2)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_texspan((u8*)dst,n,uv,duv,tile,0,4,row2?2:1,5)) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_tex_hrun4(dst, n, uv, duv, tile, row2)) return;
 #endif
@@ -80,6 +92,9 @@ extern int sf_fast_tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, con
 #endif
 void tex_vrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut, int row2)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_texspan(dst,n,uv,duv,tile,lut,row2?480:240,2,5)) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_tex_vrun(dst, n, uv, duv, tile, lut, row2)) return;
 #endif
@@ -99,6 +114,9 @@ extern int sf_fast_tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int
 #endif
 void tex_mrun1(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_texspan(dst,n,uv,duv,mip,0,2,row2?2:1,4)) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_tex_mrun1(dst, n, uv, duv, mip, row2)) return;
 #endif
@@ -116,6 +134,9 @@ extern int sf_fast_tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, co
 #endif
 void tex_vrun4(u8 *dst, int n, u32 uv, u32 duv, const u8 *tile, const u8 *lut)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_texspan(dst,n,uv,duv,tile,lut,960,2,5)) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_tex_vrun4(dst, n, uv, duv, tile, lut)) return;
 #endif
@@ -137,6 +158,9 @@ extern int sf_fast_tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int 
 #endif
 void tex_mrun(u8 *dst, int n, u32 uv, u32 duv, const u8 *mip, int row2, u32 lv)
 {
+#ifdef SFNAT_GPU_FRAME
+    if (sf_gpu_texspan(dst,n,uv,duv,mip,0,2,row2?2:1,32-(lv>>24))) return;
+#endif
 #ifdef SFNAT_FASTSPAN
     if(sf_fast_tex_mrun(dst, n, uv, duv, mip, row2, lv)) return;
 #endif

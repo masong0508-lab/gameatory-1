@@ -82,6 +82,29 @@ if [ -n "${B3CACHE_DIR:-}" ]; then
 else
     case " $CFL " in *" -DB3_CACHE "*) fail 'B3_CACHE requires B3CACHE_DIR' ;; esac
 fi
+# GPU frame ownership is a matched opt-in in native object and runtime.
+# Do not link a GPU producer with the old PPU presenter (or vice versa).
+GPU_FRAME=0
+case " $CFL " in
+  *" -DB3_GPU_FRAME "*) GPU_FRAME=1 ;;
+  *" -DB3_GPU_FRAME="*) fail 'use -DB3_GPU_FRAME without a value' ;;
+esac
+if [ "$GPU_FRAME" = 1 ]; then
+    [ -n "${SFNAT:-}" ] || fail 'GPU frame requires native build'
+    [ "${MERGED:-}" = 1 ] || fail 'GPU frame requires merged build'
+    case " $CFL " in *" -DNOSF3 "*) ;; *) fail 'GPU frame owns city VRAM; requires -DNOSF3' ;; esac
+    case " $CFL " in *" -DCDSIM "*) fail 'GPU frame requires hardware GPU' ;; esac
+fi
+if [ -n "${SFNAT:-}" ]; then
+    python3 - "$SFNAT" "$GPU_FRAME" <<'PY2'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])/"b3_native_census.json"
+actual=bool(json.loads(p.read_text()).get("gpuframe",False)) if p.exists() else False
+if actual != bool(int(sys.argv[2])):
+    raise SystemExit("native GPU frame producer and PS1 runtime flags do not match")
+PY2
+fi
 if [ -n "${SFNAT:-}" ]; then
     python3 ../merged/b3_ext.py "$SFNAT" "$ROM" || fail 'invalid expanded cache placement or seed'
 fi

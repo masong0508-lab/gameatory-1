@@ -1,3 +1,6 @@
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+#include "sfgpu_api.h"
+#endif
 /* Payback's tiles on the ground, roofs and walls (MERGE build). See tex.h.
 
    The ground: every screen row of a flat ground lies at one depth (unless the camera rolls),
@@ -234,6 +237,9 @@ void tex_floor(TexFloor *fl, s32 h)
 /* n pairs of pixels of one colour, on this row and row2 bytes further */
 static inline __attribute__((target("arm"))) void flat_pairs(u8 *d, int n, int color, int row2)
 {
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+    if (sf_gpu_rectspan(d,2*n,row2?2:1,color)) return;
+#endif
     u16 c = color | color << 8;
     for (; n > 0; n--, d += 2) {
         *(u16 *)(d + row2) = c;
@@ -525,6 +531,44 @@ __attribute__((noinline)) static int wall_split(int rows, s32 ds, s32 dt, s32 w0
     return (rows + (1 << j) - 1) >> j;
 }
 
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+/* Test an eight-column block against the original column coverage and
+ * projective texture mapping. Do not cross occlusion, tile or far
+ * boundaries. A conservative min/max denominator bound limits affine
+ * UV error to half a texel. Otherwise the original column path runs. */
+static __attribute__((noinline)) int wall_group(const TexWall*t,int x,int ne,const s32*ex0,const s32*ey0,const s32*ex1,const s32*esl,s32 xmin,s32 xmax){
+    const int width=16;
+    s32 uv[8],wlo=0x7fffffff,whi=0,slo=0x7fffffff,shi=-0x7fffffff,tlo=0x7fffffff,thi=-0x7fffffff;
+    s16 pts[8]; int a[2],b[2],slot=-1,sign=0;
+    if (x+width>240 || x+width>(xmax>>4)) return 0;
+    for (int i=0;i<2;i++) {int xx=x+i*(width-2);b[i]=wall_rows(xx,ne,ex0,ey0,ex1,esl,xmin,xmax,&a[i]);if(b[i]<=a[i])return 0;}
+    /* The painter-order masks may exclude entire columns. Exact column
+     * coverage or at most one pixel of edge rounding is required. */
+    for(int j=0;j<width/2;j++){
+        int xx=x+2*j,aa,bb;if(t->skip[xx>>6]&(1u<<((xx>>1)&31)))return 0;
+        bb=wall_rows(xx,ne,ex0,ey0,ex1,esl,xmin,xmax,&aa);
+        int ea=(a[0]*(7-j)+a[1]*j+3)/7,eb=(b[0]*(7-j)+b[1]*j+3)/7;
+        if(bb<=aa||aa<ea-1||aa>ea+1||bb<eb-1||bb>eb+1)return 0;
+    }
+    for(int k=0;k<4;k++){
+        int i=k&1,j=k>>1,xx=x+1+i*(width-2),yy=j?b[i]-1:a[i],e;
+        s32 w=t->w[0]+xx*t->w[1]+yy*t->w[2],A=t->a[0]+xx*t->a[1]+yy*t->a[2],B=t->b[0]+xx*t->b[1]+yy*t->b[2];
+        int neg=w<0;if(!k)sign=neg;else if(neg!=sign)return 0;if(neg)w=-w,A=-A,B=-B;
+        if(!w||w<t->wlim)return 0;
+        u32 r=recip(w|1,&e);s32 ss=DIVR(A,r,e),tt=DIVR(B,r,e);int id=ss>>21;if(id<0)id=0;if(id>3)id=3;
+        if(!k)slot=id;else if(id!=slot)return 0;
+        if(w<wlo)wlo=w;if(w>whi)whi=w;
+        if(ss<slo)slo=ss;if(ss>shi)shi=ss;if(tt<tlo)tlo=tt;if(tt>thi)thi=tt;
+        uv[2*k]=ss;uv[2*k+1]=tt;
+        pts[2*k]=x+i*width;pts[2*k+1]=j?b[i]:a[i];
+    }
+    if(!t->tile[slot])return 0;
+    s32 ds=shi-slo,dt=thi-tlo,d=ds>dt?ds:dt;
+    if(d<0||d>32*65536||((s64)d*(whi-wlo))>((s64)wlo<<15))return 0;
+    return sf_gpu_wallquad(pts,uv,t->tile[slot],t->lut);
+}
+#endif
+
 /* a wall polygon (screen 28.4) in columns two pixels wide */
 #if defined(PS1) && defined(SFNAT_FASTWALL)
 extern int sf_fast_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color);
@@ -540,6 +584,9 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
     if (x < 0) x = 0;
     if (xe > 240) xe = 240;
     for (; x < xe; x += 2) {
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+        if(x+16<=xe && wall_group(t,x,ne,ex0,ey0,ex1,esl,xmin,xmax)){x+=14;continue;}
+#endif
         if (t->skip[x >> 6] & 1u << ((x >> 1) & 31))
             continue;                       /* (a nearer wall paints over it) */
         int r0, r1 = wall_rows(x, ne, ex0, ey0, ex1, esl, xmin, xmax, &r0);
@@ -570,6 +617,9 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
         flat:;
             u16 c = color | color << 8;
             u8 *f = back + r0 * 240 + x;
+#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+            if (sf_gpu_rectspan(f,2,rows,color)) continue;
+#endif
             for (int k = 0; k < rows; k++, f += 240)
                 *(u16 *)f = c;
             continue;
