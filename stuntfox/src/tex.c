@@ -526,8 +526,14 @@ __attribute__((noinline)) static int wall_split(int rows, s32 ds, s32 dt, s32 w0
 }
 
 /* a wall polygon (screen 28.4) in columns two pixels wide */
+#if defined(PS1) && defined(SFNAT_FASTWALL)
+extern int sf_fast_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color);
+#endif
 HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
 {
+#if defined(PS1) && defined(SFNAT_FASTWALL)
+    if (sf_fast_wall(back, xy, n, t, color)) return;
+#endif
     s32 ex0[MAXV], ey0[MAXV], ex1[MAXV], esl[MAXV], xmin = 1 << 30, xmax = -(1 << 30);
     int ne = wall_edges(xy, n, ex0, ey0, ex1, esl, &xmin, &xmax);
     int x = ((xmin + 7) >> 4) & ~1, xe = ((xmax + 7) >> 4) + 1;

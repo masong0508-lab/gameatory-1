@@ -412,3 +412,32 @@ position-assisted station docking test started the campaign, wrote
 two progress generations, verified the physical memory-card CRC, and
 loaded the active progress after a fresh boot. Source-linked B3,
 Beetle/Android acceptance and full GPU rendering are not established.
+
+## Stock wall raster experiment (2026-11-25)
+
+`SFNAT_FASTWALL=1` is an opt-in native wall kernel with the same
+perspective subdivision, indexed textures, depth cutoff and occlusion
+as `tex.c`. It copies validated parameters, texture tiles and palette
+lookups into local scratch before any framebuffer write. A failed
+resolve uses the original renderer. Full resident reciprocal tables
+are required. The generator derives math from the public renderer,
+not from a private ROM. The linker must still enforce the native
+RAM budget; the full source-linked profile is not yet accepted.
+
+Private executable prototype: 80 randomized synthetic wall tests
+produced byte-identical complete framebuffer output. Fixed stock
+SwanStation city walking: 2.897 -> 2.997 rendered page flips/s.
+The same prototype completed the 12 city checks on stock SwanStation
+and Beetle and recommended SwanStation (19.780 walking flips/s).
+Stock Beetle walking reached 2.448 flips/s. Sampled mappings and
+runtime error counters were clean. These are binary-prototype
+results, not a completed B3 source build.
+
+A separate sparse cold-cache allocation reached 3.297 stock
+walking flips/s and 3.796 idle, but degraded post-pause recovery
+to 0.2 flips/s in its first ten seconds. It is not the accepted
+preview configuration. Reducing the entire cache and adding further
+code reservations also regressed walking. The 30 FPS stock target
+remains open: native raster work and interpreted gameplay both
+exceed the frame budget. No texture or draw-distance reductions
+were made to obtain these measurements.
