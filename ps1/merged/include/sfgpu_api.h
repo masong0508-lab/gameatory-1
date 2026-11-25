@@ -10,5 +10,6 @@ int sf_gpu_flat(const s16 *xy,int n,int color);
 int sf_gpu_fill(u8 *row,int rows,s32 xl,s32 sl,s32 xr,s32 sr,u32 color);
 int sf_gpu_rectspan(u8 *dst,int width,int height,int color);
 int sf_gpu_texspan(u8 *dst,int n,u32 uv,u32 duv,const u8 *tile,const u8 *lut,int step,int cross,int logsize);
+int sf_gpu_projective_wall(const s16 *xy,int n,const void *wall,int color);
 int sf_gpu_wallquad(const s16 *pts,const s32 *uv,const u8 *tile,const u8 *lut);
 #endif

@@ -531,7 +531,7 @@ __attribute__((noinline)) static int wall_split(int rows, s32 ds, s32 dt, s32 w0
     return (rows + (1 << j) - 1) >> j;
 }
 
-#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+#if defined(PS1) && defined(SFNAT_GPU_FRAME) && !defined(SFNAT_PROJECTIVE_WALL)
 /* Test an eight-column block against the original column coverage and
  * projective texture mapping. Do not cross occlusion, tile or far
  * boundaries. A conservative min/max denominator bound limits affine
@@ -575,6 +575,9 @@ extern int sf_fast_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int co
 #endif
 HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
 {
+#if defined(PS1) && defined(SFNAT_PROJECTIVE_WALL)
+    if(sf_gpu_projective_wall(xy,n,t,color)) return;
+#endif
 #if defined(PS1) && defined(SFNAT_FASTWALL)
     if (sf_fast_wall(back, xy, n, t, color)) return;
 #endif
@@ -584,7 +587,7 @@ HOT void tex_wall(u8 *back, const s16 *xy, int n, const TexWall *t, int color)
     if (x < 0) x = 0;
     if (xe > 240) xe = 240;
     for (; x < xe; x += 2) {
-#if defined(PS1) && defined(SFNAT_GPU_FRAME)
+#if defined(PS1) && defined(SFNAT_GPU_FRAME) && !defined(SFNAT_PROJECTIVE_WALL)
         if(x+16<=xe && wall_group(t,x,ne,ex0,ey0,ex1,esl,xmin,xmax)){x+=14;continue;}
 #endif
         if (t->skip[x >> 6] & 1u << ((x >> 1) & 31))

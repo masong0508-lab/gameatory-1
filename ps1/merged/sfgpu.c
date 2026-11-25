@@ -7,6 +7,11 @@
  * rounding and affine interpolation within the existing subdivided spans.
  */
 #include "sfgpu_api.h"
+#ifdef SFNAT_PROJECTIVE_WALL
+#include "render.h"
+#include "tex.h"
+#include "sfprojective.h"
+#endif
 #define REG(a) (*(volatile u32*)(a))
 #define GP0 REG(0x1f801810u)
 #define GP1 REG(0x1f801814u)
@@ -28,23 +33,50 @@ static unsigned count, active, valid[2], gpu_page, env_dirty=1, epoch, hand;
 static int last_tile=-1;
 static u32 tile_addr[64]; static u16 tile_epoch[64];static u8 tile_log[64];
 static u32 lut_addr[3];static u16 lut_epoch[3];static unsigned lut_hand,identity_ready,win=~0u;
+#ifdef SFNAT_GPU_BULK
+static u8 lut_copy[3][256] __attribute__((aligned(4)));
+static unsigned lut_valid[3];
+u32 sf_gpu_lut_uploads,sf_gpu_lut_hits,sf_gpu_dma_batches,sf_gpu_dma_words,sf_gpu_upload_words;
+#endif
 volatile u32 sf_gpu_wait_state;
 u32 sf_gpu_frames,sf_gpu_fallbacks,sf_gpu_materializes,sf_gpu_flat_count,sf_gpu_span_count,sf_gpu_texture_uploads,sf_gpu_texture_hits,sf_gpu_present_count,sf_gpu_bad_index,sf_gpu_wall_groups;
 static inline void idle(void){sf_gpu_wait_state=1;while(D2_CHCR&0x01000000u){}sf_gpu_wait_state=2;while((GP1&0x14000000u)!=0x14000000u){}sf_gpu_wait_state=0;}
 static inline void cmd(u32 v){sf_gpu_wait_state=3;while(!(GP1&0x04000000u)){} GP0=v;sf_gpu_wait_state=0;}
+#ifdef SFNAT_GPU_BULK
+static void dma(const void*p,u32 n,u32 mode);
+static void bulk(unsigned a,unsigned b){if(b<=a)return;GP1=0x04000002u;dma(packet+a,b-a,0x01000201u);sf_gpu_dma_batches++;sf_gpu_dma_words+=b-a;}
+#endif
 /* Submit complete commands, respecting FIFO boundaries. In particular
  * wait for the empty FIFO before drawing-area/texture-window changes. */
 static void flush(void){if(!count)return;idle();unsigned i=1;
+#ifdef SFNAT_GPU_BULK
+ unsigned first=1;
+#endif
  while(i<=count){u32 w=packet[i];unsigned op=w>>24,n=1;
-  if(op==0x02||op==0x60)n=3;else if(op==0x20)n=4;else if(op==0x28)n=5;else if(op==0x2d)n=9;
+  if(op==0x02||op==0x60)n=3;else if(op==0x20)n=4;else if(op==0x28)n=5;else if(op==0x2d)n=9;else if(op==0x25)n=7;
+#ifdef SFNAT_GPU_BULK
+  /* Environment writes must stay at FIFO boundaries. Between them use
+   * request-mode DMA, which respects GPU DREQ and removes CPU GP0 loops. */
+  if(op==0xe2){bulk(first,i);idle();cmd(w);first=i+1;}
+  i+=n;
+#else
   if(op==0xe2)idle();cmd(w);for(unsigned k=1;k<n;k++)GP0=packet[i+k];i+=n;
- }count=0;
+#endif
+ }
+#ifdef SFNAT_GPU_BULK
+ bulk(first,count+1);
+#endif
+ count=0;
 }
 static u32 *reserve(unsigned n){if(count+n>NODES)flush();u32*p=packet+1+count;count+=n;return p;}
 static void setenv(int x,int y,int w,int h){flush();idle();cmd(0xe1000400u);cmd(0xe2000000u);idle();GP0=0xe3000000u|x|((u32)y<<10);idle();GP0=0xe4000000u|(x+w-1)|((u32)(y+h-1)<<10);idle();GP0=0xe5000000u|x|((u32)y<<11);cmd(0xe6000000u);win=~0u;}
 static void environment(void){if(env_dirty){setenv(SX,gpu_page*256,240,160);env_dirty=0;}}
 static void dma(const void*p,u32 n,u32 mode){u32 a=(u32)p&0x1fffffu,big=n&~15u,rem=n&15u;if(big){D2_MADR=a;D2_BCR=(big/16u<<16)|16u;D2_CHCR=mode;sf_gpu_wait_state=4;while(D2_CHCR&0x01000000u){}sf_gpu_wait_state=0;}if(rem){D2_MADR=a+big*4;D2_BCR=(1u<<16)|rem;D2_CHCR=mode;sf_gpu_wait_state=4;while(D2_CHCR&0x01000000u){}sf_gpu_wait_state=0;}}
-static void upload(const void*p,int x,int y,int w,int h){flush();idle();cmd(0x01000000u);cmd(0xa0000000u);GP0=XY(x,y);GP0=XY(w,h);dma(p,(u32)w*h/2,0x01000201u);}
+static void upload(const void*p,int x,int y,int w,int h){flush();idle();cmd(0x01000000u);cmd(0xa0000000u);GP0=XY(x,y);GP0=XY(w,h);dma(p,(u32)w*h/2,0x01000201u);
+#ifdef SFNAT_GPU_BULK
+ sf_gpu_upload_words+=(u32)w*h/2;
+#endif
+}
 static u32 rgb(unsigned i){u32 v=0x100u|(i&255u);return ((v&31)<<3)|((v&0x3e0)<<6)|((v&0x7c00)<<9);}
 static u8 *pageptr(unsigned p){return (u8*)(0x80181000u+p*0xa000u);}
 static int pageoff(const void*d){u32 a=(u32)d,o=a-0x06000000u;if(o>=0x14000u)o=a-0x80181000u;if(o>=0x14000u)return -1;if(o>=0xa000u)o-=0xa000u;if(o>=38400u)return -1;return (int)o;}
@@ -81,12 +113,40 @@ int sf_gpu_fill(u8*row,int rows,s32 xl,s32 sl,s32 xr,s32 sr,u32 color){if(!activ
 static int texture(const u8*src,int log){u32 ad=(u32)src;int persistent=(ad>=0x08000000u&&ad<=0x08fffc00u);int cacheable=persistent||(ad>=0x02000000u&&ad<0x08000000u)||(ad>=0x80180000u&&ad<0x801f8000u);
  if(cacheable&&last_tile>=0&&tile_addr[last_tile]==ad&&tile_log[last_tile]==log&&(persistent||tile_epoch[last_tile]==(u16)epoch)){sf_gpu_texture_hits++;return last_tile;}
  if(cacheable)for(int k=0;k<64;k++)if(tile_addr[k]==ad&&tile_log[k]==log&&(persistent||tile_epoch[k]==(u16)epoch)){sf_gpu_texture_hits++;last_tile=k;return k;}
- u8 data[1024] __attribute__((aligned(4))),small[256] __attribute__((aligned(4)));int size=1<<log;if(log==5){if(!copyin(data,src,1024))return -1;}else{if(!copyin(small,src,size*size))return -1;for(int y=0;y<32;y++)for(int x=0;x<32;x++)data[y*32+x]=small[(y&(size-1))*size+(x&(size-1))];}
- int k=hand++&63;upload(data,TX+(k&7)*16,(k>>3)*32,16,32);tile_addr[k]=cacheable?ad:0;tile_epoch[k]=(u16)epoch;tile_log[k]=log;sf_gpu_texture_uploads++;last_tile=k;return k;
+ u8 data[1024] __attribute__((aligned(4))),small[256] __attribute__((aligned(4)));int size=1<<log;
+#ifdef SFNAT_GPU_BULK
+ /* Texture windows can repeat at 8, 16 or 32 texels. Upload only that
+  * footprint; a 4x4 mip needs a small 8x8 repetition. */
+ int pitch=size<8?8:size;
+ if(size==pitch){if(!copyin(data,src,size*size))return -1;}
+ else{if(!copyin(small,src,size*size))return -1;for(int y=0;y<pitch;y++)for(int x=0;x<pitch;x++)data[y*pitch+x]=small[(y&(size-1))*size+(x&(size-1))];}
+ int k=hand++&63;upload(data,TX+(k&7)*16,(k>>3)*32,pitch/2,pitch);
+#else
+ if(log==5){if(!copyin(data,src,1024))return -1;}else{if(!copyin(small,src,size*size))return -1;for(int y=0;y<32;y++)for(int x=0;x<32;x++)data[y*32+x]=small[(y&(size-1))*size+(x&(size-1))];}
+ int k=hand++&63;upload(data,TX+(k&7)*16,(k>>3)*32,16,32);
+#endif
+tile_addr[k]=cacheable?ad:0;tile_epoch[k]=(u16)epoch;tile_log[k]=log;sf_gpu_texture_uploads++;last_tile=k;return k;
 }
-static int palette(const u8*lut){if(!lut)return 0;u32 ad=(u32)lut;for(int i=0;i<3;i++)if(lut_addr[i]==ad&&lut_epoch[i]==(u16)epoch)return i+1;u8 bytes[256];u16 values[256] __attribute__((aligned(4)));if(!copyin(bytes,lut,256))return -1;for(int i=0;i<256;i++)values[i]=0x100u|bytes[i];int k=lut_hand++%3;upload(values,SX,CY+1+k,256,1);lut_addr[k]=ad;lut_epoch[k]=(u16)epoch;return k+1;}
-static void window(int slot){u32 w=28u|(28u<<5)|((u32)((slot&7)*4)<<10)|((u32)((slot>>3)*4)<<15);if(win!=w){*reserve(1)=0xe2000000u|w;win=w;}}
+static int palette(const u8*lut){if(!lut)return 0;u32 ad=(u32)lut;for(int i=0;i<3;i++)if(lut_addr[i]==ad&&lut_epoch[i]==(u16)epoch)return i+1;u8 bytes[256];u16 values[256] __attribute__((aligned(4)));if(!copyin(bytes,lut,256))return -1;
+#ifdef SFNAT_GPU_BULK
+ /* Reuse only byte-identical palette contents, even across addresses and
+  * frame epochs. No hash collisions and no stale shade tables. */
+ for(int i=0;i<3;i++)if(lut_valid[i]){int j=0;for(;j<256&&bytes[j]==lut_copy[i][j];j++){}if(j==256){lut_addr[i]=ad;lut_epoch[i]=(u16)epoch;sf_gpu_lut_hits++;return i+1;}}
+#endif
+ for(int i=0;i<256;i++)values[i]=0x100u|bytes[i];int k=lut_hand++%3;upload(values,SX,CY+1+k,256,1);lut_addr[k]=ad;lut_epoch[k]=(u16)epoch;
+#ifdef SFNAT_GPU_BULK
+ for(int i=0;i<256;i++)lut_copy[k][i]=bytes[i];lut_valid[k]=1;sf_gpu_lut_uploads++;
+#endif
+ return k+1;}
+static void window(int slot){
+#ifdef SFNAT_GPU_BULK
+ unsigned log=tile_log[slot];if(log<3)log=3;u32 mask=32u-(1u<<(log-3));
+#else
+ u32 mask=28u;
+#endif
+ u32 w=mask|(mask<<5)|((u32)((slot&7)*4)<<10)|((u32)((slot>>3)*4)<<15);if(win!=w){*reserve(1)=0xe2000000u|w;win=w;}}
 static void tquad(int x,int y,int w,int h,int u0,int v0,int u1,int v1,int vertical,int cl){u32 a=(u32)(u0&255)|((u32)(v0&255)<<8),b=(u32)(u1&255)|((u32)(v1&255)<<8);u32*p=reserve(9);p[0]=0x2d000000u;p[1]=XY(x,y);p[2]=a|((u32)((SX>>4)|((CY+cl)<<6))<<16);p[3]=XY(x+w,y);p[4]=(vertical?a:b)|((u32)((TX>>6)|128u)<<16);p[5]=XY(x,y+h);p[6]=vertical?b:a;p[7]=XY(x+w,y+h);p[8]=b;}
+#ifndef SFNAT_PROJECTIVE_WALL
 /* Coalesce adjacent wall columns into one quad only when the CPU
  * has checked coverage, tile identity and perspective interpolation. */
 int sf_gpu_wallquad(const s16 *pts,const s32 *uv,const u8 *tile,const u8 *lut){
@@ -99,6 +159,29 @@ int sf_gpu_wallquad(const s16 *pts,const s32 *uv,const u8 *tile,const u8 *lut){
  }
  p[2]|=((u32)((SX>>4)|((CY+cl)<<6))<<16);p[4]|=((u32)((TX>>6)|128u)<<16);sf_gpu_wall_groups++;return 1;
 }
+#else
+u32 sf_gpu_projective_ok,sf_gpu_projective_reject,sf_gpu_projective_tris;
+int sf_gpu_projective_wall(const s16*xy,int n,const void*wall,int color){
+ if(!active)return 0;
+ TexWall t;s16 points[32];SfpPlane plane;SfpPlan plan;
+ if(n<3||n>16||!copyin(points,xy,4*n)||!copyin(&t,wall,sizeof(t)))return 0;
+ for(int i=0;i<3;i++){plane.w[i]=t.w[i];plane.a[i]=t.a[i];plane.b[i]=t.b[i];}
+ plane.wlim=t.wlim;plane.mask=0;for(int i=0;i<4;i++)if(t.tile[i])plane.mask|=1u<<i;
+ if(!sfp_plan(&plane,points,n,&plan)){sf_gpu_projective_reject++;return 0;}
+ /* Groups are disjoint partitions of this one opaque wall. Preserve wall
+  * ordering against other polygons and draw each tile group together. */
+ for(int i=0;i<(int)plan.n;){int tile=plan.tri[i].tile,slot=0,cl=0;
+  if(tile!=SFP_FLAT){slot=texture(t.tile[tile],5);cl=palette(t.lut);if(slot<0||cl<0){sf_gpu_projective_reject++;return fail();}}
+  environment();if(tile!=SFP_FLAT)window(slot);
+  do{const SfpTri*q=&plan.tri[i];
+   if(tile==SFP_FLAT){u32*p=reserve(4);p[0]=0x20000000u|rgb(color);for(int k=0;k<3;k++)p[k+1]=XY(q->xy[k*2],q->xy[k*2+1]);}
+   else{u32*p=reserve(7);p[0]=0x25000000u;for(int k=0;k<3;k++){p[1+2*k]=XY(q->xy[2*k],q->xy[2*k+1]);p[2+2*k]=q->uv[k];}p[2]|=(u32)((SX>>4)|((CY+cl)<<6))<<16;p[4]|=(u32)((TX>>6)|128u)<<16;}
+   i++;
+  }while(i<(int)plan.n&&plan.tri[i].tile==tile);
+ }
+ sf_gpu_projective_ok++;sf_gpu_projective_tris+=plan.n;return 1;
+}
+#endif
 /* GPU span uses the same packed UV and original mip level; split at safe
  * interpolator ranges. GPU integer UV quantization can differ by a texel
  * from the software pixel-pair sampling. Small runs use exact texels. */

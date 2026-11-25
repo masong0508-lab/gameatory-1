@@ -703,7 +703,9 @@ class Game(Emu):
             for i in range(phnum):
                 p_type, p_off, p_va, p_pa, p_fsz, p_msz = struct.unpack_from('<6I', d, phoff + i * phentsize)
                 if p_type == 1 and p_fsz:
-                    o = p_va - t_addr
+                    # Native overlays can execute at VMA but be copied from a distinct LMA.
+                    # PSX.EXE contains the load image (p_paddr), not the runtime destination.
+                    o = p_pa - t_addr
                     if o < 0 or o + p_fsz > len(img) or img[o:o + p_fsz] != d[p_off:p_off + p_fsz]:
                         return False
             return True
