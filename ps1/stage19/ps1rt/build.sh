@@ -73,6 +73,9 @@ if [ -n "${B3CACHE_DIR:-}" ]; then
 else
     case " $CFL " in *" -DB3_CACHE "*) fail 'B3_CACHE requires B3CACHE_DIR' ;; esac
 fi
+if [ -n "${SFNAT:-}" ]; then
+    python3 ../merged/b3_ext.py "$SFNAT" "$ROM" || fail 'invalid expanded cache placement or seed'
+fi
 python3 - "$ROM" "${MERGED:-}" <<'PY'
 from pathlib import Path
 import sys

@@ -3,6 +3,21 @@
    - C helpers called from the blob through RT_CC: memrd / memwr / miss / vbl
    - GPU: one frame per guest frame: markers derived from Payback's draw list (what the pruned renderer would have drawn) + game-state counters */
 typedef unsigned int u32; typedef int s32; typedef unsigned short u16; typedef short s16; typedef unsigned char u8; typedef signed char s8;
+#ifdef MERGED_NATIVE
+#include "sfnat_place.h"
+#endif
+#ifndef SF_NAT_EXT_N
+#define SF_NAT_EXT_N 0
+#endif
+#if SF_NAT_EXT_N
+#if !defined(MERGED_NATIVE) || !defined(MERGED) || !defined(PCACHE1)
+#error "expanded cache requires merged native single-page runtime"
+#endif
+#include "sfnat_ext_seed.h"
+_Static_assert(SF_NAT_EXT_N<=52 && !(SF_NAT_EXT_N%4),"expanded cache bounds");
+_Static_assert(SF_NAT_EXT_LO+SF_NAT_EXT_N*4096u==SF_NAT_LO,"expanded cache placement");
+_Static_assert(B3_EXT_SEED_COUNT<=SF_NAT_EXT_N,"expanded cache seed bounds");
+#endif
 #define GP0 (*(volatile u32*)0x1F801810)
 #define GP1 (*(volatile u32*)0x1F801814)
 #define ISTAT (*(volatile u32*)0x1F801070)
@@ -370,15 +385,27 @@ static void dsp_phase(u32 ra){
    pairs).  Nothing holds a page pointer across a fetch: rom_read resolves every byte, rom_copy and the DMA path one page at a time, ip_rd every
    access. */
 #define RP_MAX 64
-static u16 fr_pg[RP_MAX+NSLOT];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
+static u16 fr_pg[RP_MAX+NSLOT+SF_NAT_EXT_N];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
 #ifdef MERGED
 static u8 pg_fr[ROM_NPG] __attribute__((section(".dl.bss.pg_fr")));       /* (B1: 4 KiB, in the ragdoll region: the renderer region has 208 bytes free) */
 #else
 static u8 pg_fr[2048] __attribute__((section(".sf.bss.pg_fr")));
 #endif                  /* frame+1 that holds each page (mapped or unmapped by the hand), 0 = not in RAM */
-_Static_assert(RP_MAX+NSLOT<255, "pg_fr holds frame+1 in a byte");
+_Static_assert(RP_MAX+NSLOT+SF_NAT_EXT_N<255, "pg_fr holds frame+1 in a byte");
 static u32 rom_pool, pool_rp, pool_hand, rom_soft;
-static u8 *pool_frame(u32 f){ return f<pool_rp?(u8*)rp_data+f*4096:PCACHE+(f-pool_rp)*4096; }
+#if SF_NAT_EXT_N
+static u32 b3_ext_hand;
+static u32 b3_ext_live;
+#define POOL_SLOT(f) ((f)>=pool_rp && (f)-pool_rp<NSLOT)
+#else
+#define POOL_SLOT(f) ((f)>=pool_rp)
+#endif
+static u8 *pool_frame(u32 f){
+#if SF_NAT_EXT_N
+  if(f>=pool_rp+NSLOT) return b3_ext_storage+(f-pool_rp-NSLOT)*4096;
+#endif
+  return f<pool_rp?(u8*)rp_data+f*4096:PCACHE+(f-pool_rp)*4096;
+}
 #ifdef COLD1PASS
 static u32 cold_m5; static void cold_all(void); static int pal_bg_zero(void);
 #endif
@@ -386,7 +413,7 @@ static u32 cold_m5; static void cold_all(void); static int pal_bg_zero(void);
 static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pair */
 #endif
 /* frame f gets page pg (data already in it): the maps both ways */
-static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(f>=pool_rp) slot_owner[f-pool_rp]=pg+1; }
+static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(POOL_SLOT(f)) slot_owner[f-pool_rp]=pg+1; }
 /* frame f is reused: its page (if any) leaves RAM */
 #ifdef POOL_THRASH
 /* rc9: the CLOCK pool also before the first level once the menus thrash the slots (the Credits: about 4 page fetches per guest frame over the
@@ -408,7 +435,7 @@ static void pool_drop(u32 f){ u32 o=fr_pg[f];
 #ifdef POOL_THRASH
   if(o && (!rom_pool || pool_menu)){ ev_ring[ev_i&15]=o; ev_i++; }
 #endif
-  if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(f>=pool_rp) slot_owner[f-pool_rp]=0; }
+  if(o){ rom_pg[o-1]=0; pg_fr[o-1]=0; } fr_pg[f]=0; if(POOL_SLOT(f)) slot_owner[f-pool_rp]=0; }
 #ifdef PZBLOCK
 /* rc9 pause block.  After Start in a level and after Return to game the game reads about 40 ROM pages that the level itself does not use (the
    pause menu's code and pictures; the resume code, which runs in the interpreter, and the graphics it unpacks again).  One by one from ROM.BIN
@@ -488,8 +515,10 @@ static void pz_present(void){
 #include "b3_cache.h"
 #include "b3_cache_data.h"
 _Static_assert(B3_CACHE_COUNT<=64u && B3_CACHE_HOT_COUNT<=B3_HOT_MAX, "B3 cache bounds");
-static int b3_cache_active(void);
 u32 b3_cache_hits, b3_cache_errors;  /* separate from physical disc misses */
+#endif
+#if defined(B3_CACHE) || SF_NAT_EXT_N
+static int b3_cache_active(void);
 #endif
 /* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
    gread ... (or inline the whole miss path into them) */
@@ -509,7 +538,7 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
     else if(!pool_refetch) pool_menu_off(); }
 #endif
   u32 f;
-#ifdef B3_CACHE
+#if defined(B3_CACHE) || SF_NAT_EXT_N
   int b3_active=b3_cache_active();
 #endif
 #ifdef POOL_THRASH
@@ -547,10 +576,29 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
   if(!rom_pool){ f=pool_rp+slot_next; slot_next=(slot_next+1)%NSLOT; }
   else {
     u32 n=pool_rp+NSLOT;
+#if SF_NAT_EXT_N
+    /* Keep a single owner/reverse map for all frames, including pause
+       preloads and paired reads. The menu hand never addresses extension
+       frames, while existing extra pages can still be soft-remapped. */
+    u32 *hand=&pool_hand;
+    if(b3_active){
+      u32 first=n; n+=SF_NAT_EXT_N; hand=&b3_ext_hand;
+      if(*hand>=n) *hand=0;
+      for(f=first;f<n;f++) if(!fr_pg[f]) goto ext_victim;
+    }
+#ifdef B3_CACHE
+    f=b3_clock_victim(n,hand,fr_pg,rom_pg,b3_preferred,b3_active);
+#else
+    for(;;){ f=*hand; *hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; }
+#endif
+ext_victim:
+    if(f>=pool_rp+NSLOT) b3_ext_live=1;
+#else
 #ifdef B3_CACHE
     f=b3_clock_victim(n,&pool_hand,fr_pg,rom_pg,b3_preferred,b3_active);
 #else
     for(;;){ f=pool_hand; pool_hand=f+1<n?f+1:0; u32 o=fr_pg[f]; if(!o||!rom_pg[o-1]) break; rom_pg[o-1]=0; }
+#endif
 #endif
   }   /* second chance: unmap, keep the data */
 #ifdef POOL_THRASH
@@ -634,7 +682,7 @@ static u32 pad_gba=0x3ff; static void present(void); static void ppu_flush(void)
    guest left it (entity count -1, clock still, three pictures).  A new picture is a page flip (DISPCNT bit 4: Payback flips the page Stunt
    Fox drew), the native counterpart of sf3's world-frame mark (c3_have6) */
 static int nat_lvl; static u32 nat_flips, nat_flips_shown;
-#ifdef B3_CACHE
+#if defined(B3_CACHE) || SF_NAT_EXT_N
 static int b3_cache_active(void){
   if(!nat_lvl || !rom_pool) return 0;
 #ifdef POOL_THRASH
@@ -994,12 +1042,16 @@ u32 dsp_nmiss, dsp_nmrd, dsp_nrom, dsp_nmwr, dsp_nfill;
 #define DSP_PROF(x) ((void)0)
 #endif
 #ifdef MERGED_NATIVE
-#include "sfnat_place.h"
 /* A future scene-overlay linker may reserve a lower shared slot. From
    power-on onward no translated cold group may cross this ceiling.
    This also prevents D1/D2 from caching a target later overwritten by
    an overlay. Until the scene layout is connected the value is B2's. */
+#if SF_NAT_EXT_N
 #ifdef B3_SCENE_LO
+#error "expanded cache and scene overlays cannot share the cold arena"
+#endif
+#define SF_COLD_LIMIT SF_NAT_EXT_LO
+#elif defined(B3_SCENE_LO)
 _Static_assert(B3_SCENE_LO>=0x800a8100u && B3_SCENE_LO<=SF_NAT_LO &&
                !(B3_SCENE_LO&2047u),"invalid B3 scene slot start");
 #define SF_COLD_LIMIT B3_SCENE_LO
@@ -2204,6 +2256,15 @@ RTCOLD int main(void){      /* rc7: in .rtcold (it runs once) */
   for(u32 i=0;i<rp_n;i++) rom_pg[rp_idx[i]&(ROM_NPG-1u)]=rp_data+i*4096;     /* optional pre-seeded pages (never evicted before the first level, see cd_fetch) */
 #ifdef PCACHE1
   pool_rp=rp_n<RP_MAX?rp_n:RP_MAX; for(u32 i=0;i<pool_rp;i++){ u32 pg=rp_idx[i]&(ROM_NPG-1u); fr_pg[i]=pg+1; pg_fr[pg]=i+1; }
+#if SF_NAT_EXT_N
+  if(rp_n>RP_MAX) fatal_screen("EXPANDED CACHE BASE",rp_n);
+  for(u32 i=0;i<B3_EXT_SEED_COUNT;i++){
+    u32 pg=b3_ext_seed_ids[i];
+    if(pg>=ROM_NPG) fatal_screen("EXPANDED CACHE SEED",pg);
+    /* Do not create a second owner if a seed is already resident. */
+    if(!pg_fr[pg]) pool_set(pool_rp+NSLOT+i,pg);
+  }
+#endif
 #endif
   dbg("boot image loaded, rom pages "); dec(rp_n); dbg("\n");
 #ifndef NO_INTERP
