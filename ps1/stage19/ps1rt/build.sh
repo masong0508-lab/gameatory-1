@@ -55,6 +55,12 @@ if [ "$EXEPACK" = 1 ] && [ ! -f exepack.py ]; then echo 'Missing input: exepack.
 PZ=0; case " $CFL " in *" -DPZBLOCK "*) PZ=1 ;; esac
 if [ "$PZ" = 1 ] && [ ! -f ../${PZLIST:-t/pause_pages.txt} ]; then echo "Missing input: ../${PZLIST:-t/pause_pages.txt}" >&2; missing=1; fi
 [ "$missing" = 0 ] || fail 'assemble the source tree and generate its private translation/map inputs first; see ps1/STATUS.md'
+# B3's GPU producer is currently a compile/probe target, not a connected
+# disc profile. In particular SFNAT substitutes sf3stub.c and uses the
+# renderer's RAM. Refuse a misleading or overlapping "GPU build".
+case " $CFL " in
+    *" -DSF3_B3_BRIDGE "*|*" -DSF3_B3_BRIDGE="*) fail 'B3 GPU bridge needs the future scene-aware link/runtime integration; use its compile/probe gate' ;;
+esac
 # Optional private B3 cache. Both the generator and the placer must have
 # used the same bundle; mismatched ROM/placement must never reach the link.
 if [ -n "${B3CACHE_DIR:-}" ]; then

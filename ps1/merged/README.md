@@ -207,3 +207,31 @@ dynamic props and water), connect `r_poly`/HUD ownership, retain the
 software fallback on failed/unsupported frames, and run real device/core
 picture comparisons before enabling. Do not enable the flag on the
 existing B2 linker layout: its native code uses sf3's world and OT windows.
+
+### GPU memory ownership gate
+
+`gpu_layout.py` checks the linked private ELF, not a nominal free-space
+estimate. It includes KSEG aliases, allocated NOBITS/PROGBITS sections,
+separate load-memory images and the stack's reserved interval. Run using
+the exact world address from the matching prepared `t/worldaddr.py`:
+
+```sh
+python3 ps1/merged/gpu_layout.py --elf /private/candidate.elf \
+  --world-start 0x800cd800 --stack-lo 0x80119000 --stack-hi 0x8011c000
+```
+
+On the supplied B2 ELF, the expected failure is confirmed: the entire
+172,628-byte .sfn1 allocation intersects the 239,616-byte world window
+(117,712 bytes) or the primitive/ordering/stamp/side window (54,916 bytes).
+File-backed initial data and 8,704 bytes of stack also overlap the latter.
+Counting union bytes, the two zones conflict with 182,345 bytes altogether.
+This is in addition to the future sf3 executable placement requirement.
+Neither a small cache nor merely calling sf3_frame will make B2 safe.
+A scene-overlay candidate must pass this check with its actual linked
+ranges and stack, and separately prove safe cold-code ownership and DMA
+lifetime. The current disc builder refuses SF3_B3_BRIDGE because the
+merged-native link still substitutes sf3stub; the dedicated compile-only
+gate and private synthetic GPU probe remain available.
+
+See [synthetic GPU/GTE probe](../qa/B3_GPU_PROBE.md) for the two-core
+pixel/projection checks. They passed independently of the live-city path.

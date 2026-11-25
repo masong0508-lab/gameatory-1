@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "661f61757458981b70b3d29f38f198ac19de2214c46bef3bad5a6d65228c7093"
+      "sha256": "fe3ea785e1b489b16f679f8ab820f4e5bc02d03060e7ddeb28e5f0f56ec26ec8"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "a1eee30f0448cc1ed91a0e2279b8b475d6b03c0e079cacd528e11c852899b113"
+      "sha256": "fb11a74be623ca9e95a3809fe7440c3b3935eb58fb2cbe2b6d9987d37c887633"
     },
     {
       "source": "merged/irmem.py",
@@ -913,6 +913,11 @@
       "source": "stage19/sf/b3_gpu.h",
       "target": "sf/b3_gpu.h",
       "sha256": "33ef43236b5cab3d9e5e3bad1d473e3a99e877d4d906fe0c274e289da6222749"
+    },
+    {
+      "source": "merged/gpu_layout.py",
+      "target": "merged/gpu_layout.py",
+      "sha256": "d0bd2050a18ddce47b0b9ad08f6ab2e00514a6d0cceb95bc7444f9b2a4cda525"
     }
   ],
   "patches": [
