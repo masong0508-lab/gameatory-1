@@ -28,23 +28,14 @@ jobs:
           git archive --format=tar.gz --prefix=gameatory-1/ HEAD ps1 stuntfox payback-mod tools README.md AGENTS.md > toolkit/source.tar.gz
           # No untracked output, owner inputs or generated private game data.
           ls -lh toolkit/source.tar.gz
-      - name: Download pinned-major compiler packages for offline use
-        run: |
-          set -eu
-          sudo apt-get update -qq
-          mkdir -p toolkit/debs
-          cd toolkit/debs
-          apt-get download clang-18 lld-18 llvm-18 llvm-18-runtime llvm-18-tools llvm-18-linker-tools libllvm18 libclang-cpp18 libclang1-18 libclang-common-18-dev genisoimage
-          # The installed compiler packages are redistributed unchanged,
-          # with their original Debian copyright/license metadata.
-          sha256sum *.deb > SHA256SUMS
+      # Matching compiler kit is already available for the private build.
       - name: Package checksums
         run: |
           cd toolkit
           sha256sum source.tar.gz commit.txt > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: ps1-native-offline-toolkit
+          name: ps1-native-source-snapshot
           path: toolkit/
           compression-level: 0
           retention-days: 3
