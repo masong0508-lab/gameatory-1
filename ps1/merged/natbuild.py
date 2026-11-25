@@ -100,6 +100,15 @@ def main():
     inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', '/usr/lib/llvm-18/lib/clang/18/include',
            '-DMERGE', '-DPS1', '-I' + os.path.join(b, 'src'), '-I' + os.path.join(b, 'build', 'gen')]
     profile, only, keep_native, hot = choose_profile()
+    compact_report = None
+    compact = os.environ.get('SFNAT_COMPACT_MATH', '0')
+    if compact not in ('0', '1'):
+        raise SystemExit('SFNAT_COMPACT_MATH must be 0 or 1')
+    if compact == '1':
+        from compact_math import apply, TABLES, NEW
+        compact_report = apply(b)
+        keep_native = (set(keep_native) - set(TABLES)) | NEW
+        log.write('compact math: '+json.dumps(compact_report, sort_keys=True)+'\n')
     srcs = sorted(os.path.join(b, 'src', f) for f in os.listdir(os.path.join(b, 'src'))
                   if f.endswith('.c') and f not in SKIP and (not only or f[:-2] in only))
     srcs += [os.path.join(b, 'build', 'gen', f) for f in GEN_NATIVE]
@@ -310,7 +319,7 @@ def main():
     report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
                   requested_native_tables=sorted(keep_native), linked_native_tables=kept,
                   native_entries=len(ents), iwram_entries=len(iw),
-                  guest_stubs=len(stubs), section_bytes=tot)
+                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report)
     with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
         json.dump(report, f, indent=2, sort_keys=True)
         f.write('\n')
