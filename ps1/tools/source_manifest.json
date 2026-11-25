@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "e744774637c3e3ddaf0ac996d70261d2d9fba6f30adc9aa93ef4b32a3c60c743"
+      "sha256": "272dd9fd961d4166b2fdc5722b9e7c6537308feb7498a1b4da2563acf56aaf7f"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "3627e1c7819cb1e871ab42f5653dcf32bdb936beb63f5d41e5a24fbd7a747416"
+      "sha256": "c08ffe85a757c2d12255ae96095716de7b035f904bd552f42f869b0d6c6c83d1"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "9c3db191f68ee486353df5fd4d7163ef85f80bc0ae64f508c85682c466d1985b"
+      "sha256": "2e8e965c24f2691307a748b1f6149a6b3eec87815e59175fa2bd4576e8284fbb"
     },
     {
       "source": "merged/irmem.py",
@@ -948,6 +948,11 @@
       "source": "merged/b3_ext.py",
       "target": "merged/b3_ext.py",
       "sha256": "aa5cdfa294057eaf79c055c5bc9463523b27b8cbb9c7e0ad6296f6a3269c8108"
+    },
+    {
+      "source": "stage19/ps1rt/b3_spu_cache.h",
+      "target": "ps1rt/b3_spu_cache.h",
+      "sha256": "f9dc534cab3d7ab327500d2fd6fef3340b96d97d0bf7e54f14e12e1034b6a0c1"
     }
   ],
   "patches": [

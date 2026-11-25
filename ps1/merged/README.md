@@ -299,3 +299,39 @@ pass. This change is not a finished product or a native GPU city build.
 The source implementation intentionally avoids the private binary
 hook and its separate reverse map. Full source-linked emulator testing
 and stock speed/scene/save/audio acceptance remain required.
+
+## B3 exclusive SPU backing-store experiment
+
+Optional runtime flags `-DB3_SPU_CACHE -DB3_SPU_CDDA_ONLY`, only for
+merged native single-page hardware builds. The current CDDA-only
+profile reserves 0x10000..0x6ffff in 512 KiB SPU RAM: 96 4 KiB frames.
+Do not enable on any profile using SPU voices, sample uploads, or
+reverb until ownership is audited. DMA4 transfers are bounded, refuse
+an active DMA4/SPU transfer, restore SPU mode, DMA priority and device
+timing, and disable on failure or fingerprint mismatch. Physical CD
+remains authoritative. L2 stores evicted main-RAM pages in gameplay
+only, discards restored entries, and protects the requested page when
+selecting a slot for its victim. Base/pause/pair insertion invalidates
+a duplicate backing entry. Counters are separate from physical misses.
+
+Private exact B2-derived MIPS-I binary hook, 48 extra main-RAM frames,
+44 seeds, 96 SPU frames, matched 1200-frame city walks:
+- SwanStation recommended (400%, 10x CD, instant seek): 39.610 game
+  ticks/s, 19.780 page flips/s, 0.015 physical misses/tick.
+- SwanStation stock (warmed): 13.486 ticks/s, 2.697 flips/s,
+  0.059 misses/tick.
+- Beetle stock (warmed): 8.741 ticks/s, 1.798 flips/s,
+  0.154 misses/tick.
+- Sampled mapped pages were byte-identical to the supplied ROM.
+  No DMA failures or runtime fault counters during the accelerated
+  tour and five-minute flight soak. Position-assisted boarding and
+  docking, launch and station navigation passed; driving motion was
+  below the rig threshold on this exact candidate. Stock pause
+  acceptance failed. The supplied disc's CDDA tracks were silent;
+  soundtrack or voice-driver coexistence is not established.
+
+This optional source implementation uses the unified owner map from
+the expanded cache PR. Its exact full source-linked binary has not
+yet been built or run. The private binary prototype is not proof of
+a finished product, GPU city integration, or Android acceptance.
+No private data is committed.

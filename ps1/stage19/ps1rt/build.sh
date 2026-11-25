@@ -61,6 +61,15 @@ if [ "$PZ" = 1 ] && [ ! -f ../${PZLIST:-t/pause_pages.txt} ]; then echo "Missing
 case " $CFL " in
     *" -DSF3_B3_BRIDGE "*|*" -DSF3_B3_BRIDGE="*|*" -DB3_SCENE_LO "*|*" -DB3_SCENE_LO="*) fail 'B3 GPU/scene slot needs the future scene-aware link/runtime integration; use its compile/probe gate' ;;
 esac
+# SPU backing store is an explicit resource-ownership opt-in, not an
+# automatic speed flag. Do not use this for a sample/voice/reverb profile.
+case " $CFL " in
+  *" -DB3_SPU_CACHE "*)
+    [ "${MERGED:-}" = 1 ] && [ -n "${SFNAT:-}" ] || fail 'B3 SPU cache requires merged native build'
+    case " $CFL " in *" -DB3_SPU_CDDA_ONLY "*) ;; *) fail 'reserve SPU RAM explicitly with -DB3_SPU_CDDA_ONLY' ;; esac
+    case " $CFL " in *" -DCDSIM "*) fail 'B3 SPU cache is hardware-only' ;; esac
+    ;;
+esac
 # Optional private B3 cache. Both the generator and the placer must have
 # used the same bundle; mismatched ROM/placement must never reach the link.
 if [ -n "${B3CACHE_DIR:-}" ]; then
