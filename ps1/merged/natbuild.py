@@ -100,6 +100,11 @@ def main():
     inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', '/usr/lib/llvm-18/lib/clang/18/include',
            '-DMERGE', '-DPS1', '-I' + os.path.join(b, 'src'), '-I' + os.path.join(b, 'build', 'gen')]
     profile, only, keep_native, hot = choose_profile()
+    gtecam = os.environ.get('SFNAT_GTECAM', '0')
+    if gtecam not in ('0', '1'):
+        raise SystemExit('SFNAT_GTECAM must be 0 or 1')
+    if gtecam == '1' and only and 'render' not in only:
+        raise SystemExit('SFNAT_GTECAM needs native render.c')
     compact_report = None
     compact = os.environ.get('SFNAT_COMPACT_MATH', '0')
     if compact not in ('0', '1'):
@@ -149,7 +154,8 @@ def main():
     for s in srcs:
         n = os.path.basename(s)[:-2]
         ll = os.path.join(ir, n + '.ll')
-        run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections'] + inc + ['-S', '-emit-llvm', s, '-o', ll], log)
+        gte_flags = ['-DSFNAT_GTECAM'] if gtecam == '1' and n == 'render' else []
+        run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections'] + inc + gte_flags + ['-S', '-emit-llvm', s, '-o', ll], log)
         run(['opt', '-passes=instnamer', '-S', ll, '-o', ll], log)     # (named values: the rewrite adds and drops instructions)
         src_ll = open(ll).read()
         fns = set(re.findall(r'^(?:define|declare) [^@]*@([\w.$]+)\(', src_ll, re.M))
@@ -328,7 +334,7 @@ def main():
     report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
                   requested_native_tables=sorted(keep_native), linked_native_tables=kept,
                   native_entries=len(ents), iwram_entries=len(iw),
-                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1')
+                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1')
     with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
         json.dump(report, f, indent=2, sort_keys=True)
         f.write('\n')
