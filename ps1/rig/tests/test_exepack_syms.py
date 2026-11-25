@@ -121,6 +121,16 @@ class PackedExeSymbolTests(unittest.TestCase):
         exe = self.xp.exe_header(len(raw)) + raw
         self.assertIs(check(exe, elf), True)
 
+    def test_distinct_load_address_matches(self):
+        elf, exe, _, _, _ = self.build()
+        # VMA is the native runtime destination; LMA remains the load image.
+        relocated = bytearray(elf)
+        struct.pack_into('<I', relocated, 52 + 32 + 8, 0x801ed000)
+        self.assertIs(check(exe, bytes(relocated)), True)
+        # A different LMA must still be rejected.
+        struct.pack_into('<I', relocated, 52 + 32 + 12, 0x801ed000)
+        self.assertIs(check(exe, bytes(relocated)), False)
+
     def test_packed_exe_without_the_packer_symbol_is_a_mismatch(self):
         elf, exe, segs, syms, _ = self.build()
         no_sym = elf32(segs, {'__bss_start': syms['__bss_start']})

@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "12804da71b767a947782e7f88713b2ed7ef110aa95b38575a796b46fa02be59e"
+      "sha256": "3c750f055f664f0fdb8033cc570834b3f0b46d5ff6e5477c6c4d737c2e3726f9"
     },
     {
       "source": "merged/pin.py",
@@ -977,12 +977,17 @@
     {
       "source": "merged/sfgpu.c",
       "target": "merged/sfgpu.c",
-      "sha256": "2584cec59dcc6ce68744bdb7b38fda35e186e1989a726ce4195b4026991ff133"
+      "sha256": "41020ec05f45a4398b8649fe0f844c6a1ec10f536e01153502bb28ddf88c276e"
     },
     {
       "source": "merged/include/sfgpu_api.h",
       "target": "merged/include/sfgpu_api.h",
-      "sha256": "8ba52ca3b99c386d5b3d3991e34b02b76f5a373a5f2369205ee27ed18c2d73fc"
+      "sha256": "f097da9d42ed7a9c17b414825f6af8bf5a440610038e3b89b032481bd193152a"
+    },
+    {
+      "source": "merged/sfprojective.h",
+      "target": "merged/sfprojective.h",
+      "sha256": "3b6dbd661804e16e3bf3da80525907c23a472c2d4e18af12a9894fe72bec089c"
     }
   ],
   "patches": [

@@ -97,7 +97,7 @@ def main():
     t2 = t.replace('target("arm"), ', '').replace(', target("arm")', '').replace('__attribute__((target("arm")))', '')
     assert 'target("arm")' not in t2
     open(tex, 'w').write(t2)
-    inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', '/usr/lib/llvm-18/lib/clang/18/include',
+    inc = ['-nostdinc', '-isystem', os.path.join(HERE, 'libc'), '-isystem', os.path.join(subprocess.check_output(['clang','-print-resource-dir'],text=True).strip(),'include'),
            '-DMERGE', '-DPS1', '-I' + os.path.join(b, 'src'), '-I' + os.path.join(b, 'build', 'gen')]
     profile, only, keep_native, hot = choose_profile()
     gtecam = os.environ.get('SFNAT_GTECAM', '0')
@@ -119,6 +119,12 @@ def main():
         raise SystemExit('SFNAT_GPU_FRAME must be 0 or 1')
     if gpuframe == '1' and ((only and not {'render','tex','merge'} <= set(only)) or fastwall == '1'):
         raise SystemExit('GPU frame requires native render/tex/merge and no direct-wall shortcut')
+    projective = os.environ.get('SFNAT_PROJECTIVE_WALL', '0')
+    if projective not in ('0','1') or (projective == '1' and gpuframe != '1'):
+        raise SystemExit('SFNAT_PROJECTIVE_WALL requires SFNAT_GPU_FRAME=1')
+    gpu_bulk = os.environ.get('SFNAT_GPU_BULK', '0')
+    if gpu_bulk not in ('0','1') or (gpu_bulk == '1' and gpuframe != '1'):
+        raise SystemExit('SFNAT_GPU_BULK requires SFNAT_GPU_FRAME=1')
     compact_report = None
     compact = os.environ.get('SFNAT_COMPACT_MATH', '0')
     if compact not in ('0', '1'):
@@ -171,6 +177,8 @@ def main():
         gte_flags = ['-DSFNAT_GTECAM'] if gtecam == '1' and n == 'render' else []
         if gpuframe == '1' and n in ('render','tex','merge'):
             gte_flags.append('-DSFNAT_GPU_FRAME')
+        if projective == '1' and n == 'tex':
+            gte_flags.append('-DSFNAT_PROJECTIVE_WALL')
         if fastwall == '1' and n == 'tex':
             gte_flags.append('-DSFNAT_FASTWALL')
         run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections'] + inc + gte_flags + ['-S', '-emit-llvm', s, '-o', ll], log)
@@ -229,7 +237,7 @@ def main():
         span_ll.append(wl)
     if gpuframe == '1':
         gpu_ll = os.path.join(ir, 'sfgpu.ll')
-        run(['clang'] + CF + ['-O2', '-fno-strict-aliasing', '-ffunction-sections', '-fdata-sections'] + inc + ['-S', '-emit-llvm', os.path.join(HERE, 'sfgpu.c'), '-o', gpu_ll], log)
+        run(['clang'] + CF + ['-O2', '-fno-strict-aliasing', '-ffunction-sections', '-fdata-sections'] + inc + (['-DSFNAT_PROJECTIVE_WALL'] if projective == '1' else []) + (['-DSFNAT_GPU_BULK'] if gpu_bulk == '1' else []) + ['-S', '-emit-llvm', os.path.join(HERE, 'sfgpu.c'), '-o', gpu_ll], log)
         span_ll.append(gpu_ll)
     port = os.path.join(ir, 'sfport.ll')
     run(['clang'] + CF + [opt] + inc + (['-DSFNAT_FASTSPAN'] if fastspan == '1' else []) + (['-DSFNAT_GPU_FRAME'] if gpuframe == '1' else []) + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
@@ -368,7 +376,7 @@ def main():
     report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
                   requested_native_tables=sorted(keep_native), linked_native_tables=kept,
                   native_entries=len(ents), iwram_entries=len(iw),
-                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1', fastwall=fastwall=='1', gpuframe=gpuframe=='1')
+                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1', fastwall=fastwall=='1', gpuframe=gpuframe=='1', projective=projective=='1', gpu_bulk=gpu_bulk=='1')
     with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
         json.dump(report, f, indent=2, sort_keys=True)
         f.write('\n')
