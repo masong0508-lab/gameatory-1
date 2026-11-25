@@ -42,6 +42,18 @@
 #define NOFANX 0
 #endif
 #define H_FOCAL 181
+#ifdef SF3_B3_BRIDGE
+#include "b3_gpu.h"
+/* Original-game frames keep their old fixed lens. Only an explicitly
+   accepted B3 native camera changes these for the city pass. */
+static int sf3_hfx=H_FOCAL, sf3_hfy=H_FOCAL;
+static int b3_open, b3_bad, b3_oy;
+#define HFX sf3_hfx
+#define HFY sf3_hfy
+#else
+#define HFX H_FOCAL
+#define HFY H_FOCAL
+#endif
 #define NEAR 32
 #define CELL 1024
 #define TEX_FAR 6500
@@ -132,8 +144,15 @@ static inline int fsin(int a) { u32 i = (u32)(a >> 4) & 4095u, j = i & 2047u; in
 static inline int fcos(int a) { return fsin(a + 16384); }
 static void gte_setup(void) {
   s32 m[9] = { mr.x >> 2, mr.y >> 2, mr.z >> 2, -(mu.x >> 2), -(mu.y >> 2), -(mu.z >> 2), mf.x >> 2, mf.y >> 2, mf.z >> 2 };
+#ifdef SF3_B3_BRIDGE
+  if(HFX!=HFY){
+    /* GTE uses a single projection distance H. Scale the vertical row
+       instead, so its projection agrees with the 320x224 native HUD. */
+    m[3]=-((mu.x*HFY/HFX)>>2); m[4]=-((mu.y*HFY/HFX)>>2); m[5]=-((mu.z*HFY/HFX)>>2);
+  }
+#endif
   gte_set_rot(m); gte_set_trans(0, 0, 0);
-  CTC2(24, (160 << 16) + 0x8000); CTC2(25, (120 << 16) + 0x8000); CTC2(26, H_FOCAL);
+  CTC2(24, (160 << 16) + 0x8000); CTC2(25, (120 << 16) + 0x8000); CTC2(26, HFX);
   CTC2(29, 43 * 4096 / 4096 * 0 + 0); CTC2(30, 0);
 }
 static void cam_from_angles(void) {
@@ -252,9 +271,21 @@ static void cpu_cam(s32 x, s32 y, s32 z, int sh, CV *o) {
   else { dx = (x >> -sh) - (cpx >> (8 - sh)); dy = (y >> -sh) - (cpy >> (8 - sh)); dz = (z >> -sh) - (cpz >> (8 - sh)); }
   o->x = dotv(&mr, dx, dy, dz); o->y = dotv(&mu, dx, dy, dz); o->z = dotv(&mf, dx, dy, dz);
 }
+#ifdef SF3_B3_BRIDGE
+static inline s32 plane(int i,const CV *v,int nearz){
+  switch(i){
+    case 0: return v->z-nearz;
+    case 1: return HFX*v->x+512*v->z;
+    case 2: return -HFX*v->x+511*v->z;
+    case 3: return -HFY*v->y+251*v->z;
+    default: return HFY*v->y+260*v->z;
+  }
+}
+#else
 static const s16 PLN[5][3] = { { 0, 0, 1 }, { H_FOCAL, 0, 512 }, { -H_FOCAL, 0, 511 }, { 0, -H_FOCAL, 251 }, { 0, H_FOCAL, 260 } };
 #define PLANE(pl, v, nz) (PLN[pl][0] * (v)->x + PLN[pl][1] * (v)->y + PLN[pl][2] * (v)->z - ((pl) == 0 ? (nz) : 0))
 static inline s32 plane(int i, const CV *v, int nearz) { return PLN[i][0] * v->x + PLN[i][1] * v->y + PLN[i][2] * v->z - (i == 0 ? nearz : 0); }
+#endif
 static int clip_poly(const CV *in, int n, CV *out, int nearz, int useuv) {
   CNT(c_clip);
   CV a[MAXCV], b[MAXCV]; int na = n, nb;
@@ -288,7 +319,7 @@ static int clip_poly(const CV *in, int n, CV *out, int nearz, int useuv) {
 }
 static inline u32 cpu_proj(const CV *v) {
   s32 z = v->z; if (z < 1) z = 1;
-  s32 nx = H_FOCAL * v->x, ny = H_FOCAL * v->y;
+  s32 nx = HFX * v->x, ny = HFY * v->y;
   s32 sx = 160 + (nx + (nx < 0 ? -(z >> 1) : (z >> 1))) / z, sy = 120 - (ny + (ny < 0 ? -(z >> 1) : (z >> 1))) / z;
   if (sx < -352) sx = -352; if (sx > 671) sx = 671; if (sy < -131) sy = -131; if (sy > 380) sy = 380;
   return ((u32)(u16)sy << 16) | (u16)sx;
@@ -544,7 +575,7 @@ static void sky_draw(void) {
   for (int k = 0; k < 8; k++) {
     int uy = mu.y < 64 ? 64 : mu.y;
     /* sy = 120 - H*(L - f.y)/u.y  (r.y = 0: no roll) */
-    s32 num = (s32)H_FOCAL * (lv[k] - mf.y); s32 sy = 120 - num / uy;
+    s32 num = (s32)HFY * (lv[k] - mf.y); s32 sy = 120 - num / uy;
     if (sy < -2000) sy = -2000; if (sy > 2000) sy = 2000;
     if (sy >= 240) continue;
     if (sy < 0) sy = 0;
@@ -595,8 +626,8 @@ static inline int in_view(s32 x, s32 y, s32 z, int r) {
   s32 cx = dotv(&mr, dx, dy, dz), cy = dotv(&mu, dx, dy, dz), cz = dotv(&mf, dx, dy, dz);
   if (cz < -r) return 0;
   s32 rx = r * 242, ry = r * 218;
-  if (H_FOCAL * cx - 161 * cz > rx || -H_FOCAL * cx - 161 * cz > rx) return 0;
-  if (H_FOCAL * cy - 121 * cz > ry || -H_FOCAL * cy - 121 * cz > ry) return 0;
+  if (HFX * cx - 161 * cz > rx || -HFX * cx - 161 * cz > rx) return 0;
+  if (HFY * cy - 121 * cz > ry || -HFY * cy - 121 * cz > ry) return 0;
   return 1;
 }
 static int reach = REACH;
@@ -618,8 +649,8 @@ static void ground_draw(void) {
       CNT(c_cullcell);
       s32 vx = r_ >> 14, vy = u_ >> 14, vz = f_ >> 14;
       if (vz < -740) continue;
-      if (H_FOCAL * vx - 161 * vz > RX || -H_FOCAL * vx - 161 * vz > RX) continue;
-      if (H_FOCAL * vy - 121 * vz > RY || -H_FOCAL * vy - 121 * vz > RY) continue;
+      if (HFX * vx - 161 * vz > RX || -HFX * vx - 161 * vz > RX) continue;
+      if (HFY * vy - 121 * vz > RY || -HFY * vy - 121 * vz > RY) continue;
       int adx = dx < 0 ? -dx : dx, adz = dz < 0 ? -dz : dz, ring = adx > adz ? adx : adz;
       CNT(c_cells);
 #ifndef NOGCELL
@@ -818,8 +849,8 @@ static void draw_ramp(int k) {
 static void billboard(s32 fx, s32 fy, s32 fz, int hw, int y0, int y1, u32 rgb, int key) {
   /* a rectangle facing the camera: width 2*hw, from fy+y0 to fy+y1, at the foot's depth */
   CV c; cpu_cam(fx, fy, fz, 0, &c); if (c.z < 40) return;
-  s32 z = c.z; int sx0 = 160 + (H_FOCAL * (c.x - hw)) / z, sx1 = 160 + (H_FOCAL * (c.x + hw)) / z;
-  int sy0 = 120 - (H_FOCAL * (c.y + y1)) / z, sy1 = 120 - (H_FOCAL * (c.y + y0)) / z;
+  s32 z = c.z; int sx0 = 160 + (HFX * (c.x - hw)) / z, sx1 = 160 + (HFX * (c.x + hw)) / z;
+  int sy0 = 120 - (HFY * (c.y + y1)) / z, sy1 = 120 - (HFY * (c.y + y0)) / z;
   if (sx1 < 0 || sx0 > 319 || sy1 < 0 || sy0 > 239) return;
   if (sx0 < -300) sx0 = -300; if (sx1 > 600) sx1 = 600; if (sy0 < -100) sy0 = -100; if (sy1 > 340) sy1 = 340;
   u32 *p = pnew(5); if (!p) return;
@@ -848,14 +879,14 @@ static void tree17(int k, const Tree *t, int kind, s32 x, s32 base, s32 z, s32 h
   CV c; cpu_cam(x, base, z, 0, &c);
   if (c.z < 420 || c.z > 6000) return;
   if (c.z < 760 && (c.x < 360 && c.x > -360)) return;
-  s32 zz = c.z; int sx = 160 + H_FOCAL * c.x / zz, sby = 120 - H_FOCAL * c.y / zz;
-  int rp = H_FOCAL * R / zz, hp = H_FOCAL * h / zz;
+  s32 zz = c.z; int sx = 160 + HFX * c.x / zz, sby = 120 - HFY * c.y / zz;
+  int rp = HFX * R / zz, hp = HFY * h / zz;
   if (sx + rp < 0 || sx - rp > 319 || sby - hp - 8 > 300 || sby + 8 < -50) return;
   if (rp > 200) return;
   int key = zz, bk = bucket(key), near = zz < T17_NEAR, mid = zz < T17_MID;
   u32 cl[4] = { flat_col(3, 0, 0), flat_col(3, 1, 0), flat_col(3, 2, 0), flat_col(3, 3, 0) };
   u32 trunkc = flat_col(10, 1, 0);
-  int tw = H_FOCAL * (h / 16) / zz; if (tw < 1) tw = 1;
+  int tw = HFX * (h / 16) / zz; if (tw < 1) tw = 1;
   if (kind == 1) {
     /* a fir: tiers (bottom, top: 25ths of the height; half width: 16ths of the crown), top first; each tier a fan from its apex over a
        ragged lower edge, lit on the left */
@@ -1121,6 +1152,9 @@ u32 sf3_map_cur, sf3_map_x, sf3_map_y, sf3_map_z, sf3_map_loads; static int cam_
 /* stage 7: load map n (0..10) from SF3M.BIN on the CD: world, atlas (VRAM upload), side tables.  Runs between frames (the primitive buffer is the upload buffer).
    Returns 0, or -1 with the old map still in place if the header or the world magic is wrong. */
 int sf3_map_load(u32 n) {
+#ifdef SF3_B3_BRIDGE
+  if(b3_open) return -1;   /* cannot overwrite a partially built city list */
+#endif
   if (n > 10) return -1;
   sf3_cd_read(CD_SF3W_LBA, 1, sf_tmp);
   const u32 *hd = (const u32 *)sf_tmp; if (hd[0] != 0x4d334653 || hd[1] != 11) { dbg("SF3M bad header\n"); return -1; }
@@ -1221,6 +1255,10 @@ int sf3_treepose(int n, s32 *x, s32 *y, s32 *z, int *hd) {
 }
 #endif
 int sf3_frame(int oy, s32 px, s32 py, s32 pz, int heading, int pkind, const SfEnt *ents, int nents, int hud) {
+#ifdef SF3_B3_BRIDGE
+  if(b3_open) return -1;
+  sf3_hfx=sf3_hfy=H_FOCAL;  /* original-game frame path */
+#endif
   if (!sf3_have) return -1;
   u32 t0 = HLINES();
   car_x = px << 8; car_y = py << 8; car_z = pz << 8; car_h = heading & 0xffff;
@@ -1306,3 +1344,76 @@ ground_draw();
 #endif
   return 0;
 }
+
+#ifdef SF3_B3_BRIDGE
+/* Experimental native city/geometry producer. The scene/overlay owner must
+   reserve sf3's world and primitive windows, load the matching map and
+   ensure that oy is the hidden buffer before calling. It must keep the
+   software picture available until successful end, then compose L1 HUD
+   and OBJ and flip normally. This API is deliberately not enabled in B2. */
+void sf3_b3_abort(void)
+{
+  b3_open=0; b3_bad=0; ovf=0;
+  sf3_hfx=sf3_hfy=H_FOCAL;
+}
+
+int sf3_b3_begin(int oy,u32 map,const B3Camera *camera)
+{
+  if(b3_open || !sf3_have || map>10 || map!=sf3_map_cur ||
+     (oy!=0 && oy!=240) || !b3_camera_ok(camera)) return -1;
+#ifdef PRES_ASYNC
+  fl_sync();
+#endif
+  gpu_idle(); /* previous linked list must no longer reference our storage */
+  b3_open=1; b3_bad=0; b3_oy=oy; ovf=0;
+  cpx=camera->pos[0]*256; cpy=camera->pos[1]*256; cpz=camera->pos[2]*256;
+  mr=(V3){camera->right[0],camera->right[1],camera->right[2]};
+  mu=(V3){camera->up[0],camera->up[1],camera->up[2]};
+  mf=(V3){camera->forward[0],camera->forward[1],camera->forward[2]};
+  sf3_hfx=b3_hx(camera->focal); sf3_hfy=b3_hy(camera->focal);
+  cam_commit();
+  /* First parity build: don't shorten reach or silently increase LOD.
+     A full list is an explicit fallback, not missing city objects. */
+  lod=0; reach=REACH; errpx=ERRPX;
+  g_bg=0;
+  list_begin(0);
+  sky_draw(); island_draw(flat_col(1,2,0)); city_draw(); ground_draw();
+  if(ovf){ sf3_b3_abort(); return -1; }
+  return 0;
+}
+
+int sf3_b3_flat(const s16 *xy,int n,u16 color,int key,int bg)
+{
+  if(!b3_open || b3_bad) return -1;
+  int words=b3_flat_words(n);
+  /* Existing pnew's 64-word tail guard assumes small sf3 packets.
+     A 32-vertex fan can be 120 words, so preflight the whole node. */
+  if(words<0 || pb>=pbe || (u32)(pbe-pb)<(u32)words+1u ||
+     b3_flat_packet(pb+1,(u32)(pbe-pb-1),xy,n,b3_rgb555(color))!=words){
+    b3_bad=1; return -1;
+  }
+  u32 *p=pnew(words);
+  if(!p){ b3_bad=1; return -1; }
+  if(bg) link_bg(p,words); else link_ot(bucket(key),p,words);
+  return 0;
+}
+
+int sf3_b3_end(void)
+{
+  if(!b3_open) return -1;
+  if(b3_bad || ovf){ sf3_b3_abort(); return -1; }
+  int oy=b3_oy;
+  gpu_idle();
+#ifdef PRES_ASYNC
+  fl_sync();
+#endif
+  gp0c(0xE1000400 | TPAGE(320,0,1,0));
+  gp0e(0xE3000000 | ((oy+8)<<10));
+  gp0e(0xE4000000 | 319 | ((oy+231)<<10));
+  gp0e(0xE5000000 | (oy<<11));
+  list_send();
+  sf3_stat_prim=nprim; sf3_stat_ovf=0; sf3_stat_lod=lod; sf3_frames++;
+  sf3_b3_abort();
+  return 0;
+}
+#endif

@@ -172,3 +172,66 @@ physical CD request counts. Validate the linked candidate against B2
 and B3-without-cache, all scene transitions, pause, save, both accurate
 cores, frame pacing and flicker. The native city GPU backend remains
 unfinished; the software-renderer page-flip rates above are not 30 FPS.
+
+## B3 phase 3: city GPU camera/flat-geometry producer
+
+The next renderer path is behind `SF3_B3_BRIDGE` in `sf3.c`. It does
+not use the original Payback port's independently smoothed chase camera.
+The scene owner supplies Stunt Fox's existing world-unit position, mirrored
+1.14 right/up/forward axes and focal length in GBA pixels. The GPU city
+producer uses the 320x224 L1 viewport: horizontal focal = round(4f/3),
+vertical = round(7f/5). The GTE vertical rotation row is scaled by Hy/Hx;
+CPU culling, clipping, sky and billboard projections use the same lenses.
+Unbanked outdoor cameras only; inverted, banked or high-space views must
+fall back. This is deliberate until the B4 sky/roll and overlay work.
+
+`sf3_b3_begin` checks the loaded map, camera and hidden-buffer argument
+before opening a list. It waits for previous DMA use, draws the city into
+the existing OT, and accepts additional already-clipped 28.4 screen-space
+convex polygons through `sf3_b3_flat`. Colors use the resolved GBA BGR555
+palette entry. A quad uses an F4 packet in GPU Z order; larger convex
+polygons (up to 32 vertices) are emitted as one atomic F3 fan node at the
+game's depth key. No new framebuffer or persistent geometry array. Capacity
+is preflighted for the entire packet; an overflow or invalid polygon fails
+the transaction. `sf3_b3_end` sends only a complete list; the caller must
+compose HUD/OBJ and flip. `sf3_b3_abort` never sends a partial list.
+
+The source-only tests check mirrored camera conventions, eight projection
+points at both focal lengths (CPU math, not measured GTE error), viewport
+edges, palette conversion, quad winding, maximum fan and rejection without
+partial writes, plus the portable MIPS-I compile. Original rc10 and B2
+builds leave this flag off. This is **not yet a connected gameplay render
+path**: the B3 scene owner must first establish non-overlapping world/OT/
+native-code/stack regions, ensure map parity (including ladders, loops,
+dynamic props and water), connect `r_poly`/HUD ownership, retain the
+software fallback on failed/unsupported frames, and run real device/core
+picture comparisons before enabling. Do not enable the flag on the
+existing B2 linker layout: its native code uses sf3's world and OT windows.
+
+### GPU memory ownership gate
+
+`gpu_layout.py` checks the linked private ELF, not a nominal free-space
+estimate. It includes KSEG aliases, allocated NOBITS/PROGBITS sections,
+separate load-memory images and the stack's reserved interval. Run using
+the exact world address from the matching prepared `t/worldaddr.py`:
+
+```sh
+python3 ps1/merged/gpu_layout.py --elf /private/candidate.elf \
+  --world-start 0x800cd800 --stack-lo 0x80119000 --stack-hi 0x8011c000
+```
+
+On the supplied B2 ELF, the expected failure is confirmed: the entire
+172,628-byte .sfn1 allocation intersects the 239,616-byte world window
+(117,712 bytes) or the primitive/ordering/stamp/side window (54,916 bytes).
+File-backed initial data and 8,704 bytes of stack also overlap the latter.
+Counting union bytes, the two zones conflict with 182,345 bytes altogether.
+This is in addition to the future sf3 executable placement requirement.
+Neither a small cache nor merely calling sf3_frame will make B2 safe.
+A scene-overlay candidate must pass this check with its actual linked
+ranges and stack, and separately prove safe cold-code ownership and DMA
+lifetime. The current disc builder refuses SF3_B3_BRIDGE because the
+merged-native link still substitutes sf3stub; the dedicated compile-only
+gate and private synthetic GPU probe remain available.
+
+See [synthetic GPU/GTE probe](../qa/B3_GPU_PROBE.md) for the two-core
+pixel/projection checks. They passed independently of the live-city path.
