@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "5cc590127f8978bc144e9c47a47ec53767f28b81661b5a116f15a75dcd3cc46c"
+      "sha256": "4db9b9a7315403c01a96c4444405cc07b9383022e3a2c1a5d96c09a055b88ac6"
     },
     {
       "source": "merged/irmem.py",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "b6f27d92e91613ab1c702e10ec37042b9d04677b31f6e51054b11451509d4d99"
+      "sha256": "3f19bc1a1d308d2db2ca31928059ec7363aee8a948c00dc9d759343958bbbc62"
     },
     {
       "source": "merged/pin.py",
@@ -933,6 +933,16 @@
       "source": "merged/scene_layout.py",
       "target": "merged/scene_layout.py",
       "sha256": "fe744ef80640e6a73756e353fc1d8e661437e19593ec52105b3829a0b862d4c6"
+    },
+    {
+      "source": "merged/compact_math.py",
+      "target": "merged/compact_math.py",
+      "sha256": "3d9b2d4651afbfeee8ba383471e7750f5d86325180abb7b7a175f22c9f99aefc"
+    },
+    {
+      "source": "merged/include/compact_math.h",
+      "target": "merged/include/compact_math.h",
+      "sha256": "96124d9e71492ef989da49c940cd1afb473f7d87c813f3709db90b9a5cb9cdd4"
     }
   ],
   "patches": [

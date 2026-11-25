@@ -245,3 +245,28 @@ execution. The B2 ELF yields a 136 KiB candidate slot and a lower permanent
 cold-code boundary, but this is not the final GPU-linked layout. The native
 modules still need partitioning and the actual scene dispatcher, CD payload
 and GPU lifetime integration. Original builds keep their current behavior.
+
+## B3 phase 5: compact native lookup tables
+
+Set `SFNAT_COMPACT_MATH=1` on the private native build to select the
+lossless compact tables. The default is 0, preserving existing code
+and timing until a matched private gameplay benchmark is available.
+Only natbuild's copied source/generated tree is rewritten. Interpreted
+GBA functions continue to use their original ROM tables. The builder
+rejects changed table ranges, asymmetric sine data, or unhandled table
+references, and records the numeric result in b3_native_census.json.
+
+- Sine: 8,192 → 2,050 bytes (one quarter, exact signs and reflection).
+- Renderer reciprocal: 8,192 → 5,120 bytes (low halfword and high nibble).
+- Edge reciprocal: 10,244 → 5,636 bytes (full first 257, halfwords thereafter).
+- Total: 26,628 → 12,806 bytes, raw saving 13,822 bytes (51.9%).
+
+Local host C/UBSan against the supplied private original tables passed
+201,217 comparisons (all 65,536 sine/cosine/negative-angle inputs and
+both entire reciprocal arrays). The generated full and compact tables
+also compiled for MIPS I with Clang 17. The compact object has a 108-byte
+out-of-line sine decoder; actual total linked saving must account for
+alignment, new accessor code and compiler optimization. No FPS improvement
+is claimed. Keep the setting optional until matched city, flight,
+station, frame pacing and RAM headroom tests pass. No generated tables,
+ROM bytes or private logs committed.
