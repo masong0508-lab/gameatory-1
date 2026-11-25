@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "c08ffe85a757c2d12255ae96095716de7b035f904bd552f42f869b0d6c6c83d1"
+      "sha256": "09f98f6db74f15d5d7150a94410a71dbd04941a3d0a186393266ba5eeee95a2d"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "2e8e965c24f2691307a748b1f6149a6b3eec87815e59175fa2bd4576e8284fbb"
+      "sha256": "44ca81c287e9b0b5597949baf56792fe003b1b450717e7d53c9ecc5a6c72e900"
     },
     {
       "source": "merged/irmem.py",
@@ -953,6 +953,11 @@
       "source": "stage19/ps1rt/b3_spu_cache.h",
       "target": "ps1rt/b3_spu_cache.h",
       "sha256": "f9dc534cab3d7ab327500d2fd6fef3340b96d97d0bf7e54f14e12e1034b6a0c1"
+    },
+    {
+      "source": "stage19/ps1rt/b3_key_edges.h",
+      "target": "ps1rt/b3_key_edges.h",
+      "sha256": "83c0d9f086b47a060b2d4469fadb4060556a91c2944c8c0497eb3867af99e5fa"
     }
   ],
   "patches": [
