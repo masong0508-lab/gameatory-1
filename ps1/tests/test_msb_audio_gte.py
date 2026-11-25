@@ -64,5 +64,9 @@ int main(void){
         with tempfile.TemporaryDirectory() as d:
             p=pathlib.Path(d)
             (p/"probe.c").write_text('#include "gtecam.h"\nV3 project(const M3*m,V3 d){return sf_gte_project(m,d);}\n')
+            # Match natbuild.py: fx.h must use the MIPS guest-address header.
+            shutil.copyfile(ROOT.parent/"stuntfox/src/fx.h",p/"fx.h")
+            shutil.copyfile(ROOT/"merged/include/gba.h",p/"gba.h")
+            shutil.copyfile(ROOT/"merged/include/gtecam.h",p/"gtecam.h")
             subprocess.run([cc,"--target=mipsel-none-elf","-march=mips1","-mabi=32","-mfp32","-msoft-float","-ffreestanding","-fno-pic","-mno-abicalls","-mno-check-zero-division","-G0","-Os","-I",str(ROOT/"merged/include"),"-I",str(ROOT.parent/"stuntfox/src"),"-c",str(p/"probe.c"),"-o",str(p/"probe.o")],check=True)
 if __name__=="__main__":unittest.main()

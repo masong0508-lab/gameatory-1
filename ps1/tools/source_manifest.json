@@ -182,7 +182,7 @@
     {
       "source": "stage16/merge/ps1rt/hw_radio.h",
       "target": "ps1rt/hw_radio.h",
-      "sha256": "f1e4eb27131eae8042e9932befc9cfdd50642c63f397e4abdc8e62b66461f162"
+      "sha256": "8c9464d6951b2ee44506b8a065c8cf043674ac884d41710c84a45a24a7712aa8"
     },
     {
       "source": "stage16/merge/ps1rt/hw_stub.h",
