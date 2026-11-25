@@ -105,6 +105,15 @@ def main():
         raise SystemExit('SFNAT_GTECAM must be 0 or 1')
     if gtecam == '1' and only and 'render' not in only:
         raise SystemExit('SFNAT_GTECAM needs native render.c')
+    fastwall = os.environ.get('SFNAT_FASTWALL', '0')
+    if fastwall not in ('0', '1'):
+        raise SystemExit('SFNAT_FASTWALL must be 0 or 1')
+    if fastwall == '1' and (only and 'tex' not in only):
+        raise SystemExit('SFNAT_FASTWALL needs native tex.c')
+    if fastwall == '1' and os.environ.get('SFNAT_COMPACT_MATH', '0') == '1':
+        raise SystemExit('SFNAT_FASTWALL currently needs the full resident reciprocal tables')
+    if fastwall == '1' and not {'rtab', 'erecip'} <= set(keep_native):
+        raise SystemExit('SFNAT_FASTWALL needs resident rtab and erecip')
     compact_report = None
     compact = os.environ.get('SFNAT_COMPACT_MATH', '0')
     if compact not in ('0', '1'):
@@ -155,6 +164,8 @@ def main():
         n = os.path.basename(s)[:-2]
         ll = os.path.join(ir, n + '.ll')
         gte_flags = ['-DSFNAT_GTECAM'] if gtecam == '1' and n == 'render' else []
+        if fastwall == '1' and n == 'tex':
+            gte_flags.append('-DSFNAT_FASTWALL')
         run(['clang'] + CF + [opt, '-ffunction-sections', '-fdata-sections'] + inc + gte_flags + ['-S', '-emit-llvm', s, '-o', ll], log)
         run(['opt', '-passes=instnamer', '-S', ll, '-o', ll], log)     # (named values: the rewrite adds and drops instructions)
         src_ll = open(ll).read()
@@ -197,6 +208,18 @@ def main():
         # Host addresses in sfspan are intentional; never run irmem here.
         run(['clang'] + CF + [opt, '-fno-strict-aliasing', '-S', '-emit-llvm', os.path.join(HERE, 'sfspan.c'), '-o', sp], log)
         span_ll.append(sp)
+    if fastwall == '1':
+        from sfwall import generate
+        wc = os.path.join(out, 'sfwall.c')
+        with open(os.path.join(b, 'src', 'tex.c')) as source:
+            generated = generate(source.read())
+        with open(wc, 'w') as dest:
+            dest.write(generated)
+        wl = os.path.join(ir, 'sfwall.ll')
+        # This kernel resolves and snapshots guest inputs itself. Direct
+        # host framebuffer writes must not pass through the guest IR pass.
+        run(['clang'] + CF + ['-O2', '-fno-strict-aliasing', '-ffunction-sections', '-fdata-sections'] + inc + ['-S', '-emit-llvm', wc, '-o', wl], log)
+        span_ll.append(wl)
     port = os.path.join(ir, 'sfport.ll')
     run(['clang'] + CF + [opt] + inc + (['-DSFNAT_FASTSPAN'] if fastspan == '1' else []) + ['-S', '-emit-llvm', os.path.join(HERE, 'sfport.c'), '-o', port], log)
     prw = os.path.join(ir, 'sfport.mem.ll')
@@ -334,7 +357,7 @@ def main():
     report = dict(profile=profile, native_files=[os.path.basename(s) for s in srcs],
                   requested_native_tables=sorted(keep_native), linked_native_tables=kept,
                   native_entries=len(ents), iwram_entries=len(iw),
-                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1')
+                  guest_stubs=len(stubs), section_bytes=tot, compact_math=compact_report, fastspan=fastspan=='1', gtecam=gtecam=='1', fastwall=fastwall=='1')
     with open(os.path.join(out, 'b3_native_census.json'), 'w') as f:
         json.dump(report, f, indent=2, sort_keys=True)
         f.write('\n')

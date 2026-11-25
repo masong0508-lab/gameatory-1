@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "f2cbdae75449b4ab773160f1d74aa1ea4c1d1b480b67ae8eea86f6378208fde7"
+      "sha256": "f256ef44bfd0ab09f5890944752546475413452a0e81792e4a324356b1b940d6"
     },
     {
       "source": "merged/irmem.py",
@@ -827,7 +827,7 @@
     {
       "source": "merged/natbuild.py",
       "target": "merged/natbuild.py",
-      "sha256": "62f4d5889956b80ffd05e35a67cafac36fac84347eb70bc36a96c3762f9aa49e"
+      "sha256": "9668d8c08d4236679d17ef93527b653d0800b5d8e1950a06ba002a2bb109875a"
     },
     {
       "source": "merged/pin.py",
@@ -968,6 +968,11 @@
       "source": "merged/include/gtecam.h",
       "target": "merged/include/gtecam.h",
       "sha256": "bff9b7bf0d61e5460bf0799fda745cc8e0292afbf6aa35e80deb520392674720"
+    },
+    {
+      "source": "merged/sfwall.py",
+      "target": "merged/sfwall.py",
+      "sha256": "083c7a4e36b11a9afdedd1ec83b471a19c1f25eabf74793bd451a7ee1ceb5030"
     }
   ],
   "patches": [
