@@ -384,6 +384,12 @@ static void dsp_phase(u32 ra){
    hand last passed.  Boot and the menus before the first level keep the stage 19 behaviour (FIFO over the slots, resident pages kept, M3 page
    pairs).  Nothing holds a page pointer across a fetch: rom_read resolves every byte, rom_copy and the DMA path one page at a time, ip_rd every
    access. */
+#ifdef B3_SPU_CACHE
+#if !defined(MERGED_NATIVE) || !defined(MERGED) || !defined(PCACHE1) || !defined(B3_SPU_CDDA_ONLY) || defined(CDSIM)
+#error "B3_SPU_CACHE requires hardware merged native single-page CDDA-only profile and explicit B3_SPU_CDDA_ONLY reservation"
+#endif
+#include "b3_spu_cache.h"
+#endif
 #define RP_MAX 64
 static u16 fr_pg[RP_MAX+NSLOT+SF_NAT_EXT_N];         /* page+1 held by each frame, 0 = empty: frames 0..pool_rp-1 are resident pages (rompack), then the slots */
 #ifdef MERGED
@@ -413,7 +419,12 @@ static u32 cold_m5; static void cold_all(void); static int pal_bg_zero(void);
 static u32 rom_pairs;   /* speed item M3: fetches that read the aligned page pair */
 #endif
 /* frame f gets page pg (data already in it): the maps both ways */
-static void pool_set(u32 f,u32 pg){ fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(POOL_SLOT(f)) slot_owner[f-pool_rp]=pg+1; }
+static void pool_set(u32 f,u32 pg){
+#ifdef B3_SPU_CACHE
+  b3_spu_forget(pg);
+#endif
+  fr_pg[f]=pg+1; pg_fr[pg]=f+1; rom_pg[pg]=pool_frame(f); if(POOL_SLOT(f)) slot_owner[f-pool_rp]=pg+1;
+}
 /* frame f is reused: its page (if any) leaves RAM */
 #ifdef POOL_THRASH
 /* rc9: the CLOCK pool also before the first level once the menus thrash the slots (the Credits: about 4 page fetches per guest frame over the
@@ -517,7 +528,7 @@ static void pz_present(void){
 _Static_assert(B3_CACHE_COUNT<=64u && B3_CACHE_HOT_COUNT<=B3_HOT_MAX, "B3 cache bounds");
 u32 b3_cache_hits, b3_cache_errors;  /* separate from physical disc misses */
 #endif
-#if defined(B3_CACHE) || SF_NAT_EXT_N
+#if defined(B3_CACHE) || SF_NAT_EXT_N || defined(B3_SPU_CACHE)
 static int b3_cache_active(void);
 #endif
 /* out of line: the miss path grew (M3, M5, the pool), and clang would otherwise stop inlining rom_page's resident test into h_memrd, resolve,
@@ -538,7 +549,7 @@ static __attribute__((noinline)) const u8 *cd_fetch(u32 pg){
     else if(!pool_refetch) pool_menu_off(); }
 #endif
   u32 f;
-#if defined(B3_CACHE) || SF_NAT_EXT_N
+#if defined(B3_CACHE) || SF_NAT_EXT_N || defined(B3_SPU_CACHE)
   int b3_active=b3_cache_active();
 #endif
 #ifdef POOL_THRASH
@@ -604,8 +615,16 @@ ext_victim:
 #ifdef POOL_THRASH
 rd:
 #endif
-  pool_drop(f);
   u8 *d=pool_frame(f);
+#ifdef B3_SPU_CACHE
+  if(b3_active && fr_pg[f]) b3_spu_store(fr_pg[f]-1,d,pg);
+#endif
+  pool_drop(f);
+#ifdef B3_SPU_CACHE
+  if(b3_active && b3_spu_restore(pg,d)){
+    pool_set(f,pg); rom_soft++; return d;
+  }
+#endif
 #ifdef B3_CACHE
   if(b3_active){
     int restored=b3_restore_page(pg,d,b3_cache_pages,B3_CACHE_COUNT);
@@ -682,7 +701,7 @@ static u32 pad_gba=0x3ff; static void present(void); static void ppu_flush(void)
    guest left it (entity count -1, clock still, three pictures).  A new picture is a page flip (DISPCNT bit 4: Payback flips the page Stunt
    Fox drew), the native counterpart of sf3's world-frame mark (c3_have6) */
 static int nat_lvl; static u32 nat_flips, nat_flips_shown;
-#if defined(B3_CACHE) || SF_NAT_EXT_N
+#if defined(B3_CACHE) || SF_NAT_EXT_N || defined(B3_SPU_CACHE)
 static int b3_cache_active(void){
   if(!nat_lvl || !rom_pool) return 0;
 #ifdef POOL_THRASH
