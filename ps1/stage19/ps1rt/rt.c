@@ -995,6 +995,17 @@ u32 dsp_nmiss, dsp_nmrd, dsp_nrom, dsp_nmwr, dsp_nfill;
 #endif
 #ifdef MERGED_NATIVE
 #include "sfnat_place.h"
+/* A future scene-overlay linker may reserve a lower shared slot. From
+   power-on onward no translated cold group may cross this ceiling.
+   This also prevents D1/D2 from caching a target later overwritten by
+   an overlay. Until the scene layout is connected the value is B2's. */
+#ifdef B3_SCENE_LO
+_Static_assert(B3_SCENE_LO>=0x800a8100u && B3_SCENE_LO<=SF_NAT_LO &&
+               !(B3_SCENE_LO&2047u),"invalid B3 scene slot start");
+#define SF_COLD_LIMIT B3_SCENE_LO
+#else
+#define SF_COLD_LIMIT SF_NAT_LO
+#endif
 /* B2 review: the slow path takes a host address only where native Stunt Fox keeps code, data or its stack (R1 and the native stack, R2,
    0x80180000.. with R3 and the guest RAM images); interpreted Stunt Fox code reaches its data through them.  Any other host address (the
    runtime, the page table, the kernel) is refused and counted, as before B2 */
@@ -1105,7 +1116,7 @@ static int pal_bg_zero(void){ const volatile u32*p=(const volatile u32*)PAL; u32
 static u32 b2_cellfix;
 static void b2_coldfix(void){
   volatile u32*w=(volatile u32*)(COLD_HOST+0x6c764u);
-  if((u32)w+20>SF_NAT_LO) return;
+  if((u32)w+20>SF_COLD_LIMIT) return;
   if(w[0]==0x3c1007ffu&&w[1]==0x3610ffffu&&w[2]==0x02405821u&&w[3]==0x0212082bu&&w[4]==0x1020014bu){
     w[0]=0x3c10f800u;      /* lui  $16,0xf800        r0 = -0x08000000 */
     w[1]=0x02128021u;      /* addu $16,$16,$18       r0 = r2 - 0x08000000 */
@@ -1119,7 +1130,7 @@ __attribute__((noinline)) static void cold_all(void){
   cold_m5=2; if(*(volatile u32*)(EW+0x1e00) || sf3_ok) return;
   cold_m5=1;
 #ifdef MERGED_NATIVE
-  { u32 ng=(SF_NAT_LO-COLD_HOST)>>14, ns=ng*8<COLD_SECS_N?ng*8:COLD_SECS_N;      /* B2: only the groups below native Stunt Fox */
+  { u32 ng=(SF_COLD_LIMIT-COLD_HOST)>>14, ns=ng*8<COLD_SECS_N?ng*8:COLD_SECS_N;      /* B2: only the groups below native Stunt Fox */
     cd_read(CD_COLD_LBA,ns,(u8*)COLD_HOST);
     for(u32 k=0;k<(ns+7)/8 && k<COLDGROUPS;k++) cold_loaded[k]=1;
     b2_coldfix(); }
@@ -1151,7 +1162,7 @@ found:;
   u32 g0=(hs-COLD_HOST)>>14, g1=(he-1-COLD_HOST)>>14, loaded=0;
 #ifdef MERGED_NATIVE
   /* B2: native Stunt Fox lives from SF_NAT_LO up (ps1/merged/place.py): a group that reaches it is never loaded, its functions are interpreted */
-  if(COLD_HOST+(g1+1)*16384u>SF_NAT_LO){ static u32 nnat; cold_nat_n++; if(nnat<24){ nnat++; dbg("COLD group over native SF: interpreting "); hex(addr); dbg("\n"); } return 0; }
+  if(COLD_HOST+(g1+1)*16384u>SF_COLD_LIMIT){ static u32 nnat; cold_nat_n++; if(nnat<24){ nnat++; dbg("COLD group over native SF: interpreting "); hex(addr); dbg("\n"); } return 0; }
 #endif
   /* stage 12: a tiny, position-independent cold function (the bx rN veneers, 12 bytes) whose group lies inside the renderer's data window used to switch the 3D renderer off when the HUD/text code reached it
      in a level (the group load would overwrite the world).  Its few words are read from the disc and kept in a small resident table instead; the group is not loaded. */
@@ -1185,7 +1196,12 @@ found:;
   if(loaded) b2_coldfix();
 #endif
   if(loaded){ last_cold_pres=g_pres; flush_icache(); dbg("COLD load "); hex(addr); dec(g0); dec(g1); dbg("\n"); }
-  CF_PERM(COLD_HOST+(g1+1)*16384u<=SF_WORLD_LO);     /* every group of the span ends below the world window: never dropped (present()) */
+#ifdef MERGED_NATIVE
+  CF_PERM(COLD_HOST+(g1+1)*16384u<=SF_WORLD_LO &&
+          COLD_HOST+(g1+1)*16384u<=SF_COLD_LIMIT);
+#else
+  CF_PERM(COLD_HOST+(g1+1)*16384u<=SF_WORLD_LO);
+#endif     /* every group of the span ends below the world window: never dropped (present()) */
   return host;
 }
 /* ---------------------------------------------------------------- stage 20 dispatch phase 1 (PLAN.md Stage 2), each item behind its own flag:

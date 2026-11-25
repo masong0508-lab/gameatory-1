@@ -59,7 +59,7 @@ if [ "$PZ" = 1 ] && [ ! -f ../${PZLIST:-t/pause_pages.txt} ]; then echo "Missing
 # disc profile. In particular SFNAT substitutes sf3stub.c and uses the
 # renderer's RAM. Refuse a misleading or overlapping "GPU build".
 case " $CFL " in
-    *" -DSF3_B3_BRIDGE "*|*" -DSF3_B3_BRIDGE="*) fail 'B3 GPU bridge needs the future scene-aware link/runtime integration; use its compile/probe gate' ;;
+    *" -DSF3_B3_BRIDGE "*|*" -DSF3_B3_BRIDGE="*|*" -DB3_SCENE_LO "*|*" -DB3_SCENE_LO="*) fail 'B3 GPU/scene slot needs the future scene-aware link/runtime integration; use its compile/probe gate' ;;
 esac
 # Optional private B3 cache. Both the generator and the placer must have
 # used the same bundle; mismatched ROM/placement must never reach the link.
