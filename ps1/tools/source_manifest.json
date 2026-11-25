@@ -147,7 +147,7 @@
     {
       "source": "stage19/ps1rt/build.sh",
       "target": "ps1rt/build.sh",
-      "sha256": "321c2316f034d8f62b1db188ebac3e50074846cc942a61fec6ba7087f357a8e2"
+      "sha256": "e744774637c3e3ddaf0ac996d70261d2d9fba6f30adc9aa93ef4b32a3c60c743"
     },
     {
       "source": "stage19/ps1rt/clk.h",
@@ -222,7 +222,7 @@
     {
       "source": "stage19/ps1rt/rt.c",
       "target": "ps1rt/rt.c",
-      "sha256": "e0e6ac2066c4ad7ec80a2776c09713d26d356d25de13a39e249f790617391796"
+      "sha256": "3627e1c7819cb1e871ab42f5653dcf32bdb936beb63f5d41e5a24fbd7a747416"
     },
     {
       "source": "stage19/rd/doll.c",
@@ -817,7 +817,7 @@
     {
       "source": "merged/README.md",
       "target": "merged/README.md",
-      "sha256": "4db9b9a7315403c01a96c4444405cc07b9383022e3a2c1a5d96c09a055b88ac6"
+      "sha256": "9c3db191f68ee486353df5fd4d7163ef85f80bc0ae64f508c85682c466d1985b"
     },
     {
       "source": "merged/irmem.py",
@@ -842,7 +842,7 @@
     {
       "source": "merged/place.py",
       "target": "merged/place.py",
-      "sha256": "a17a1769064b7c310a466919aff28b156738535f51b5f1cb55deeeb073569bb0"
+      "sha256": "dd6626d64a7076c9c87e4e561c9b25eb73c3f2363c9596c97947f4f2ef881be7"
     },
     {
       "source": "merged/sf3stub.c",
@@ -943,6 +943,11 @@
       "source": "merged/include/compact_math.h",
       "target": "merged/include/compact_math.h",
       "sha256": "96124d9e71492ef989da49c940cd1afb473f7d87c813f3709db90b9a5cb9cdd4"
+    },
+    {
+      "source": "merged/b3_ext.py",
+      "target": "merged/b3_ext.py",
+      "sha256": "aa5cdfa294057eaf79c055c5bc9463523b27b8cbb9c7e0ad6296f6a3269c8108"
     }
   ],
   "patches": [

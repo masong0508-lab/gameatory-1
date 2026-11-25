@@ -270,3 +270,32 @@ alignment, new accessor code and compiler optimization. No FPS improvement
 is claimed. Keep the setting optional until matched city, flight,
 station, frame pacing and RAM headroom tests pass. No generated tables,
 ROM bytes or private logs committed.
+
+
+## B3 playable cache experiment: extra cold-arena frames
+
+Opt in at placement with `SFNAT_EXT_PAGES=48` (multiple of four,
+maximum 52, rejected if it would cross the actual boot image or cold
+group 27). This trades translated cold functions for extra 4 KiB ROM
+cache frames; it is mutually exclusive with the future GPU scene slot.
+Optional `B3EXT_SEEDS=/absolute/private/page-ids.txt` and
+`B3EXT_ROM=/absolute/private/merged.gba` seed the extra frames from the
+matching 16 MiB ROM. Page IDs are hexadecimal, whitespace separated,
+with # comments. Seed data is generated in the private native directory
+and hash-checked against the ROM at disc build time. Do not publish it.
+With no seeds the frames start empty. A single owner/reverse mapping
+covers base and extended frames; the pause/menu eviction hand remains
+within the base frames, while existing extra mappings remain valid.
+
+Private measured B2 executable experiment (separate compiled MIPS-I
+hook, not the final source-linked B3 build): SwanStation 400%/10x/
+instant seek, identical walk route, base 18.482 ticks/s and 3.596 page
+flips/s at 20.627 misses/tick; 48 extra frames 34.965 ticks/s, 16.783
+flips/s and 0.086 misses/tick; preseeded 44 pages, 39.461 ticks/s,
+19.680 flips/s and 0.032 misses/tick. All sampled mapped pages matched
+the supplied ROM, no runtime fault counters. Accelerated pause/resume
+passed. Stock still has serious stalls; Beetle stock walking did not
+pass. This change is not a finished product or a native GPU city build.
+The source implementation intentionally avoids the private binary
+hook and its separate reverse map. Full source-linked emulator testing
+and stock speed/scene/save/audio acceptance remain required.
