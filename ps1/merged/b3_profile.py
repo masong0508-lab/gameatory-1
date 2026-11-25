@@ -75,7 +75,7 @@ def linked_ram_census(syms, data_size, nat_lo):
         "runtime": (0x80010000, syms["__bss_end"], 0x80028000),
         "runtime_cold": (0x80028040, syms["__rtcold_end"], 0x8002a000),
         "native_R1": (nat_lo, syms["sfn___data_lma"] + data_size, 0x80119000),
-        "native_R2": (syms["__doll_start"], syms["__dlbss_end"], 0x8017a000),
+        "native_R2": (syms["__doll_start"], max(syms["__dlbss_end"], syms.get("__native_got_end", 0)), 0x8017a000),
         "native_R3": (0x80199000, syms["__sfbss_end"], 0x801b0000),
     }
     result = {}

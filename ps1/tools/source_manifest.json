@@ -842,7 +842,7 @@
     {
       "source": "merged/place.py",
       "target": "merged/place.py",
-      "sha256": "dd6626d64a7076c9c87e4e561c9b25eb73c3f2363c9596c97947f4f2ef881be7"
+      "sha256": "074320769e2b06baef8fe493c9e77ca5893e79f3bc6fae2165429d343da9f5dc"
     },
     {
       "source": "merged/sf3stub.c",
@@ -887,7 +887,7 @@
     {
       "source": "merged/b3_profile.py",
       "target": "merged/b3_profile.py",
-      "sha256": "fedec341b82e87808168998a7e1e42439da6c5f82fe56fd831f83a77310ea154"
+      "sha256": "9d2ca3a2859b933191b9b96fbdce51452c4446ab5d4cd1fed5be662ce27b850c"
     },
     {
       "source": "stage19/ps1rt/b3_cache.h",
