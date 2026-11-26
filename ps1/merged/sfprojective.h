@@ -39,11 +39,15 @@ static SfpPoint sfp_intersect(SfpPoint a,SfpPoint b,s64 da,s64 db){
 }
 static int sfp_append(SfpPoint*out,int n,SfpPoint p){if(n&&sfp_equal(out[n-1],p))return n;if(n>=SFP_VERT)return -1;out[n]=p;return n+1;}
 static int sfp_clip(const SfpPlane*t,const SfpPoint*in,int n,SfpPoint*out,int sign,int kind,int boundary,int positive){
- if(n<=0)return n;int m=0;SfpPoint a=in[n-1];s64 da=sfp_distance(t,a,sign,kind,boundary);int ia=positive?da>=0:da<=0;
+ if(n<=0)return n;int m=0,strict=0;SfpPoint a=in[n-1];s64 da=sfp_distance(t,a,sign,kind,boundary);int ia=positive?da>=0:da<=0;
  for(int i=0;i<n;i++){SfpPoint b=in[i];s64 db=sfp_distance(t,b,sign,kind,boundary);int ib=positive?db>=0:db<=0;
+  strict|=db<0;
   if(ia!=ib){m=sfp_append(out,m,sfp_intersect(a,b,da,db));if(m<0)return -1;}
   if(ib){m=sfp_append(out,m,b);if(m<0)return -1;}a=b;da=db;ia=ib;
  }
+ /* Equality belongs to the positive (near/higher-tile) half. Keep
+  * boundary vertices for crossing polygons, but not a duplicate ring. */
+ if(!positive&&!strict)return 0;
  if(m>1&&sfp_equal(out[0],out[m-1]))m--;return m;
 }
 /* Signed 17-bit fixed-point ratio, with a native 32-bit division. The
