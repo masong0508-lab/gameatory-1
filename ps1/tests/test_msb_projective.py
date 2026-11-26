@@ -64,6 +64,22 @@ int plan(const SfpPlane*p,const s16*xy,int n,SfpPlan*out){return sfp_plan(p,xy,n
             self.assertFalse(ok)
             self.assertEqual(plan.n, 0)
 
+    def test_exact_boundaries_have_one_owner(self):
+        # The span renderer uses the higher tile at U=32/64/96 and
+        # textures at abs(W)==wlim. Each full wall must be drawn once.
+        for sign in (1, -1):
+            for tile in (1, 2, 3):
+                for mask in (15, 15 ^ (1 << tile)):
+                    with self.subTest(sign=sign, tile=tile, mask=mask):
+                        ok, plan = self.plan([sign*102400, 0, 0],
+                                             [sign*6400*tile, 0, 0],
+                                             [0, 0, sign*10], lim=102400,
+                                             mask=mask)
+                        self.assertTrue(ok)
+                        self.assertEqual(plan.n, 2)
+                        expected = tile if mask & (1 << tile) else 4
+                        self.assertEqual({q.tile for q in plan.tri[:plan.n]}, {expected})
+
     def test_random_coverage_and_budget(self):
         rng = random.Random(20261125)
         accepted = rejected = split = 0
