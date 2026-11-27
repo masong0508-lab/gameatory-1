@@ -717,7 +717,7 @@
     {
       "source": "stage7/integration/tools7/mkdisc2.py",
       "target": "tools7/mkdisc2.py",
-      "sha256": "35c2496e17df1ca6baa90bc3827146b95acca23e6dca6d3aafc5fa92515650db"
+      "sha256": "b9518bd7d7af1805541a5ef772bd6ab5dbc6b4b2ec31a7e75810d8a1904f358b"
     },
     {
       "source": "stage7/integration/tools7/mkiso_maps.py",
