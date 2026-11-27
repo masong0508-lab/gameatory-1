@@ -278,6 +278,10 @@ class Rewriter:
         if not m:
             return [st]
         dst, tail, attrs, rty, rest = m.groups()
+        # Inline assembly executes on the host CPU/GTE, not through guest dispatch.
+        # Preserve its exact template, constraints, arguments and metadata.
+        if rest.startswith('asm '):
+            return [st]
         # callee
         if rest.startswith('@'):
             name = GLOBAL.match(rest).group(1).strip('"')
