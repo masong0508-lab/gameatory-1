@@ -55,7 +55,12 @@ def head(lba):
     return s
 def form1(lba, data):
     s = head(lba); s[16:24] = bytes([0, 0, 8, 0]) * 2; s[24:2072] = data
-    s[0x818:0x81c] = struct.pack('<I', edc(s[16:0x818])); ecc(s, 86, 24, 2, 86, 0x81c); ecc(s, 52, 43, 86, 88, 0x8c8)
+    s[0x818:0x81c] = struct.pack('<I', edc(s[16:0x818]))
+    # XA Form 1 parity covers a zeroed four-byte header, unlike Mode 1.
+    address = s[12:16]
+    s[12:16] = bytes(4)
+    ecc(s, 86, 24, 2, 86, 0x81c); ecc(s, 52, 43, 86, 88, 0x8c8)
+    s[12:16] = address
     return bytes(s)
 def form2(lba, data):
     assert len(data) <= 2324
